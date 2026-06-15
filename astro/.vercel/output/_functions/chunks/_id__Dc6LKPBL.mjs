@@ -1,8 +1,16 @@
-import { c as createComponent } from './astro-component_BAQMmx7-.mjs';
+import { c as createComponent } from './astro-component_BUmeO1Ke.mjs';
 import 'piccolore';
-import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_BWbJ2HoB.mjs';
-import { s as sanity, S as SHARED_FIELDS, $ as $$Base, u as urlFor } from './sanity_DKpCMIs6.mjs';
+import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_DV6VN_mz.mjs';
+import { s as sanity, S as SHARED_FIELDS, $ as $$Base, u as urlFor } from './sanity_BF1UB-_o.mjs';
 
+async function getStaticPaths() {
+  const figures = await sanity.fetch(`
+    *[_type == "figure"]{ _id }
+  `);
+  return figures.map((figure) => ({
+    params: { id: figure._id }
+  }));
+}
 const $$id = createComponent(async ($$result, $$props, $$slots) => {
   const Astro2 = $$result.createAstro($$props, $$slots);
   Astro2.self = $$id;
@@ -22,6 +30,7 @@ const _page = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
   __proto__: null,
   default: $$id,
   file: $$file,
+  getStaticPaths,
   url: $$url
 }, Symbol.toStringTag, { value: 'Module' }));
 

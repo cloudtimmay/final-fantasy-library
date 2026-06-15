@@ -2,6 +2,16 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
+export async function getStaticPaths() {
+  const games = await sanity.fetch(`
+    *[_type == "game"]{ _id }
+  `)
+
+  return games.map((game: any) => ({
+    params: { id: game._id },
+  }))
+}
+
 const { id } = Astro.params
 const g = await sanity.fetch(
   `*[_type == "game" && _id == $id][0] { title, developer, publisher, year, platform, genre, completionStatus, playtimeHours, ${SHARED_FIELDS} }`,

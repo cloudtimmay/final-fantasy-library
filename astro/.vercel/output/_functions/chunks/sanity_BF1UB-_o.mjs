@@ -1,6 +1,6 @@
-import { c as createComponent } from './astro-component_BAQMmx7-.mjs';
+import { c as createComponent } from './astro-component_BUmeO1Ke.mjs';
 import 'piccolore';
-import { p as renderHead, q as renderSlot, k as renderTemplate } from './entrypoint_BWbJ2HoB.mjs';
+import { p as renderHead, q as renderSlot, k as renderTemplate } from './entrypoint_DV6VN_mz.mjs';
 import 'clsx';
 import { createClient } from '@sanity/client';
 import imageUrlBuilder from '@sanity/image-url';

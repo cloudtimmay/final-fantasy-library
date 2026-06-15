@@ -1,0 +1,42 @@
+---
+import Base from '../../layouts/Base.astro'
+import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+
+const { id } = Astro.params
+const b = await sanity.fetch(
+  `*[_type == "book" && _id == $id][0] { title, author, year, publisher, isbn, pages, genre, language, readStatus, readDate, ${SHARED_FIELDS} }`,
+  { id }
+)
+if (!b) return Astro.redirect('/books')
+---
+<Base title={b.title}>
+  <div class="detail">
+    <a href="/books" style="font-size:13px;color:var(--muted)">← Books</a>
+    <br /><br />
+    <h1>{b.title}</h1>
+    <div class="detail-sub">{b.author}</div>
+
+    {b.photoUrl && <img class="detail-photo" src={b.photoUrl} alt={b.title} />}
+
+    <table class="meta-table">
+      {b.year       && <tr><td>Year</td><td>{b.year}</td></tr>}
+      {b.publisher  && <tr><td>Publisher</td><td>{b.publisher}</td></tr>}
+      {b.genre      && <tr><td>Genre</td><td>{b.genre}</td></tr>}
+      {b.language   && <tr><td>Language</td><td>{b.language}</td></tr>}
+      {b.pages      && <tr><td>Pages</td><td>{b.pages}</td></tr>}
+      {b.isbn       && <tr><td>ISBN</td><td class="mono">{b.isbn}</td></tr>}
+      {b.readStatus && <tr><td>Read</td><td>{b.readStatus}</td></tr>}
+      {b.readDate   && <tr><td>Finished</td><td>{b.readDate}</td></tr>}
+      {b.status     && <tr><td>Ownership</td><td>{b.status}</td></tr>}
+      {b.rating     && <tr><td>Rating</td><td class="rating">{b.rating} / 10</td></tr>}
+      {b.acquiredDate && <tr><td>Acquired</td><td>{b.acquiredDate}</td></tr>}
+    </table>
+
+    {b.tags?.length > 0 && (
+      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+        {b.tags.map((t: string) => <span class="tag">{t}</span>)}
+      </div>
+    )}
+    {b.notes && <div class="notes-block">{b.notes}</div>}
+  </div>
+</Base>

@@ -1,0 +1,34 @@
+---
+import Base from '../../layouts/Base.astro'
+import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+
+const albums = await sanity.fetch(`
+  *[_type == "album"] | order(artist asc, title asc) {
+    _id, title, artist, year, genre, format, ${SHARED_FIELDS}
+  }
+`)
+---
+<Base title="Albums">
+  <div class="page-header">
+    <h1>Albums</h1>
+    <span class="count">{albums.length} items</span>
+  </div>
+
+  <div class="grid">
+    {albums.map((a: any) => (
+      <a class="card" href={`/albums/${a._id}`}>
+        {a.photoUrl
+          ? <img class="card-photo" src={a.photoUrl} alt={a.title} loading="lazy" />
+          : <div class="card-photo-placeholder">🎵</div>
+        }
+        <div class="card-title">{a.title}</div>
+        <div class="card-sub">{a.artist}{a.year ? ` · ${a.year}` : ''}</div>
+        <div class="card-meta">
+          <span class={`status-dot ${a.status}`}></span>
+          {a.format && <span class="tag">{a.format}</span>}
+          {a.rating && <span class="rating">{a.rating}/10</span>}
+        </div>
+      </a>
+    ))}
+  </div>
+</Base>

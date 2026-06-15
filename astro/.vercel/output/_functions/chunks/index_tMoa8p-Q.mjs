@@ -1,7 +1,7 @@
-import { c as createComponent } from './astro-component_BnHZLOS3.mjs';
+import { c as createComponent } from './astro-component_CjUB1-_k.mjs';
 import 'piccolore';
-import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_SxqqIqZN.mjs';
-import { s as sanity, $ as $$Base, u as urlFor } from './sanity_ClQvcK5c.mjs';
+import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_DCA-xERg.mjs';
+import { s as sanity, $ as $$Base, u as urlFor } from './sanity_JB9bNtQd.mjs';
 
 const $$Index = createComponent(async ($$result, $$props, $$slots) => {
   const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([

@@ -1,6 +1,6 @@
-import { c as createComponent } from './astro-component_CjUB1-_k.mjs';
+import { c as createComponent } from './astro-component_REbGpXh6.mjs';
 import 'piccolore';
-import { p as renderHead, q as renderSlot, k as renderTemplate } from './entrypoint_DCA-xERg.mjs';
+import { p as renderHead, q as renderSlot, k as renderTemplate } from './entrypoint_BOsG7h9O.mjs';
 import 'clsx';
 import { createClient } from '@sanity/client';
 import imageUrlBuilder from '@sanity/image-url';
@@ -15,7 +15,6 @@ const $$Base = createComponent(($$result, $$props, $$slots) => {
 const sanity = createClient({
   projectId: "ip4i779g",
   dataset: "production",
-  token: "",
   useCdn: false,
   apiVersion: "2024-01-01"
 });

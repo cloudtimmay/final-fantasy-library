@@ -1,7 +1,7 @@
-import { c as createComponent } from './astro-component_CjUB1-_k.mjs';
+import { c as createComponent } from './astro-component_REbGpXh6.mjs';
 import 'piccolore';
-import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_DCA-xERg.mjs';
-import { s as sanity, S as SHARED_FIELDS, $ as $$Base } from './sanity_JB9bNtQd.mjs';
+import { o as renderComponent, k as renderTemplate, m as maybeRenderHead, h as addAttribute } from './entrypoint_BOsG7h9O.mjs';
+import { s as sanity, S as SHARED_FIELDS, $ as $$Base } from './sanity_CkRRDzho.mjs';
 
 const $$id = createComponent(async ($$result, $$props, $$slots) => {
   const Astro2 = $$result.createAstro($$props, $$slots);

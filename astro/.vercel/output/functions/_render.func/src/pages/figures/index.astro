@@ -1,0 +1,39 @@
+---
+import Base from '../../layouts/Base.astro'
+import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+
+const figures = await sanity.fetch(`
+  *[_type == "figure"] | order(series asc, title asc) {
+    _id, title, series, manufacturer, year, scale, condition, ${SHARED_FIELDS}
+  }
+`)
+---
+<Base title="Figures">
+  <div class="page-header">
+    <h1>Figures</h1>
+    <span class="count">{figures.length} items</span>
+  </div>
+
+  <div class="grid">
+    {figures.map((f: any) => (
+      <a class="card" href={`/figures/${f._id}`}>
+        {f.image
+          ? <img
+          class="card-photo"
+          src={urlFor(f.image).height(180).url()}
+          alt={f.title}
+          loading="lazy"
+          />
+          : <div class="card-photo-placeholder">🗿</div>
+        }
+        <div class="card-title">{f.title}</div>
+        <div class="card-sub">{f.series}{f.manufacturer ? ` · ${f.manufacturer}` : ''}</div>
+        <div class="card-meta">
+          <span class={`status-dot ${f.status}`}></span>
+          {f.scale && <span class="tag">{f.scale}</span>}
+          {f.rating && <span class="rating">{f.rating}/10</span>}
+        </div>
+      </a>
+    ))}
+  </div>
+</Base>

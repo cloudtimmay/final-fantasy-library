@@ -4,7 +4,7 @@ import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 const albums = await sanity.fetch(`
   *[_type == "album"] | order(artist asc, title asc) {
-    _id, title, artist, year, genre, format, ${SHARED_FIELDS}
+    _id, title, artist, year, genre, format, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, ${SHARED_FIELDS}
   }
 `)
 ---
@@ -14,21 +14,64 @@ const albums = await sanity.fetch(`
     <span class="count">{albums.length} items</span>
   </div>
 
-  <div class="grid">
-    {albums.map((a: any) => (
-      <a class="card" href={`/albums/${a._id}`}>
-        {a.photoUrl
-          ? <img class="card-photo" src={a.photoUrl} alt={a.title} loading="lazy" />
-          : <div class="card-photo-placeholder">🎵</div>
-        }
+  <div class="album-list">
+  {albums.map((a: any) => (
+    <a class="album-row" href={`/albums/${a._id}`}>
+      {a.externalImageUrl
+        ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
+        : <div class="album-thumb placeholder">🎵</div>
+      }
+
+      <div class="album-info">
         <div class="card-title">{a.title}</div>
-        <div class="card-sub">{a.artist}{a.year ? ` · ${a.year}` : ''}</div>
+        <div class="card-sub">{a.artist}</div>
         <div class="card-meta">
-          <span class={`status-dot ${a.status}`}></span>
+          {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
+          {a.year && <span class="tag">{a.year}</span>}
           {a.format && <span class="tag">{a.format}</span>}
-          {a.rating && <span class="rating">{a.rating}/10</span>}
         </div>
-      </a>
-    ))}
-  </div>
+      </div>
+    </a>
+  ))}
+</div>
+<style>
+  .album-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+
+  .album-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+    align-items: center;
+  }
+
+  .album-row:hover {
+    background: rgba(255,255,255,0.03);
+  }
+
+  .album-thumb {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .album-thumb.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+  }
+
+  .album-info {
+    min-width: 0;
+  }
+</style>
 </Base>

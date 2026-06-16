@@ -3,9 +3,22 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 export async function getStaticPaths() {
-  const albums = await sanity.fetch(`
-    *[_type == "album"]{ _id }
-  `)
+const a = await sanity.fetch(
+  `*[_type == "album" && _id == $id][0] {
+    title,
+    artist,
+    year,
+    genre,
+    format,
+    label,
+    catalogNumber,
+    vgmdbId,
+    vgmdbUrl,
+    externalImageUrl,
+    ${SHARED_FIELDS}
+  }`,
+  { id }
+)
 
   return albums.map((album: any) => ({
     params: { id: album._id },
@@ -14,7 +27,7 @@ export async function getStaticPaths() {
 
 const { id } = Astro.params
 const a = await sanity.fetch(
-  `*[_type == "album" && _id == $id][0] { title, artist, year, genre, format, label, ${SHARED_FIELDS} }`,
+  `*[_type == "album" && _id == $id][0] { title, artist, year, genre, format, label, externalImageUrl, ${SHARED_FIELDS} }`,
   { id }
 )
 if (!a) return Astro.redirect('/albums')
@@ -26,7 +39,7 @@ if (!a) return Astro.redirect('/albums')
     <h1>{a.title}</h1>
     <div class="detail-sub">{a.artist}</div>
 
-    {a.photoUrl && <img class="detail-photo" src={a.photoUrl} alt={a.title} />}
+    {a.externalImageUrl && <img class="detail-photo" src={a.externalImageUrl} alt={a.title} />}
 
     <table class="meta-table">
       {a.year      && <tr><td>Year</td><td>{a.year}</td></tr>}
@@ -36,6 +49,9 @@ if (!a) return Astro.redirect('/albums')
       {a.status    && <tr><td>Status</td><td>{a.status}</td></tr>}
       {a.rating    && <tr><td>Rating</td><td class="rating">{a.rating} / 10</td></tr>}
       {a.acquiredDate && <tr><td>Acquired</td><td>{a.acquiredDate}</td></tr>}
+      {a.catalogNumber && <tr><td>Catalog</td><td>{a.catalogNumber}</td></tr>}
+      {a.vgmdbUrl && <tr><td>VGMdb</td><td><a href={a.vgmdbUrl} target="_blank">Open VGMdb</a></td></tr>}
+      {a.externalImageUrl && <img class="detail-photo" src={a.externalImageUrl} alt={a.title} />}
       {a.purchasePrice && <tr><td>Paid</td><td>{a.purchasePrice} NOK</td></tr>}
     </table>
 

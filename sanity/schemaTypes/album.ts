@@ -34,6 +34,28 @@ export const album = defineType({
       },
     }),
     defineField({ name: 'label', title: 'Record label', type: 'string' }),
+    defineField({
+  name: 'catalogNumber',
+  title: 'Catalog Number',
+  type: 'string',
+}),
+
+defineField({
+  name: 'vgmdbId',
+  title: 'VGMdb ID',
+  type: 'string',
+}),
+
+defineField({
+  name: 'vgmdbUrl',
+  title: 'VGMdb URL',
+  type: 'url',
+}),
+    defineField({
+      name: 'externalImageUrl',
+      title: 'External Image URL',
+      type: 'url',
+    }),
     ...sharedFields.map((f) => defineField(f as any)),
   ],
   preview: {

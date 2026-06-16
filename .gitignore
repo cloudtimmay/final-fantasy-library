@@ -1,8 +1,30 @@
+# Node
 node_modules/
+
+# Astro
 dist/
 .astro/
-.env
-*.env.local
-.sanity/
-astro/.vercel/
 astro/dist/
+astro/.astro/
+
+# Vercel
+.vercel/
+astro/.vercel/
+
+# Environment variables
+.env
+.env.*
+*.env.local
+
+# Sanity local files
+.sanity/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/

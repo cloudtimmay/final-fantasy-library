@@ -51,7 +51,6 @@ if (!a) return Astro.redirect('/albums')
       {a.acquiredDate && <tr><td>Acquired</td><td>{a.acquiredDate}</td></tr>}
       {a.catalogNumber && <tr><td>Catalog</td><td>{a.catalogNumber}</td></tr>}
       {a.vgmdbUrl && <tr><td>VGMdb</td><td><a href={a.vgmdbUrl} target="_blank">Open VGMdb</a></td></tr>}
-      {a.externalImageUrl && <img class="detail-photo" src={a.externalImageUrl} alt={a.title} />}
       {a.purchasePrice && <tr><td>Paid</td><td>{a.purchasePrice} NOK</td></tr>}
     </table>
 

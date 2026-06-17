@@ -12,7 +12,7 @@ const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
 
 const recentlyAdded = await sanity.fetch(`
   *[_type in ["album","game","figure","book"]] | order(_createdAt desc) [0..7] {
-    _id, _type, title,externalImageUrl,
+    _id, _type, title, externalImageUrl, catalogNumber,
     "sub": select(
       _type == "album" => artist,
       _type == "game"  => platform[0],
@@ -75,8 +75,9 @@ const recentlyAdded = await sanity.fetch(`
         <div class="card-title">{item.title}</div>
         {item.sub && <div class="card-sub">{item.sub}</div>}
         <div class="card-meta">
-          <span class={`status-dot ${item.status}`}></span>
+          {item.catalogNumber && <span class="tag">{item.catalogNumber}</span>}
           {item.rating && <span class="rating">{item.rating}/10</span>}
+          <span class={`status-dot ${item.status}`}></span>
         </div>
       </div>
     </a>

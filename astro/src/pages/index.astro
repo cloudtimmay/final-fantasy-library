@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
+
 const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album"])`),
   sanity.fetch<number>(`count(*[_type == "game"])`),
@@ -11,7 +12,7 @@ const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
 
 const recentlyAdded = await sanity.fetch(`
   *[_type in ["album","game","figure","book"]] | order(_createdAt desc) [0..7] {
-    _id, _type, title,
+    _id, _type, title,externalImageUrl,
     "sub": select(
       _type == "album" => artist,
       _type == "game"  => platform[0],
@@ -54,31 +55,58 @@ const recentlyAdded = await sanity.fetch(`
     <h2 style="font-size:1rem;font-weight:600">Recently added</h2>
   </div>
 
-  <div class="grid">
-    {recentlyAdded.map((item: any) => (
-      <a class="card" href={`/${item._type}s/${item._id}`}>
-        {item.image ? (
-      <img
-        class="card-photo"
-        src={urlFor(item.image).height(180).url()}
-        alt={item.title}
-        loading="lazy"
-      />
+  <div class="recent-list">
+  {recentlyAdded.map((item: any) => (
+    <a class="recent-row" href={`/${item._type}s/${item._id}`}>
+      {item.externalImageUrl ? (
+        <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
+      ) : item.image ? (
+        <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
       ) : (
-      <div class="card-photo-placeholder">
-        {item._type === 'album' && '🎵'}
-        {item._type === 'game' && '🎮'}
-        {item._type === 'figure' && '🗿'}
-        {item._type === 'book' && '📚'}
-      </div>
+        <div class="recent-thumb placeholder">
+          {item._type === 'album' && '🎵'}
+          {item._type === 'game' && '🎮'}
+          {item._type === 'figure' && '🗿'}
+          {item._type === 'book' && '📚'}
+        </div>
       )}
+
+      <div class="recent-info">
         <div class="card-title">{item.title}</div>
         {item.sub && <div class="card-sub">{item.sub}</div>}
         <div class="card-meta">
           <span class={`status-dot ${item.status}`}></span>
           {item.rating && <span class="rating">{item.rating}/10</span>}
         </div>
-      </a>
-    ))}
-  </div>
+      </div>
+    </a>
+  ))}
+</div>
+<div class="recent-list">
+  {recentlyAdded.map((item: any) => (
+    <a class="recent-row" href={`/${item._type}s/${item._id}`}>
+      {item.externalImageUrl ? (
+        <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
+      ) : item.image ? (
+        <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
+      ) : (
+        <div class="recent-thumb placeholder">
+          {item._type === 'album' && '🎵'}
+          {item._type === 'game' && '🎮'}
+          {item._type === 'figure' && '🗿'}
+          {item._type === 'book' && '📚'}
+        </div>
+      )}
+
+      <div class="recent-info">
+        <div class="card-title">{item.title}</div>
+        {item.sub && <div class="card-sub">{item.sub}</div>}
+        <div class="card-meta">
+          <span class={`status-dot ${item.status}`}></span>
+          {item.rating && <span class="rating">{item.rating}/10</span>}
+        </div>
+      </div>
+    </a>
+  ))}
+</div>
 </Base>

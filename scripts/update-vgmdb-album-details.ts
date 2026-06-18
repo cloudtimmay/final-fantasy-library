@@ -77,90 +77,72 @@ async function main() {
       })
     }
 
-    const data = await page.evaluate(`
-      (() => {
-        function clean(text) {
-          return (text || '').replace(/\\s+/g, ' ').trim()
-        }
+const data = await page.evaluate(`
+  (() => {
+    function clean(text) {
+      return (text || '').replace(/\\s+/g, ' ').trim()
+    }
 
-        function getInfo(label) {
-          const rows = Array.from(document.querySelectorAll('tr'))
-          for (const row of rows) {
-            const cells = Array.from(row.querySelectorAll('td'))
-            if (cells.length < 2) continue
-            const key = clean(cells[0].textContent)
-            const value = clean(cells[1].textContent)
-            if (key.toLowerCase() === label.toLowerCase()) return value
-          }
-          return ''
-        }
+    function getInfo(label) {
+      const rows = Array.from(document.querySelectorAll('tr'))
+      for (const row of rows) {
+        const cells = Array.from(row.querySelectorAll('td'))
+        if (cells.length < 2) continue
 
-        const tracklist = []
-let currentDisc = 1
+        const key = clean(cells[0].textContent)
+        const value = clean(cells[1].textContent)
 
-const tracklistText = document.body.innerText
-const lines = tracklistText.split('\n').map(clean).filter(Boolean)
+        if (key.toLowerCase() === label.toLowerCase()) return value
+      }
+      return ''
+    }
 
-for (const line of lines) {
-  const discMatch = line.match(/^Disc\s+(\d+)/i)
+    const tracklist = []
+    let currentDisc = 1
 
-  if (discMatch) {
-    currentDisc = Number(discMatch[1])
-    continue
-  }
+    const lines = document.body.innerText
+      .split('\\n')
+      .map(clean)
+      .filter(Boolean)
 
-  const trackMatch = line.match(/^(\d{1,3})\s+(.+)$/)
+    for (const line of lines) {
+      const discMatch = line.match(/^Disc\\s+(\\d+)/i)
 
-  if (!trackMatch) continue
+      if (discMatch) {
+        currentDisc = Number(discMatch[1])
+        continue
+      }
 
-  const trackNumber = trackMatch[1].padStart(2, '0')
-  const title = trackMatch[2]
+      const trackMatch = line.match(/^(\\d{1,3})\\s+(.+)$/)
 
-  tracklist.push({
-    _key: `${currentDisc}-${trackNumber}-${title}`.replace(/[^a-zA-Z0-9]/g, '').slice(0, 80),
-    disc: currentDisc,
-    trackNumber,
-    title,
-  })
-}
+      if (!trackMatch) continue
 
-          const text = clean(row.textContent)
-          const discMatch = text.match(/^Disc\\s+(\\d+)/i)
-          if (discMatch) {
-            currentDisc = Number(discMatch[1])
-            continue
-          }
+      const trackNumber = trackMatch[1].padStart(2, '0')
+      const title = trackMatch[2]
 
-          const cells = Array.from(row.querySelectorAll('td'))
-          if (cells.length < 2) continue
+      tracklist.push({
+        _key: (currentDisc + '-' + trackNumber + '-' + title)
+          .replace(/[^a-zA-Z0-9]/g, '')
+          .slice(0, 80),
+        disc: currentDisc,
+        trackNumber,
+        title,
+      })
+    }
 
-          const first = clean(cells[0].textContent)
-          const second = clean(cells[1].textContent)
-
-          if (!/^\\d{1,3}$/.test(first)) continue
-          if (!second) continue
-
-          tracklist.push({
-            _key: `${currentDisc}-${first}`,
-            disc: currentDisc,
-            trackNumber: first.padStart(2, "0"),
-            title: second,
-          })
-        }
-
-        return {
-          catalogNumber: getInfo('Catalog Number'),
-          barcode: getInfo('Barcode'),
-          releaseDate: getInfo('Release Date'),
-          releasePrice: getInfo('Release Price'),
-          format: getInfo('Media Format'),
-          label: getInfo('Label'),
-          publisher: getInfo('Publisher'),
-          distributor: getInfo('Distributor'),
-          tracklist,
-        }
-      })()
-    `)
+    return {
+      catalogNumber: getInfo('Catalog Number'),
+      barcode: getInfo('Barcode'),
+      releaseDate: getInfo('Release Date'),
+      releasePrice: getInfo('Release Price'),
+      format: getInfo('Media Format'),
+      label: getInfo('Label'),
+      publisher: getInfo('Publisher'),
+      distributor: getInfo('Distributor'),
+      tracklist,
+    }
+  })()
+`)
 
     await client
       .patch(`album-vgmdb-${album.vgmdbId}`)

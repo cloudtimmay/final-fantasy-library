@@ -2,7 +2,6 @@
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
-
 const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album"])`),
   sanity.fetch<number>(`count(*[_type == "game"])`),
@@ -56,58 +55,72 @@ const recentlyAdded = await sanity.fetch(`
   </div>
 
   <div class="recent-list">
-  {recentlyAdded.map((item: any) => (
-    <a class="recent-row" href={`/${item._type}s/${item._id}`}>
-      {item.externalImageUrl ? (
-        <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
-      ) : item.image ? (
-        <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
-      ) : (
-        <div class="recent-thumb placeholder">
-          {item._type === 'album' && '🎵'}
-          {item._type === 'game' && '🎮'}
-          {item._type === 'figure' && '🗿'}
-          {item._type === 'book' && '📚'}
-        </div>
-      )}
+    {recentlyAdded.map((item: any) => (
+      <a class="recent-row" href={`/${item._type}s/${item._id}`}>
+        {item.externalImageUrl ? (
+          <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
+        ) : item.image ? (
+          <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
+        ) : (
+          <div class="recent-thumb placeholder">
+            {item._type === 'album' && '🎵'}
+            {item._type === 'game' && '🎮'}
+            {item._type === 'figure' && '🗿'}
+            {item._type === 'book' && '📚'}
+          </div>
+        )}
 
-      <div class="recent-info">
-        <div class="card-title">{item.title}</div>
-        {item.sub && <div class="card-sub">{item.sub}</div>}
-        <div class="card-meta">
-          {item.catalogNumber && <span class="tag">{item.catalogNumber}</span>}
-          {item.rating && <span class="rating">{item.rating}/10</span>}
-          <span class={`status-dot ${item.status}`}></span>
+        <div class="recent-info">
+          <div class="card-title">{item.title}</div>
+          {item.sub && <div class="card-sub">{item.sub}</div>}
+          <div class="card-meta">
+            {item.catalogNumber && <span class="tag">{item.catalogNumber}</span>}
+            {item.rating && <span class="rating">{item.rating}/10</span>}
+            {item.status && <span class={`status-dot ${item.status}`}></span>}
+          </div>
         </div>
-      </div>
-    </a>
-  ))}
-</div>
-<div class="recent-list">
-  {recentlyAdded.map((item: any) => (
-    <a class="recent-row" href={`/${item._type}s/${item._id}`}>
-      {item.externalImageUrl ? (
-        <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
-      ) : item.image ? (
-        <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
-      ) : (
-        <div class="recent-thumb placeholder">
-          {item._type === 'album' && '🎵'}
-          {item._type === 'game' && '🎮'}
-          {item._type === 'figure' && '🗿'}
-          {item._type === 'book' && '📚'}
-        </div>
-      )}
+      </a>
+    ))}
+  </div>
 
-      <div class="recent-info">
-        <div class="card-title">{item.title}</div>
-        {item.sub && <div class="card-sub">{item.sub}</div>}
-        <div class="card-meta">
-          <span class={`status-dot ${item.status}`}></span>
-          {item.rating && <span class="rating">{item.rating}/10</span>}
-        </div>
-      </div>
-    </a>
-  ))}
-</div>
+  <style>
+    .recent-list {
+      display: flex;
+      flex-direction: column;
+      border-top: 1px solid var(--border);
+    }
+
+    .recent-row {
+      display: flex;
+      gap: 1rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border);
+      text-decoration: none;
+      color: inherit;
+      align-items: center;
+    }
+
+    .recent-row:hover {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .recent-thumb {
+      width: 56px;
+      height: 56px;
+      object-fit: cover;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .recent-thumb.placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    .recent-info {
+      min-width: 0;
+    }
+  </style>
 </Base>

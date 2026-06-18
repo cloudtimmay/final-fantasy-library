@@ -3,34 +3,32 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 export async function getStaticPaths() {
-const a = await sanity.fetch(
-  `*[_type == "album" && _id == $id][0] {
-    title,
-    artist,
-    year,
-    genre,
-    format,
-    label,
-    catalogNumber,
-    vgmdbId,
-    vgmdbUrl,
-    externalImageUrl,
-    ${SHARED_FIELDS}
-  }`,
-  { id }
-)
+  const albums = await sanity.fetch(
+    `*[_type == "album"] {
+      _id, title, artist, year, genre, format, label,
+      catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
+      tracklist[]{ disc, trackNumber, title },
+      ${SHARED_FIELDS}
+    }`
+  )
 
   return albums.map((album: any) => ({
     params: { id: album._id },
+    props: { album },
   }))
 }
 
-const { id } = Astro.params
-const a = await sanity.fetch(
-  `*[_type == "album" && _id == $id][0] { title, artist, year, genre, format, label, externalImageUrl, ${SHARED_FIELDS} }`,
-  { id }
-)
-if (!a) return Astro.redirect('/albums')
+const { album: a } = Astro.props
+
+// Grupper spor per disk
+const tracks = a.tracklist || []
+const discMap: Record<number, any[]> = {}
+for (const t of tracks) {
+  const d = t.disc || 1
+  ;(discMap[d] ||= []).push(t)
+}
+const discNumbers = Object.keys(discMap).map(Number).sort((x, y) => x - y)
+const multiDisc = discNumbers.length > 1
 ---
 <Base title={a.title}>
   <div class="detail">
@@ -60,5 +58,84 @@ if (!a) return Astro.redirect('/albums')
       </div>
     )}
     {a.notes && <div class="notes-block">{a.notes}</div>}
+
+    {tracks.length > 0 && (
+      <section class="tracklist">
+        <h2>Tracklist <span class="track-count">{tracks.length} tracks</span></h2>
+
+        {discNumbers.map((d) => (
+          <div class="disc">
+            {multiDisc && <div class="disc-title">Disc {d}</div>}
+            <ol class="track-rows">
+              {discMap[d].map((t: any) => (
+                <li class="track-row">
+                  <span class="track-num">{t.trackNumber}</span>
+                  <span class="track-title">{t.title}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </section>
+    )}
   </div>
+
+  <style>
+    .tracklist {
+      margin-top: 2rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+
+    .tracklist h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+    }
+
+    .track-count {
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .disc {
+      margin-top: 1rem;
+    }
+
+    .disc-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+
+    .track-rows {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .track-row {
+      display: flex;
+      gap: 1rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .track-num {
+      flex-shrink: 0;
+      width: 2rem;
+      text-align: right;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .track-title {
+      min-width: 0;
+    }
+  </style>
 </Base>

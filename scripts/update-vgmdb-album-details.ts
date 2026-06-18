@@ -96,10 +96,34 @@ async function main() {
         }
 
         const tracklist = []
-        let currentDisc = 1
+let currentDisc = 1
 
-        const rows = Array.from(document.querySelectorAll('tr'))
-        for (const row of rows) {
+const tracklistText = document.body.innerText
+const lines = tracklistText.split('\n').map(clean).filter(Boolean)
+
+for (const line of lines) {
+  const discMatch = line.match(/^Disc\s+(\d+)/i)
+
+  if (discMatch) {
+    currentDisc = Number(discMatch[1])
+    continue
+  }
+
+  const trackMatch = line.match(/^(\d{1,3})\s+(.+)$/)
+
+  if (!trackMatch) continue
+
+  const trackNumber = trackMatch[1].padStart(2, '0')
+  const title = trackMatch[2]
+
+  tracklist.push({
+    _key: `${currentDisc}-${trackNumber}-${title}`.replace(/[^a-zA-Z0-9]/g, '').slice(0, 80),
+    disc: currentDisc,
+    trackNumber,
+    title,
+  })
+}
+
           const text = clean(row.textContent)
           const discMatch = text.match(/^Disc\\s+(\\d+)/i)
           if (discMatch) {

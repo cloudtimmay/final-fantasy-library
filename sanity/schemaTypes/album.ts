@@ -133,6 +133,18 @@ defineField({
   of: [
     {
       type: 'object',
+      preview: {
+        select: {
+          disc: 'disc',
+          trackNumber: 'trackNumber',
+          title: 'title',
+        },
+        prepare({ disc, trackNumber, title }) {
+          return {
+            title: `${disc ? `Disc ${disc} - ` : ''}${trackNumber ? `${trackNumber}. ` : ''}${title || ''}`,
+          }
+        },
+      },
       fields: [
         { name: 'disc', title: 'Disc', type: 'number' },
         { name: 'trackNumber', title: 'Track Number', type: 'string' },
@@ -141,7 +153,6 @@ defineField({
     },
   ],
 }),
-
     ...sharedFields.map((f) => defineField(f as any)),
   ],
   preview: {

@@ -4,7 +4,7 @@ import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 const albums = await sanity.fetch(`
   *[_type == "album"] | order(artist asc, title asc) {
-    _id, title, artist, year, genre, format, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, ${SHARED_FIELDS}
+    _id, title, artist, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, ${SHARED_FIELDS}
   }
 `)
 ---
@@ -14,9 +14,37 @@ const albums = await sanity.fetch(`
     <span class="count">{albums.length} items</span>
   </div>
 
+  <div class="album-tools">
+  <input id="album-search" type="search" placeholder="Search albums..." />
+
+  <select id="album-sort">
+    <option value="title">Sort by name</option>
+    <option value="year">Sort by year</option>
+    <option value="catalog">Sort by catalog number</option>
+  </select>
+
+  <select id="album-series">
+    <option value="">All series</option>
+    <option value="Final Fantasy VII Remake">Final Fantasy VII Remake</option>
+    <option value="Final Fantasy VII Rebirth">Final Fantasy VII Rebirth</option>
+    <option value="Final Fantasy XIV">Final Fantasy XIV</option>
+    <option value="The Black Mages">The Black Mages</option>
+    <option value="Distant Worlds">Distant Worlds</option>
+    <option value="Piano Collections">Piano Collections</option>
+  </select>
+</div>
+
   <div class="album-list">
   {albums.map((a: any) => (
-    <a class="album-row" href={`/albums/${a._id}`}>
+    <a
+  class="album-row"
+  href={`/albums/${a._id}`}
+  data-title={a.title?.toLowerCase() || ''}
+  data-artist={a.artist?.toLowerCase() || ''}
+  data-catalog={a.catalogNumber?.toLowerCase() || ''}
+  data-year={a.year || ''}
+  data-series={a.series || ''}
+>
       {a.externalImageUrl
         ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
         : <div class="album-thumb placeholder">🎵</div>
@@ -34,6 +62,7 @@ const albums = await sanity.fetch(`
     </a>
   ))}
 </div>
+
 <style>
   .album-list {
     display: flex;
@@ -74,4 +103,68 @@ const albums = await sanity.fetch(`
     min-width: 0;
   }
 </style>
+
+<script>
+  const searchInput = document.querySelector('#album-search')
+  const sortSelect = document.querySelector('#album-sort')
+  const seriesSelect = document.querySelector('#album-series')
+  const list = document.querySelector('.album-list')
+
+  function updateAlbums() {
+    const search = searchInput.value.toLowerCase()
+    const sort = sortSelect.value
+    const series = seriesSelect.value
+
+    const rows = Array.from(document.querySelectorAll('.album-row'))
+
+    rows.forEach((row) => {
+      const matchesSearch =
+        row.dataset.title.includes(search) ||
+        row.dataset.artist.includes(search) ||
+        row.dataset.catalog.includes(search)
+
+      const matchesSeries =
+        !series || row.dataset.series === series
+
+      row.style.display = matchesSearch && matchesSeries ? '' : 'none'
+    })
+
+    rows
+      .sort((a, b) => {
+        if (sort === 'year') {
+          return Number(a.dataset.year || 0) - Number(b.dataset.year || 0)
+        }
+
+        if (sort === 'catalog') {
+          return a.dataset.catalog.localeCompare(b.dataset.catalog)
+        }
+
+        return a.dataset.title.localeCompare(b.dataset.title)
+      })
+      .forEach((row) => list.appendChild(row))
+  }
+
+  searchInput.addEventListener('input', updateAlbums)
+  sortSelect.addEventListener('change', updateAlbums)
+  seriesSelect.addEventListener('change', updateAlbums)
+</script>
+
+<style>
+.album-tools {
+  display: flex;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+  flex-wrap: wrap;
+}
+
+.album-tools input,
+.album-tools select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+}
+</style>
+
 </Base>

@@ -88,47 +88,49 @@ const data = await page.evaluate(`
       for (const row of rows) {
         const cells = Array.from(row.querySelectorAll('td'))
         if (cells.length < 2) continue
-
         const key = clean(cells[0].textContent)
         const value = clean(cells[1].textContent)
-
         if (key.toLowerCase() === label.toLowerCase()) return value
       }
       return ''
     }
 
     const tracklist = []
-    let currentDisc = 1
+    const trackTables = Array.from(document.querySelectorAll('table.role'))
 
-    const lines = document.body.innerText
-      .split('\\n')
-      .map(clean)
-      .filter(Boolean)
+    trackTables.forEach((table, tableIndex) => {
+      const disc = tableIndex + 1
+      const rows = Array.from(table.querySelectorAll('tr.rolebit'))
 
-    for (const line of lines) {
-      const discMatch = line.match(/^Disc\\s+(\\d+)/i)
+      rows.forEach((row) => {
+        const cells = Array.from(row.querySelectorAll('td'))
+        if (cells.length < 2) return
 
-      if (discMatch) {
-        currentDisc = Number(discMatch[1])
-        continue
-      }
+        // Spornummer: foerste celle, .label
+        const numText = clean(cells[0].textContent)
+        const trackNumber = numText.padStart(2, '0')
 
-      const trackMatch = line.match(/^(\\d{1,3})\\s+(.+)$/)
+        // Tittel: cellen med colspan=2 (eller den brede cellen)
+        const titleCell =
+          row.querySelector('td[colspan="2"]') || cells[1]
+        const title = clean(titleCell.textContent)
 
-      if (!trackMatch) continue
+        const timeEl = row.querySelector('span.time')
+        const duration = clean(timeEl ? timeEl.textContent : '')
 
-      const trackNumber = trackMatch[1].padStart(2, '0')
-      const title = trackMatch[2]
+        if (!trackNumber || !title) return
 
-      tracklist.push({
-        _key: (currentDisc + '-' + trackNumber + '-' + title)
-          .replace(/[^a-zA-Z0-9]/g, '')
-          .slice(0, 80),
-        disc: currentDisc,
-        trackNumber,
-        title,
+        tracklist.push({
+          _key: (disc + '-' + trackNumber + '-' + title)
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .slice(0, 80),
+          disc,
+          trackNumber,
+          title,
+          duration,
+        })
       })
-    }
+    })
 
     return {
       catalogNumber: getInfo('Catalog Number'),

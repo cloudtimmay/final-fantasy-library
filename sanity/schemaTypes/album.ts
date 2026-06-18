@@ -149,6 +149,7 @@ defineField({
         { name: 'disc', title: 'Disc', type: 'number' },
         { name: 'trackNumber', title: 'Track Number', type: 'string' },
         { name: 'title', title: 'Title', type: 'string' },
+        { name: 'duration', title: 'Duration', type: 'string' },
       ],
     },
   ],

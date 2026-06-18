@@ -8,7 +8,7 @@ const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
     title, artist, year, genre, format, label,
     catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
-    tracklist[]{ disc, trackNumber, title },
+    tracklist[]{ disc, trackNumber, title, duration },
     ${SHARED_FIELDS}
   }`,
   { id }
@@ -67,6 +67,7 @@ const multiDisc = discNumbers.length > 1
                 <li class="track-row">
                   <span class="track-num">{t.trackNumber}</span>
                   <span class="track-title">{t.title}</span>
+                  {t.duration && <span class="track-time">{t.duration}</span>}
                 </li>
               ))}
             </ol>
@@ -131,7 +132,14 @@ const multiDisc = discNumbers.length > 1
     }
 
     .track-title {
+      flex: 1;
       min-width: 0;
+    }
+
+    .track-time {
+      flex-shrink: 0;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
     }
   </style>
 </Base>

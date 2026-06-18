@@ -2,23 +2,19 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
-export async function getStaticPaths() {
-  const albums = await sanity.fetch(
-    `*[_type == "album"] {
-      _id, title, artist, year, genre, format, label,
-      catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
-      tracklist[]{ disc, trackNumber, title },
-      ${SHARED_FIELDS}
-    }`
-  )
+const { id } = Astro.params
 
-  return albums.map((album: any) => ({
-    params: { id: album._id },
-    props: { album },
-  }))
-}
+const a = await sanity.fetch(
+  `*[_type == "album" && _id == $id][0] {
+    title, artist, year, genre, format, label,
+    catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
+    tracklist[]{ disc, trackNumber, title },
+    ${SHARED_FIELDS}
+  }`,
+  { id }
+)
 
-const { album: a } = Astro.props
+if (!a) return Astro.redirect('/albums')
 
 // Grupper spor per disk
 const tracks = a.tracklist || []

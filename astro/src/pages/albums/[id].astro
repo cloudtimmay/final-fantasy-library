@@ -6,7 +6,7 @@ const { id } = Astro.params
 
 const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
-    title, artist, year, genre, format, label,
+    title, artist, composer, year, genre, format, label,
     catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl, youtubePlaylistId,
     tracklist[]{ disc, trackNumber, title, duration, youtubeId },
     ${SHARED_FIELDS}
@@ -58,6 +58,7 @@ const multiDisc = discNumbers.length > 1
     {a.externalImageUrl && <img class="detail-photo" src={a.externalImageUrl} alt={a.title} />}
 
     <table class="meta-table">
+      {a.composer  && <tr><td>Composer</td><td>{a.composer}</td></tr>}
       {a.year      && <tr><td>Year</td><td>{a.year}</td></tr>}
       {a.genre     && <tr><td>Genre</td><td>{a.genre}</td></tr>}
       {a.format    && <tr><td>Format</td><td>{a.format}</td></tr>}

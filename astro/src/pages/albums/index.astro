@@ -4,7 +4,7 @@ import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 const albums = await sanity.fetch(`
   *[_type == "album" && !(_id in path("drafts.**"))] | order(artist asc, title asc) {
-    _id, title, artist, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
+    _id, title, artist, composer, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
     "trackCount": count(tracklist),
     "discCount": count(array::unique(tracklist[].disc)),
     ${SHARED_FIELDS}
@@ -18,7 +18,7 @@ const albums = await sanity.fetch(`
   </div>
 
   <div class="album-tools">
-    <input id="album-search" type="search" placeholder="Search albums..." />
+    <input id="album-search" type="search" placeholder="Search albums, artist, composer..." />
     <select id="album-sort">
       <option value="title">Sort by name</option>
       <option value="year">Sort by year</option>
@@ -44,14 +44,14 @@ const albums = await sanity.fetch(`
 
   <div class="album-list">
     {albums.map((a: any) => (
-      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''}>
+      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''}>
         {a.externalImageUrl
           ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
           : <div class="album-thumb placeholder">🎵</div>
         }
         <div class="album-info">
           <div class="card-title">{a.title}</div>
-          <div class="card-sub">{a.artist}</div>
+          <div class="card-sub">{a.composer || a.artist}</div>
           <div class="card-meta">
             {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
             {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
@@ -91,7 +91,11 @@ const albums = await sanity.fetch(`
       const rows = Array.from(document.querySelectorAll('.album-row'))
 
       rows.forEach((row) => {
-        const matchesSearch = row.dataset.title.includes(search) || row.dataset.artist.includes(search) || row.dataset.catalog.includes(search)
+        const matchesSearch =
+          row.dataset.title.includes(search) ||
+          row.dataset.artist.includes(search) ||
+          row.dataset.composer.includes(search) ||
+          row.dataset.catalog.includes(search)
         const matchesStatus = !status || row.dataset.status === status
         const matchesSeries = !series || row.dataset.series === series
         row.style.display = matchesSearch && matchesStatus && matchesSeries ? '' : 'none'

@@ -3,8 +3,11 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 const albums = await sanity.fetch(`
-  *[_type == "album"] | order(artist asc, title asc) {
-    _id, title, artist, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, ${SHARED_FIELDS}
+  *[_type == "album" && !(_id in path("drafts.**"))] | order(artist asc, title asc) {
+    _id, title, artist, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
+    "trackCount": count(tracklist),
+    "discCount": count(array::unique(tracklist[].disc)),
+    ${SHARED_FIELDS}
   }
 `)
 ---
@@ -50,13 +53,15 @@ const albums = await sanity.fetch(`
         : <div class="album-thumb placeholder">🎵</div>
       }
 
-      <div class="album-info">
-        <div class="card-title">{a.title}</div>
-        <div class="card-sub">{a.artist}</div>
-        <div class="card-meta">
+      <div class="card-meta">
           {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
           {a.year && <span class="tag">{a.year}</span>}
           {a.format && <span class="tag">{a.format}</span>}
+          {a.trackCount > 0 && (
+            <span class="tag">
+              {a.discCount > 1 ? `${a.discCount} disker · ` : ''}{a.trackCount} spor
+            </span>
+          )}
         </div>
       </div>
     </a>

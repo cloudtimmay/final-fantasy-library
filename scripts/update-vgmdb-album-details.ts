@@ -96,7 +96,13 @@ const data = await page.evaluate(`
     }
 
     const tracklist = []
-    const trackTables = Array.from(document.querySelectorAll('table.role'))
+
+    // VGMdb har en table.role per disk PER spraak.
+    // De skjulte spraakene har display:none -> offsetParent === null.
+    // Vi tar kun de synlige (engelsk som standard, ellers det som finnes).
+    const allTables = Array.from(document.querySelectorAll('table.role'))
+    const visibleTables = allTables.filter((t) => t.offsetParent !== null)
+    const trackTables = visibleTables.length ? visibleTables : allTables
 
     trackTables.forEach((table, tableIndex) => {
       const disc = tableIndex + 1
@@ -106,13 +112,9 @@ const data = await page.evaluate(`
         const cells = Array.from(row.querySelectorAll('td'))
         if (cells.length < 2) return
 
-        // Spornummer: foerste celle, .label
-        const numText = clean(cells[0].textContent)
-        const trackNumber = numText.padStart(2, '0')
+        const trackNumber = clean(cells[0].textContent).padStart(2, '0')
 
-        // Tittel: cellen med colspan=2 (eller den brede cellen)
-        const titleCell =
-          row.querySelector('td[colspan="2"]') || cells[1]
+        const titleCell = row.querySelector('td[colspan="2"]') || cells[1]
         const title = clean(titleCell.textContent)
 
         const timeEl = row.querySelector('span.time')

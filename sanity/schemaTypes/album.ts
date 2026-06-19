@@ -57,6 +57,11 @@ defineField({
   title: 'YouTube Music URL',
   type: 'url',
 }),
+defineField({
+  name: 'youtubePlaylistId',
+  title: 'YouTube spilleliste/video (ID eller URL)',
+  type: 'string',
+}),
     defineField({
       name: 'externalImageUrl',
       title: 'External Image URL',

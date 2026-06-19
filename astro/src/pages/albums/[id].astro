@@ -7,7 +7,7 @@ const { id } = Astro.params
 const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
     title, artist, year, genre, format, label,
-    catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl,
+    catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl, youtubePlaylistId,
     tracklist[]{ disc, trackNumber, title, duration, youtubeId },
     ${SHARED_FIELDS}
   }`,
@@ -24,6 +24,19 @@ function ytId(raw) {
   if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s
   return ''
 }
+
+function ytPlaylistId(raw) {
+  if (!raw) return ''
+  const s = String(raw).trim()
+  const listMatch = s.match(/[?&]list=([A-Za-z0-9_-]+)/)
+  if (listMatch) return 'list:' + listMatch[1]
+  const vid = ytId(s)
+  if (vid) return 'video:' + vid
+  if (/^PL[A-Za-z0-9_-]+$/.test(s)) return 'list:' + s
+  return ''
+}
+
+const albumYt = ytPlaylistId(a.youtubePlaylistId)
 
 const tracks = (a.tracklist || []).map((t) => ({ ...t, _yt: ytId(t.youtubeId) }))
 const discMap = {}
@@ -69,6 +82,14 @@ const multiDisc = discNumbers.length > 1
       <section class="tracklist">
         <h2>Tracklist <span class="track-count">{tracks.length} tracks</span></h2>
 
+        <div class="album-play-row">
+          {albumYt ? (
+            <button class="album-play" data-yt={albumYt} title="Spill av hele albumet">▶ Spill av album</button>
+          ) : (
+            <a class="album-play" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(a.title + ' ' + a.artist + ' full album')}`} target="_blank" rel="noopener">🔍 Søk album på YouTube</a>
+          )}
+        </div>
+
         {discNumbers.map((d) => (
           <div class="disc">
             {multiDisc && <div class="disc-title">Disc {d}</div>}
@@ -106,6 +127,9 @@ const multiDisc = discNumbers.length > 1
     .tracklist { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
     .tracklist h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 0.75rem; }
     .track-count { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+    .album-play-row { margin: 0.75rem 0 0.5rem; }
+    .album-play { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.9rem; color: var(--text); font-size: 0.85rem; cursor: pointer; text-decoration: none; }
+    .album-play:hover { border-color: var(--accent); }
     .disc { margin-top: 1rem; }
     .disc-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.4rem; }
     .track-rows { list-style: none; margin: 0; padding: 0; }
@@ -129,17 +153,35 @@ const multiDisc = discNumbers.length > 1
     const now = document.querySelector('#yt-now')
     const closeBtn = document.querySelector('#yt-close')
 
+    function openPlayer(src, label) {
+      frame.src = src
+      now.textContent = label
+      player.hidden = false
+      player.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+
     document.querySelectorAll('.track-play').forEach((btn) => {
       btn.addEventListener('click', () => {
         const ytId = btn.dataset.yt
         const row = btn.closest('.track-row')
         const title = row && row.querySelector('.track-title') ? row.querySelector('.track-title').textContent : ''
-        frame.src = 'https://www.youtube.com/embed/' + ytId + '?autoplay=1'
-        now.textContent = title
-        player.hidden = false
-        player.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        openPlayer('https://www.youtube.com/embed/' + ytId + '?autoplay=1', title)
       })
     })
+
+    const albumBtn = document.querySelector('.album-play[data-yt]')
+    if (albumBtn) {
+      albumBtn.addEventListener('click', () => {
+        const val = albumBtn.dataset.yt
+        let src = ''
+        if (val.startsWith('list:')) {
+          src = 'https://www.youtube.com/embed/videoseries?list=' + val.slice(5) + '&autoplay=1'
+        } else if (val.startsWith('video:')) {
+          src = 'https://www.youtube.com/embed/' + val.slice(6) + '?autoplay=1'
+        }
+        if (src) openPlayer(src, 'Hele albumet')
+      })
+    }
 
     closeBtn.addEventListener('click', () => {
       frame.src = ''

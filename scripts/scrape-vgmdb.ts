@@ -10,8 +10,9 @@ const client = createClient({
 })
 
 async function getAlbumsFromSanity() {
+  // Henter album som mangler year. Endre filteret om du vil scrape noe annet.
   const albums = await client.fetch(`
-    *[_type == "album" && defined(vgmdbUrl) && !defined(composer) && !(_id in path("drafts.**"))] {
+    *[_type == "album" && defined(vgmdbUrl) && !defined(year) && !(_id in path("drafts.**"))] {
       _id, vgmdbId, vgmdbUrl
     }
   `)
@@ -133,6 +134,10 @@ async function main() {
           return names.join(', ')
         }
 
+        const releaseDateRaw = getInfo('Release Date')
+        const yearMatch = releaseDateRaw.match(/(19|20)\\d{2}/)
+        const year = yearMatch ? Number(yearMatch[0]) : 0
+
         const tracklist = []
         const allTables = Array.from(document.querySelectorAll('table.role'))
         const visibleTables = allTables.filter((t) => t.offsetParent !== null)
@@ -169,7 +174,8 @@ async function main() {
         return {
           catalogNumber: getInfo('Catalog Number'),
           barcode: getInfo('Barcode'),
-          releaseDate: getInfo('Release Date'),
+          releaseDate: releaseDateRaw,
+          year: year,
           releasePrice: getInfo('Release Price'),
           format: getInfo('Media Format'),
           label: getInfo('Label'),
@@ -185,10 +191,11 @@ async function main() {
     const patch: any = { ...data, vgmdbUrl: album.vgmdbUrl }
     if (!patch.externalImageUrl) delete patch.externalImageUrl
     if (!patch.composer) delete patch.composer
+    if (!patch.year) delete patch.year
 
     await client.patch(album._id).set(patch).commit()
 
-    console.log(`  ${data.tracklist.length} spor, composer: ${data.composer || "-"}`)
+    console.log(`  ${data.tracklist.length} spor, år: ${data.year || "-"}, composer: ${data.composer || "-"}`)
   }
 
   await browser.close()

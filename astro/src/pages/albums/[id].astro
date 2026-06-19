@@ -7,8 +7,8 @@ const { id } = Astro.params
 const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
     title, artist, year, genre, format, label,
-    catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
-    tracklist[]{ disc, trackNumber, title, duration },
+    catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl,
+    tracklist[]{ disc, trackNumber, title, duration, youtubeId },
     ${SHARED_FIELDS}
   }`,
   { id }
@@ -16,12 +16,21 @@ const a = await sanity.fetch(
 
 if (!a) return Astro.redirect('/albums')
 
-// Grupper spor per disk
-const tracks = a.tracklist || []
-const discMap: Record<number, any[]> = {}
+function ytId(raw) {
+  if (!raw) return ''
+  const s = String(raw).trim()
+  const match = s.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/)
+  if (match) return match[1]
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s
+  return ''
+}
+
+const tracks = (a.tracklist || []).map((t) => ({ ...t, _yt: ytId(t.youtubeId) }))
+const discMap = {}
 for (const t of tracks) {
   const d = t.disc || 1
-  ;(discMap[d] ||= []).push(t)
+  if (!discMap[d]) discMap[d] = []
+  discMap[d].push(t)
 }
 const discNumbers = Object.keys(discMap).map(Number).sort((x, y) => x - y)
 const multiDisc = discNumbers.length > 1
@@ -45,12 +54,13 @@ const multiDisc = discNumbers.length > 1
       {a.acquiredDate && <tr><td>Acquired</td><td>{a.acquiredDate}</td></tr>}
       {a.catalogNumber && <tr><td>Catalog</td><td>{a.catalogNumber}</td></tr>}
       {a.vgmdbUrl && <tr><td>VGMdb</td><td><a href={a.vgmdbUrl} target="_blank">Open VGMdb</a></td></tr>}
+      {a.youtubeMusicUrl && <tr><td>YouTube Music</td><td><a href={a.youtubeMusicUrl} target="_blank" rel="noopener">▶ Spill av i YouTube Music</a></td></tr>}
       {a.purchasePrice && <tr><td>Paid</td><td>{a.purchasePrice} NOK</td></tr>}
     </table>
 
     {a.tags?.length > 0 && (
       <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-        {a.tags.map((t: string) => <span class="tag">{t}</span>)}
+        {a.tags.map((t) => <span class="tag">{t}</span>)}
       </div>
     )}
     {a.notes && <div class="notes-block">{a.notes}</div>}
@@ -63,83 +73,77 @@ const multiDisc = discNumbers.length > 1
           <div class="disc">
             {multiDisc && <div class="disc-title">Disc {d}</div>}
             <ol class="track-rows">
-              {discMap[d].map((t: any) => (
+              {discMap[d].map((t) => (
                 <li class="track-row">
                   <span class="track-num">{t.trackNumber}</span>
                   <span class="track-title">{t.title}</span>
                   {t.duration && <span class="track-time">{t.duration}</span>}
+                  {t._yt ? (
+                    <button class="track-play" data-yt={t._yt} title="Spill av">▶</button>
+                  ) : (
+                    <a class="track-search" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(a.title + ' ' + t.title)}`} target="_blank" rel="noopener" title="Søk på YouTube">🔍</a>
+                  )}
                 </li>
               ))}
             </ol>
           </div>
         ))}
+
+        <div id="yt-player" class="yt-player" hidden>
+          <div class="yt-player-bar">
+            <span id="yt-now"></span>
+            <button id="yt-close" title="Lukk">✕</button>
+          </div>
+          <div class="yt-frame-wrap">
+            <iframe id="yt-frame" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
       </section>
     )}
   </div>
 
   <style>
-    .tracklist {
-      margin-top: 2rem;
-      border-top: 1px solid var(--border);
-      padding-top: 1rem;
-    }
-
-    .tracklist h2 {
-      font-size: 1rem;
-      font-weight: 600;
-      display: flex;
-      align-items: baseline;
-      gap: 0.75rem;
-    }
-
-    .track-count {
-      font-size: 0.8rem;
-      font-weight: 400;
-      color: var(--muted);
-    }
-
-    .disc {
-      margin-top: 1rem;
-    }
-
-    .disc-title {
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-      margin-bottom: 0.4rem;
-    }
-
-    .track-rows {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    .track-row {
-      display: flex;
-      gap: 1rem;
-      padding: 0.4rem 0;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .track-num {
-      flex-shrink: 0;
-      width: 2rem;
-      text-align: right;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .track-title {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .track-time {
-      flex-shrink: 0;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-    }
+    .tracklist { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+    .tracklist h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 0.75rem; }
+    .track-count { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+    .disc { margin-top: 1rem; }
+    .disc-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.4rem; }
+    .track-rows { list-style: none; margin: 0; padding: 0; }
+    .track-row { display: flex; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); align-items: center; }
+    .track-num { flex-shrink: 0; width: 2rem; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .track-title { flex: 1; min-width: 0; }
+    .track-time { flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .track-play, .track-search { flex-shrink: 0; width: 1.9rem; height: 1.9rem; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.75rem; cursor: pointer; text-decoration: none; }
+    .track-play:hover, .track-search:hover { border-color: var(--accent); }
+    .yt-player { margin-top: 1.5rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+    .yt-player-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; font-size: 0.85rem; gap: 1rem; }
+    #yt-now { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #yt-close { flex-shrink: 0; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; }
+    .yt-frame-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; }
+    #yt-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   </style>
+
+  <script>
+    const player = document.querySelector('#yt-player')
+    const frame = document.querySelector('#yt-frame')
+    const now = document.querySelector('#yt-now')
+    const closeBtn = document.querySelector('#yt-close')
+
+    document.querySelectorAll('.track-play').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ytId = btn.dataset.yt
+        const row = btn.closest('.track-row')
+        const title = row && row.querySelector('.track-title') ? row.querySelector('.track-title').textContent : ''
+        frame.src = 'https://www.youtube.com/embed/' + ytId + '?autoplay=1'
+        now.textContent = title
+        player.hidden = false
+        player.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+    })
+
+    closeBtn.addEventListener('click', () => {
+      frame.src = ''
+      player.hidden = true
+    })
+  </script>
 </Base>

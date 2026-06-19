@@ -3,14 +3,14 @@ import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
 const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
-  sanity.fetch<number>(`count(*[_type == "album"])`),
-  sanity.fetch<number>(`count(*[_type == "game"])`),
-  sanity.fetch<number>(`count(*[_type == "figure"])`),
-  sanity.fetch<number>(`count(*[_type == "book"])`),
+  sanity.fetch<number>(`count(*[_type == "album" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "game" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "figure" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "book" && !(_id in path("drafts.**"))])`),
 ])
 
 const recentlyAdded = await sanity.fetch(`
-  *[_type in ["album","game","figure","book"]] | order(_createdAt desc) [0..7] {
+  *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))] | order(_createdAt desc, _id) [0..7] {
     _id, _type, title, externalImageUrl, catalogNumber,
     "sub": select(
       _type == "album" => artist,

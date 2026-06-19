@@ -1,0 +1,88 @@
+---
+import Base from '../layouts/Base.astro'
+---
+<Base title="VGMdb oppslag">
+  <div class="page-header">
+    <h1>VGMdb oppslag</h1>
+  </div>
+
+  <div class="vgmdb-tools">
+    <input id="vgmdb-search" type="search" placeholder="Søk album, artist, katalognr..." />
+    <button id="vgmdb-go">Søk ↗</button>
+  </div>
+
+  <p class="hint">Søk åpner VGMdb i ny fane.</p>
+
+  <div class="quick-links">
+    <a href="https://vgmdb.net/" target="_blank" rel="noopener">Forsiden</a>
+    <a href="https://vgmdb.net/db/recent.php" target="_blank" rel="noopener">Nye album</a>
+    <a href="https://vgmdb.net/search?type=artists&q=Nobuo+Uematsu" target="_blank" rel="noopener">Nobuo Uematsu</a>
+    <a href="https://vgmdb.net/search?q=Final+Fantasy" target="_blank" rel="noopener">Final Fantasy</a>
+  </div>
+
+  <style>
+    .vgmdb-tools {
+      display: flex;
+      gap: 0.75rem;
+      margin: 1rem 0 0.5rem;
+      flex-wrap: wrap;
+    }
+    .vgmdb-tools input {
+      flex: 1;
+      min-width: 200px;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+    }
+    .vgmdb-tools button {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.6rem 1.25rem;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0 0 1.5rem;
+    }
+    .quick-links {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .quick-links a {
+      font-size: 0.85rem;
+      color: var(--text);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 0.5rem 0.9rem;
+      border-radius: 6px;
+      transition: border-color 0.15s;
+    }
+    .quick-links a:hover {
+      border-color: var(--accent);
+    }
+  </style>
+
+  <script>
+    const input = document.querySelector('#vgmdb-search')
+    const goBtn = document.querySelector('#vgmdb-go')
+
+    function search() {
+      const q = input.value.trim()
+      if (!q) return
+      const url = `https://vgmdb.net/search?q=${encodeURIComponent(q)}`
+      window.open(url, '_blank', 'noopener')
+    }
+
+    goBtn.addEventListener('click', search)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') search()
+    })
+  </script>
+</Base>

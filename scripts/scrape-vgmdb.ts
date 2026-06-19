@@ -10,10 +10,8 @@ const client = createClient({
 })
 
 async function getAlbumsFromSanity() {
-  // Hent album som mangler cover (externalImageUrl) og har en VGMdb-URL.
-  // Bytt filteret om du vil scrape alt: fjern "&& !defined(externalImageUrl)"
   const albums = await client.fetch(`
-    *[_type == "album" && defined(vgmdbUrl) && !defined(externalImageUrl) && !(_id in path("drafts.**"))] {
+    *[_type == "album" && defined(vgmdbUrl) && !defined(composer) && !(_id in path("drafts.**"))] {
       _id, vgmdbId, vgmdbUrl
     }
   `)
@@ -21,9 +19,8 @@ async function getAlbumsFromSanity() {
 }
 
 async function main() {
- console.log("Starter scraper...")
   const albums = await getAlbumsFromSanity()
-  console.log(`Found ${albums.length} albums in Sanity missing cover`)
+  console.log(`Found ${albums.length} albums to scrape`)
 
   if (albums.length === 0) {
     console.log("Ingenting å gjøre. Avslutter.")
@@ -41,6 +38,16 @@ async function main() {
 
   const page = await browser.newPage()
 
+  await page.setRequestInterception(true)
+  page.on("request", (req) => {
+    const type = req.resourceType()
+    if (type === "image" || type === "media" || type === "font") {
+      req.abort()
+    } else {
+      req.continue()
+    }
+  })
+
   console.log("Browser opened.")
   console.log("Log in to VGMdb and complete Cloudflare if needed.")
   console.log("After the album page is visible, come back here and press ENTER.")
@@ -52,18 +59,26 @@ async function main() {
     process.stdin.once("data", () => resolve())
   })
 
+  let done = 0
   for (const album of albums) {
-    console.log(`Scraping ${album.vgmdbId} - ${album.vgmdbUrl}`)
+    done++
+    console.log(`[${done}/${albums.length}] Scraping ${album.vgmdbId}`)
 
-    await page.goto(album.vgmdbUrl, { waitUntil: "networkidle2", timeout: 60000 })
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    try {
+      await page.goto(album.vgmdbUrl, { waitUntil: "domcontentloaded", timeout: 30000 })
+    } catch (e) {
+      console.log(`  Timeout/feil på ${album.vgmdbId}, hopper over`)
+      continue
+    }
+
+    await new Promise((r) => setTimeout(r, 600))
 
     const blocked = await page.evaluate(() =>
       document.body.innerText.includes("Performing security verification")
     )
 
     if (blocked) {
-      console.log("Cloudflare appeared again. Solve it in the browser, then press ENTER.")
+      console.log("Cloudflare igjen. Løs i nettleseren, trykk ENTER.")
       await new Promise<void>((resolve) => {
         process.stdin.once("data", () => resolve())
       })
@@ -93,6 +108,29 @@ async function main() {
           const bg = el.style.backgroundImage || getComputedStyle(el).backgroundImage || ''
           const m = bg.match(/url\\(['"]?(.*?)['"]?\\)/)
           return m ? m[1] : ''
+        }
+
+        function getComposers() {
+          const rows = Array.from(document.querySelectorAll('tr.maincred'))
+          const names = []
+          for (const row of rows) {
+            const labelEl = row.querySelector('.label')
+            if (!labelEl) continue
+            const label = clean(labelEl.textContent).toLowerCase()
+            if (!label.includes('compose')) continue
+
+            const cells = Array.from(row.querySelectorAll('td'))
+            const valueCell = cells[cells.length - 1]
+            if (!valueCell) continue
+
+            const enNames = Array.from(valueCell.querySelectorAll('.artistname[lang="en"]'))
+              .map((el) => clean(el.textContent))
+              .filter(Boolean)
+            for (const n of enNames) {
+              if (!names.includes(n)) names.push(n)
+            }
+          }
+          return names.join(', ')
         }
 
         const tracklist = []
@@ -138,20 +176,19 @@ async function main() {
           publisher: getInfo('Publisher'),
           distributor: getInfo('Distributor'),
           externalImageUrl: getCover(),
+          composer: getComposers(),
           tracklist,
         }
       })()
     `)
 
-    // Bygg patch-objekt, men ikke overskriv eksisterende cover med tom verdi
     const patch: any = { ...data, vgmdbUrl: album.vgmdbUrl }
     if (!patch.externalImageUrl) delete patch.externalImageUrl
+    if (!patch.composer) delete patch.composer
 
     await client.patch(album._id).set(patch).commit()
 
-    console.log(
-      `Updated ${album.vgmdbId}: ${data.tracklist.length} tracks, cover: ${data.externalImageUrl ? "ja" : "nei"}`
-    )
+    console.log(`  ${data.tracklist.length} spor, composer: ${data.composer || "-"}`)
   }
 
   await browser.close()

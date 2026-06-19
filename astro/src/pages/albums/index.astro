@@ -10,6 +10,9 @@ const albums = await sanity.fetch(`
     ${SHARED_FIELDS}
   }
 `)
+
+// Bygg serie-liste automatisk fra albumene som faktisk finnes
+const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))].sort()
 ---
 <Base title="Albums">
   <div class="page-header">
@@ -33,12 +36,7 @@ const albums = await sanity.fetch(`
     </select>
     <select id="album-series">
       <option value="">All series</option>
-      <option value="Final Fantasy VII Remake">Final Fantasy VII Remake</option>
-      <option value="Final Fantasy VII Rebirth">Final Fantasy VII Rebirth</option>
-      <option value="Final Fantasy XIV">Final Fantasy XIV</option>
-      <option value="The Black Mages">The Black Mages</option>
-      <option value="Distant Worlds">Distant Worlds</option>
-      <option value="Piano Collections">Piano Collections</option>
+      {seriesList.map((s: any) => <option value={s}>{s}</option>)}
     </select>
   </div>
 
@@ -103,7 +101,11 @@ const albums = await sanity.fetch(`
 
       rows
         .sort((a, b) => {
-          if (sort === 'year') return Number(a.dataset.year || 0) - Number(b.dataset.year || 0)
+          if (sort === 'year') {
+            const ay = Number(a.dataset.year) || 0
+            const by = Number(b.dataset.year) || 0
+            return by - ay
+          }
           if (sort === 'catalog') return a.dataset.catalog.localeCompare(b.dataset.catalog)
           return a.dataset.title.localeCompare(b.dataset.title)
         })

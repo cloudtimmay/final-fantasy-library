@@ -10,6 +10,7 @@ export const album = defineType({
   fields: [
     defineField({ name: 'title', title: 'Title', type: 'string', validation: (R) => R.required() }),
     defineField({ name: 'artist', title: 'Artist / Band', type: 'string', validation: (R) => R.required() }),
+    defineField({ name: 'composer', title: 'Composer(s)', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
     defineField({
       name: 'genre',

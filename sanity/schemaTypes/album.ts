@@ -52,6 +52,11 @@ defineField({
   title: 'VGMdb URL',
   type: 'url',
 }),
+defineField({
+  name: 'youtubeMusicUrl',
+  title: 'YouTube Music URL',
+  type: 'url',
+}),
     defineField({
       name: 'externalImageUrl',
       title: 'External Image URL',
@@ -150,6 +155,7 @@ defineField({
         { name: 'trackNumber', title: 'Track Number', type: 'string' },
         { name: 'title', title: 'Title', type: 'string' },
         { name: 'duration', title: 'Duration', type: 'string' },
+        { name: 'youtubeId', title: 'YouTube ID eller URL', type: 'string' },
       ],
     },
   ],

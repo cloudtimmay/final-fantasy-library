@@ -18,158 +18,97 @@ const albums = await sanity.fetch(`
   </div>
 
   <div class="album-tools">
-  <input id="album-search" type="search" placeholder="Search albums..." />
-
-  <select id="album-sort">
-    <option value="title">Sort by name</option>
-    <option value="year">Sort by year</option>
-    <option value="catalog">Sort by catalog number</option>
-  </select>
-
-  <select id="album-series">
-    <option value="">All series</option>
-    <option value="Final Fantasy VII Remake">Final Fantasy VII Remake</option>
-    <option value="Final Fantasy VII Rebirth">Final Fantasy VII Rebirth</option>
-    <option value="Final Fantasy XIV">Final Fantasy XIV</option>
-    <option value="The Black Mages">The Black Mages</option>
-    <option value="Distant Worlds">Distant Worlds</option>
-    <option value="Piano Collections">Piano Collections</option>
-  </select>
-</div>
+    <input id="album-search" type="search" placeholder="Search albums..." />
+    <select id="album-sort">
+      <option value="title">Sort by name</option>
+      <option value="year">Sort by year</option>
+      <option value="catalog">Sort by catalog number</option>
+    </select>
+    <select id="album-status">
+      <option value="">All statuses</option>
+      <option value="owned">Owned</option>
+      <option value="wishlist">Wishlist</option>
+      <option value="sold">Sold</option>
+      <option value="lent">Lent</option>
+    </select>
+    <select id="album-series">
+      <option value="">All series</option>
+      <option value="Final Fantasy VII Remake">Final Fantasy VII Remake</option>
+      <option value="Final Fantasy VII Rebirth">Final Fantasy VII Rebirth</option>
+      <option value="Final Fantasy XIV">Final Fantasy XIV</option>
+      <option value="The Black Mages">The Black Mages</option>
+      <option value="Distant Worlds">Distant Worlds</option>
+      <option value="Piano Collections">Piano Collections</option>
+    </select>
+  </div>
 
   <div class="album-list">
-  {albums.map((a: any) => (
-    <a
-  class="album-row"
-  href={`/albums/${a._id}`}
-  data-title={a.title?.toLowerCase() || ''}
-  data-artist={a.artist?.toLowerCase() || ''}
-  data-catalog={a.catalogNumber?.toLowerCase() || ''}
-  data-year={a.year || ''}
-  data-series={a.series || ''}
->
-      {a.externalImageUrl
-        ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
-        : <div class="album-thumb placeholder">🎵</div>
-      }
-
-      <div class="card-meta">
-          {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
-          {a.year && <span class="tag">{a.year}</span>}
-          {a.format && <span class="tag">{a.format}</span>}
-          {a.trackCount > 0 && (
-            <span class="tag">
-              {a.discCount > 1 ? `${a.discCount} disker · ` : ''}{a.trackCount} spor
-            </span>
-          )}
+    {albums.map((a: any) => (
+      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''}>
+        {a.externalImageUrl
+          ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
+          : <div class="album-thumb placeholder">🎵</div>
+        }
+        <div class="album-info">
+          <div class="card-title">{a.title}</div>
+          <div class="card-sub">{a.artist}</div>
+          <div class="card-meta">
+            {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
+            {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
+            {a.year && <span class="tag">{a.year}</span>}
+            {a.format && <span class="tag">{a.format}</span>}
+            {a.trackCount > 0 && <span class="tag">{a.discCount > 1 ? `${a.discCount} disker · ` : ''}{a.trackCount} spor</span>}
+          </div>
         </div>
-      </div>
-    </a>
-  ))}
-</div>
+      </a>
+    ))}
+  </div>
 
-<style>
-  .album-list {
-    display: flex;
-    flex-direction: column;
-    border-top: 1px solid var(--border);
-  }
+  <style>
+    .album-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .album-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .album-row:hover { background: rgba(255,255,255,0.03); }
+    .album-thumb { width: 56px; height: 56px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+    .album-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+    .album-info { min-width: 0; }
+    .wishlist-tag { background: var(--wishlist); color: var(--bg); }
+    .album-tools { display: flex; gap: 0.75rem; margin: 1rem 0 1.5rem; flex-wrap: wrap; }
+    .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+  </style>
 
-  .album-row {
-    display: flex;
-    gap: 1rem;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--border);
-    text-decoration: none;
-    color: inherit;
-    align-items: center;
-  }
+  <script>
+    const searchInput = document.querySelector('#album-search')
+    const sortSelect = document.querySelector('#album-sort')
+    const statusSelect = document.querySelector('#album-status')
+    const seriesSelect = document.querySelector('#album-series')
+    const list = document.querySelector('.album-list')
 
-  .album-row:hover {
-    background: rgba(255,255,255,0.03);
-  }
+    function updateAlbums() {
+      const search = searchInput.value.toLowerCase()
+      const sort = sortSelect.value
+      const status = statusSelect.value
+      const series = seriesSelect.value
+      const rows = Array.from(document.querySelectorAll('.album-row'))
 
-  .album-thumb {
-    width: 56px;
-    height: 56px;
-    object-fit: cover;
-    background: var(--border);
-    flex-shrink: 0;
-  }
-
-  .album-thumb.placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-  }
-
-  .album-info {
-    min-width: 0;
-  }
-</style>
-
-<script>
-  const searchInput = document.querySelector('#album-search')
-  const sortSelect = document.querySelector('#album-sort')
-  const seriesSelect = document.querySelector('#album-series')
-  const list = document.querySelector('.album-list')
-
-  function updateAlbums() {
-    const search = searchInput.value.toLowerCase()
-    const sort = sortSelect.value
-    const series = seriesSelect.value
-
-    const rows = Array.from(document.querySelectorAll('.album-row'))
-
-    rows.forEach((row) => {
-      const matchesSearch =
-        row.dataset.title.includes(search) ||
-        row.dataset.artist.includes(search) ||
-        row.dataset.catalog.includes(search)
-
-      const matchesSeries =
-        !series || row.dataset.series === series
-
-      row.style.display = matchesSearch && matchesSeries ? '' : 'none'
-    })
-
-    rows
-      .sort((a, b) => {
-        if (sort === 'year') {
-          return Number(a.dataset.year || 0) - Number(b.dataset.year || 0)
-        }
-
-        if (sort === 'catalog') {
-          return a.dataset.catalog.localeCompare(b.dataset.catalog)
-        }
-
-        return a.dataset.title.localeCompare(b.dataset.title)
+      rows.forEach((row) => {
+        const matchesSearch = row.dataset.title.includes(search) || row.dataset.artist.includes(search) || row.dataset.catalog.includes(search)
+        const matchesStatus = !status || row.dataset.status === status
+        const matchesSeries = !series || row.dataset.series === series
+        row.style.display = matchesSearch && matchesStatus && matchesSeries ? '' : 'none'
       })
-      .forEach((row) => list.appendChild(row))
-  }
 
-  searchInput.addEventListener('input', updateAlbums)
-  sortSelect.addEventListener('change', updateAlbums)
-  seriesSelect.addEventListener('change', updateAlbums)
-</script>
+      rows
+        .sort((a, b) => {
+          if (sort === 'year') return Number(a.dataset.year || 0) - Number(b.dataset.year || 0)
+          if (sort === 'catalog') return a.dataset.catalog.localeCompare(b.dataset.catalog)
+          return a.dataset.title.localeCompare(b.dataset.title)
+        })
+        .forEach((row) => list.appendChild(row))
+    }
 
-<style>
-.album-tools {
-  display: flex;
-  gap: 0.75rem;
-  margin: 1rem 0 1.5rem;
-  flex-wrap: wrap;
-}
-
-.album-tools input,
-.album-tools select {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 0.6rem 0.75rem;
-  border-radius: 6px;
-}
-</style>
-
+    searchInput.addEventListener('input', updateAlbums)
+    sortSelect.addEventListener('change', updateAlbums)
+    statusSelect.addEventListener('change', updateAlbums)
+    seriesSelect.addEventListener('change', updateAlbums)
+  </script>
 </Base>

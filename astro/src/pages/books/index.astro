@@ -42,26 +42,28 @@ const books = await sanity.fetch(`
     </select>
   </div>
 
-  <div class="grid">
+  <div class="book-list">
     {books.map((b: any) => (
-      <a class="card book-card"
+      <a class="book-row"
          href={`/books/${b._id}`}
          data-title={b.title?.toLowerCase() || ''}
          data-author={b.author?.toLowerCase() || ''}
          data-isbn={b.isbn || ''}
          data-readstatus={b.readStatus || ''}>
         {b.image
-          ? <img class="card-photo" src={urlFor(b.image).height(360).url()} alt={b.title} loading="lazy" />
+          ? <img class="book-thumb" src={urlFor(b.image).height(120).url()} alt={b.title} loading="lazy" />
           : b.externalImageUrl
-          ? <img class="card-photo" src={b.externalImageUrl} alt={b.title} loading="lazy" />
-          : <div class="card-photo-placeholder">📚</div>
+          ? <img class="book-thumb" src={b.externalImageUrl} alt={b.title} loading="lazy" />
+          : <div class="book-thumb placeholder">📚</div>
         }
-        <div class="card-title">{b.title}</div>
-        <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
-        <div class="card-meta">
-          {b.status && <span class={`status-dot ${b.status}`}></span>}
-          {b.readStatus && <span class="tag">{b.readStatus}</span>}
-          {b.rating && <span class="rating">{b.rating}/10</span>}
+        <div class="book-info">
+          <div class="card-title">{b.title}</div>
+          <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
+          <div class="card-meta">
+            {b.publisher && <span class="tag">{b.publisher}</span>}
+            {b.readStatus && <span class="tag">{b.readStatus}</span>}
+            {b.rating && <span class="rating">{b.rating}/10</span>}
+          </div>
         </div>
       </a>
     ))}
@@ -78,9 +80,17 @@ const books = await sanity.fetch(`
     .source-buttons button:hover { border-color: var(--accent); }
     .hint { font-size: 0.85rem; color: var(--muted); margin: 0.75rem 0 0; }
     .api-result { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem; white-space: pre-wrap; margin-top: 0.75rem; overflow-x: auto; }
+
     .book-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .book-tools input, .book-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .book-tools input { flex: 1; min-width: 200px; }
+
+    .book-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .book-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .book-row:hover { background: rgba(255,255,255,0.03); }
+    .book-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
+    .book-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .book-info { min-width: 0; }
   </style>
 
   <script>
@@ -161,10 +171,10 @@ const books = await sanity.fetch(`
     function updateBooks() {
       const search = searchInput.value.toLowerCase()
       const status = statusSelect.value
-      document.querySelectorAll('.book-card').forEach((card) => {
-        const matchesSearch = card.dataset.title.includes(search) || card.dataset.author.includes(search) || card.dataset.isbn.includes(search)
-        const matchesStatus = !status || card.dataset.readstatus === status
-        card.style.display = matchesSearch && matchesStatus ? '' : 'none'
+      document.querySelectorAll('.book-row').forEach((row) => {
+        const matchesSearch = row.dataset.title.includes(search) || row.dataset.author.includes(search) || row.dataset.isbn.includes(search)
+        const matchesStatus = !status || row.dataset.readstatus === status
+        row.style.display = matchesSearch && matchesStatus ? '' : 'none'
       })
     }
     searchInput.addEventListener('input', updateBooks)

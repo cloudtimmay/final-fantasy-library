@@ -1,12 +1,14 @@
 ---
 import Base from '../../layouts/Base.astro'
-import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 const games = await sanity.fetch(`
-  *[_type == "game"] | order(title asc) {
-    _id, title, developer, year, platform, genre, completionStatus, ${SHARED_FIELDS}
+  *[_type == "game" && !(_id in path("drafts.**"))] | order(title asc) {
+    _id, title, developer, year, platform, genre, completionStatus, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
+
+const platformList = [...new Set(games.flatMap((g: any) => g.platform || []))].sort()
 ---
 <Base title="Games">
   <div class="page-header">
@@ -14,21 +16,78 @@ const games = await sanity.fetch(`
     <span class="count">{games.length} items</span>
   </div>
 
-  <div class="grid">
+  <div class="game-tools">
+    <input id="game-search" type="search" placeholder="Søk i mine spill..." />
+    <select id="game-platform">
+      <option value="">Alle plattformer</option>
+      {platformList.map((p: any) => <option value={p}>{p}</option>)}
+    </select>
+    <select id="game-info-filter">
+      <option value="">Alle spill</option>
+      <option value="needsinfo">Mangler info</option>
+    </select>
+  </div>
+
+  <div class="game-list">
     {games.map((g: any) => (
-      <a class="card" href={`/games/${g._id}`}>
-        {g.photoUrl
-          ? <img class="card-photo" src={g.photoUrl} alt={g.title} loading="lazy" />
-          : <div class="card-photo-placeholder">🎮</div>
+      <a class="game-row"
+         href={`/games/${g._id}`}
+         data-title={g.title?.toLowerCase() || ''}
+         data-developer={g.developer?.toLowerCase() || ''}
+         data-platform={(g.platform || []).join(',').toLowerCase()}
+         data-needsinfo={g.needsInfo ? 'yes' : 'no'}>
+        {g.image
+          ? <img class="game-thumb" src={urlFor(g.image).height(120).url()} alt={g.title} loading="lazy" />
+          : g.externalImageUrl
+          ? <img class="game-thumb" src={g.externalImageUrl} alt={g.title} loading="lazy" />
+          : <div class="game-thumb placeholder">🎮</div>
         }
-        <div class="card-title">{g.title}</div>
-        <div class="card-sub">{g.platform?.join(', ')}{g.year ? ` · ${g.year}` : ''}</div>
-        <div class="card-meta">
-          <span class={`status-dot ${g.status}`}></span>
-          {g.completionStatus && <span class="tag">{g.completionStatus}</span>}
-          {g.rating && <span class="rating">{g.rating}/10</span>}
+        <div class="game-info">
+          <div class="card-title">{g.title}</div>
+          <div class="card-sub">{g.developer}{g.year ? ` · ${g.year}` : ''}</div>
+          <div class="card-meta">
+            {g.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
+            {(g.platform || []).map((p: string) => <span class="tag">{p}</span>)}
+            {g.completionStatus && <span class="tag">{g.completionStatus}</span>}
+            {g.rating && <span class="rating">{g.rating}/10</span>}
+          </div>
         </div>
       </a>
     ))}
   </div>
+
+  <style>
+    .game-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .game-tools input, .game-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .game-tools input { flex: 1; min-width: 200px; }
+
+    .game-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .game-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .game-row:hover { background: rgba(255,255,255,0.03); }
+    .game-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
+    .game-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .game-info { min-width: 0; }
+    .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+  </style>
+
+  <script>
+    const searchInput = document.querySelector('#game-search')
+    const platformSelect = document.querySelector('#game-platform')
+    const infoFilter = document.querySelector('#game-info-filter')
+
+    function updateGames() {
+      const search = searchInput.value.toLowerCase()
+      const platform = platformSelect.value.toLowerCase()
+      const info = infoFilter.value
+      document.querySelectorAll('.game-row').forEach((row) => {
+        const matchesSearch = row.dataset.title.includes(search) || row.dataset.developer.includes(search)
+        const matchesPlatform = !platform || row.dataset.platform.split(',').includes(platform)
+        const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
+        row.style.display = matchesSearch && matchesPlatform && matchesInfo ? '' : 'none'
+      })
+    }
+    searchInput.addEventListener('input', updateGames)
+    platformSelect.addEventListener('change', updateGames)
+    infoFilter.addEventListener('change', updateGames)
+  </script>
 </Base>

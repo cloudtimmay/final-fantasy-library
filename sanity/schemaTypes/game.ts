@@ -1,5 +1,6 @@
 import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
+import { ExternalImagePreview } from '../components/ExternalImagePreview'
 
 export const game = defineType({
   name: 'game',
@@ -11,14 +12,19 @@ export const game = defineType({
     defineField({ name: 'developer', title: 'Developer', type: 'string' }),
     defineField({ name: 'publisher', title: 'Publisher', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
+    defineField({ name: 'barcode', title: 'Barcode (EAN/UPC)', type: 'string' }),
+    defineField({ name: 'needsInfo', title: 'Mangler info', type: 'boolean', initialValue: false }),
+    defineField({ name: 'externalImageUrl', title: 'External Image URL', type: 'url' }),
+    
     defineField({
       name: 'platform',
       title: 'Platform(s)',
       type: 'array',
       of: [{ type: 'string' }],
       options: {
-        list: ['PC', 'PlayStation 5', 'PlayStation 4', 'Xbox Series X', 'Xbox One',
-          'Nintendo Switch', 'Game Boy', 'SNES', 'Mega Drive', 'Other'],
+        list: ['NES', 'SNES', 'PS1', 'PS2', 'PS3', 'PS4', 'PS5', 'PSP', 'PSVITA',
+          'XBOX', 'PC', 'DS', '3DS', 'SWITCH', 'SWITCH2',
+          'GAMECUBE', 'WII', 'WIIU'],
         layout: 'tags',
       },
     }),
@@ -49,10 +55,21 @@ export const game = defineType({
     ...sharedFields.map((f) => defineField(f as any)),
   ],
   preview: {
-    select: { title: 'title', subtitle: 'platform' },
-    prepare({ title, subtitle }) {
+    select: {
+      title: 'title',
+      subtitle: 'platform',
+      image: 'image',
+      externalImageUrl: 'externalImageUrl',
+    },
+    prepare({ title, subtitle, image, externalImageUrl }) {
       const platforms = Array.isArray(subtitle) ? subtitle.join(', ') : subtitle
-      return { title, subtitle: platforms }
+      return {
+        title,
+        subtitle: platforms,
+        media: image
+          ? image
+          : () => ExternalImagePreview({ title, subtitle: platforms, externalImageUrl }),
+      }
     },
   },
 })

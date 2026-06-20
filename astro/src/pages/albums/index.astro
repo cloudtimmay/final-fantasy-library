@@ -11,13 +11,17 @@ const albums = await sanity.fetch(`
   }
 `)
 
-// Bygg serie-liste automatisk fra albumene som faktisk finnes
 const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))].sort()
 ---
 <Base title="Albums">
   <div class="page-header">
     <h1>Albums</h1>
     <span class="count">{albums.length} items</span>
+  </div>
+
+  <div class="vgmdb-lookup">
+    <input id="vgmdb-search" type="search" placeholder="Slå opp album på VGMdb..." />
+    <button id="vgmdb-go">Søk VGMdb ↗</button>
   </div>
 
   <div class="album-tools">
@@ -63,6 +67,9 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
   </div>
 
   <style>
+    .vgmdb-lookup { display: flex; gap: 0.75rem; margin: 1rem 0 0.5rem; flex-wrap: wrap; }
+    .vgmdb-lookup input { flex: 1; min-width: 200px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .vgmdb-lookup button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
     .album-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
     .album-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
     .album-row:hover { background: rgba(255,255,255,0.03); }
@@ -70,11 +77,23 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
     .album-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
     .album-info { min-width: 0; }
     .wishlist-tag { background: var(--wishlist); color: var(--bg); }
-    .album-tools { display: flex; gap: 0.75rem; margin: 1rem 0 1.5rem; flex-wrap: wrap; }
+    .album-tools { display: flex; gap: 0.75rem; margin: 0.5rem 0 1.5rem; flex-wrap: wrap; }
     .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
   </style>
 
   <script>
+    // VGMdb-oppslag (ny fane)
+    const vgmdbInput = document.querySelector('#vgmdb-search')
+    const vgmdbBtn = document.querySelector('#vgmdb-go')
+    function vgmdbSearch() {
+      const q = vgmdbInput.value.trim()
+      if (!q) return
+      window.open('https://vgmdb.net/search?q=' + encodeURIComponent(q), '_blank', 'noopener')
+    }
+    vgmdbBtn.addEventListener('click', vgmdbSearch)
+    vgmdbInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') vgmdbSearch() })
+
+    // Filtrering av egen samling
     const searchInput = document.querySelector('#album-search')
     const sortSelect = document.querySelector('#album-sort')
     const statusSelect = document.querySelector('#album-status')

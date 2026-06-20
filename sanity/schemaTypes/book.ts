@@ -13,6 +13,7 @@ export const book = defineType({
     defineField({ name: 'publisher', title: 'Publisher', type: 'string' }),
     defineField({ name: 'isbn', title: 'ISBN', type: 'string' }),
     defineField({ name: 'pages', title: 'Pages', type: 'number' }),
+    defineField({ name: 'externalImageUrl', title: 'External Image URL', type: 'url' }),
     defineField({
       name: 'genre',
       title: 'Genre',
@@ -46,6 +47,6 @@ export const book = defineType({
     ...sharedFields.map((f) => defineField(f as any)),
   ],
   preview: {
-    select: { title: 'title', subtitle: 'author' },
+    select: { title: 'title', subtitle: 'author', externalImageUrl: 'externalImageUrl' },
   },
 })

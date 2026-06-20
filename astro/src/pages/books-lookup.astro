@@ -1,0 +1,178 @@
+---
+import Base from '../layouts/Base.astro'
+---
+<Base title="Bok-oppslag">
+  <div class="page-header">
+    <h1>Bok-oppslag</h1>
+  </div>
+
+  <p class="hint">Skriv inn ISBN eller tittel, og åpne kilden du vil i ny fane. Kopier fakta inn i Studio.</p>
+
+  <div class="lookup-tools">
+    <input id="book-search" type="search" placeholder="ISBN eller tittel..." />
+  </div>
+
+  <div class="source-buttons">
+    <button data-src="openlibrary">Open Library</button>
+    <button data-src="googlebooks">Google Books</button>
+    <button data-src="bookfinder">BookFinder</button>
+    <button data-src="abebooks">AbeBooks</button>
+    <button data-src="worldcat">WorldCat</button>
+  </div>
+
+  <p class="hint" id="api-hint" hidden></p>
+  <pre id="api-result" class="api-result" hidden></pre>
+
+  <div class="api-row">
+    <button id="api-lookup">Hent fakta automatisk (Open Library + Google Books)</button>
+  </div>
+
+  <style>
+    .hint { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 1rem; }
+    .lookup-tools { margin-bottom: 1rem; }
+    .lookup-tools input {
+      width: 100%;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.7rem 0.85rem;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .source-buttons button {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .source-buttons button:hover { border-color: var(--accent); }
+    .api-row { margin-bottom: 1rem; }
+    .api-row button {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--accent);
+      padding: 0.6rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .api-result {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+  </style>
+
+  <script>
+    const input = document.querySelector('#book-search')
+
+    function val() { return input.value.trim() }
+    function isIsbn(s) { return /^[0-9Xx-]{10,17}$/.test(s.replace(/\s/g, '')) }
+    function cleanIsbn(s) { return s.replace(/[^0-9Xx]/g, '') }
+
+    function openSource(src) {
+      const q = val()
+      if (!q) return
+      const enc = encodeURIComponent(q)
+      const isbn = cleanIsbn(q)
+      let url = ''
+      switch (src) {
+        case 'openlibrary':
+          url = isIsbn(q) ? `https://openlibrary.org/isbn/${isbn}` : `https://openlibrary.org/search?q=${enc}`
+          break
+        case 'googlebooks':
+          url = `https://www.google.com/search?tbm=bks&q=${isIsbn(q) ? 'isbn:' + isbn : enc}`
+          break
+        case 'bookfinder':
+          url = isIsbn(q) ? `https://www.bookfinder.com/isbn/${isbn}/` : `https://www.bookfinder.com/search/?keywords=${enc}`
+          break
+        case 'abebooks':
+          url = isIsbn(q) ? `https://www.abebooks.com/servlet/SearchResults?isbn=${isbn}` : `https://www.abebooks.com/servlet/SearchResults?kn=${enc}`
+          break
+        case 'worldcat':
+          url = `https://search.worldcat.org/search?q=${enc}`
+          break
+      }
+      if (url) window.open(url, '_blank', 'noopener')
+    }
+
+    document.querySelectorAll('.source-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => openSource(btn.dataset.src))
+    })
+
+    // Automatisk faktahenting (kun fakta, ikke bilde)
+    const apiBtn = document.querySelector('#api-lookup')
+    const apiResult = document.querySelector('#api-result')
+    const apiHint = document.querySelector('#api-hint')
+
+    async function fetchOpenLibrary(isbn) {
+      try {
+        const r = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`)
+        const j = await r.json()
+        const d = j[`ISBN:${isbn}`]
+        if (!d) return null
+        return {
+          kilde: 'Open Library',
+          tittel: d.title || '',
+          forfatter: (d.authors || []).map((a) => a.name).join(', '),
+          forlag: (d.publishers || []).map((p) => p.name).join(', '),
+          år: d.publish_date || '',
+          sider: d.number_of_pages || (d.pagination || '').match?.(/\d+/)?.[0] || '',
+        }
+      } catch { return null }
+    }
+
+    async function fetchGoogleBooks(isbn) {
+      try {
+        const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)
+        const j = await r.json()
+        if (!j.items || !j.items.length) return null
+        const v = j.items[0].volumeInfo
+        return {
+          kilde: 'Google Books',
+          tittel: v.title + (v.subtitle ? ': ' + v.subtitle : ''),
+          forfatter: (v.authors || []).join(', '),
+          forlag: v.publisher || '',
+          år: v.publishedDate || '',
+          sider: v.pageCount || '',
+        }
+      } catch { return null }
+    }
+
+    apiBtn.addEventListener('click', async () => {
+      const q = val()
+      if (!isIsbn(q)) {
+        apiHint.hidden = false
+        apiHint.textContent = 'Automatisk henting krever et ISBN-nummer.'
+        apiResult.hidden = true
+        return
+      }
+      const isbn = cleanIsbn(q)
+      apiHint.hidden = false
+      apiHint.textContent = 'Henter...'
+      apiResult.hidden = true
+
+      const data = (await fetchOpenLibrary(isbn)) || (await fetchGoogleBooks(isbn))
+      if (!data) {
+        apiHint.textContent = 'Fant ingenting i Open Library eller Google Books. Prøv kildeknappene over.'
+        return
+      }
+      apiHint.textContent = `Funnet via ${data.kilde}:`
+      apiResult.hidden = false
+      apiResult.textContent =
+        `Tittel:    ${data.tittel}\n` +
+        `Forfatter: ${data.forfatter}\n` +
+        `Forlag:    ${data.forlag}\n` +
+        `År:        ${data.år}\n` +
+        `Sider:     ${data.sider}\n` +
+        `ISBN:      ${isbn}`
+    })
+  </script>
+</Base>

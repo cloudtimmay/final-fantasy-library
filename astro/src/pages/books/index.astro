@@ -1,10 +1,10 @@
 ---
 import Base from '../../layouts/Base.astro'
-import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 const books = await sanity.fetch(`
   *[_type == "book" && !(_id in path("drafts.**"))] | order(author asc, title asc) {
-    _id, title, author, year, genre, publisher, isbn, readStatus, externalImageUrl, ${SHARED_FIELDS}
+    _id, title, author, year, genre, publisher, isbn, readStatus, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
 ---
@@ -50,7 +50,9 @@ const books = await sanity.fetch(`
          data-author={b.author?.toLowerCase() || ''}
          data-isbn={b.isbn || ''}
          data-readstatus={b.readStatus || ''}>
-        {b.externalImageUrl
+        {b.image
+          ? <img class="card-photo" src={urlFor(b.image).height(360).url()} alt={b.title} loading="lazy" />
+          : b.externalImageUrl
           ? <img class="card-photo" src={b.externalImageUrl} alt={b.title} loading="lazy" />
           : <div class="card-photo-placeholder">📚</div>
         }
@@ -66,65 +68,106 @@ const books = await sanity.fetch(`
   </div>
 
   <style>
-    .lookup-box {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 1.5rem;
-      background: var(--surface);
-    }
-    .lookup-box summary {
-      cursor: pointer;
-      padding: 0.75rem 1rem;
-      font-size: 0.9rem;
-      color: var(--muted);
-    }
+    .lookup-box { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1.5rem; background: var(--surface); }
+    .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); }
     .lookup-inner { padding: 0 1rem 1rem; }
-    .lookup-inner input {
-      width: 100%;
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 0.6rem 0.75rem;
-      border-radius: 6px;
-      margin-bottom: 0.75rem;
-    }
+    .lookup-inner input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; }
     .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
-    .source-buttons button, .api-btn {
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 0.5rem 0.85rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.85rem;
-    }
+    .source-buttons button, .api-btn { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .api-btn { border-color: var(--accent); }
     .source-buttons button:hover { border-color: var(--accent); }
     .hint { font-size: 0.85rem; color: var(--muted); margin: 0.75rem 0 0; }
-    .api-result {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.75rem;
-      font-size: 0.85rem;
-      white-space: pre-wrap;
-      margin-top: 0.75rem;
-      overflow-x: auto;
-    }
-
+    .api-result { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem; white-space: pre-wrap; margin-top: 0.75rem; overflow-x: auto; }
     .book-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .book-tools input, .book-tools select {
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 0.6rem 0.75rem;
-      border-radius: 6px;
-    }
+    .book-tools input, .book-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .book-tools input { flex: 1; min-width: 200px; }
   </style>
 
   <script>
-    // Ekstern oppslag
     const lookupInput = document.querySelector('#book-lookup')
     function lval() { return lookupInput.value.trim() }
     function isIsbn(s) { return /^[0-9Xx-]{10,17}$/.test(s.replace(/\s/g, '')) }
+    function cleanIsbn(s) { return s.replace(/[^0-9Xx]/g, '') }
+
+    function openSource(src) {
+      const q = lval()
+      if (!q) return
+      const enc = encodeURIComponent(q)
+      const isbn = cleanIsbn(q)
+      let url = ''
+      switch (src) {
+        case 'openlibrary': url = isIsbn(q) ? `https://openlibrary.org/isbn/${isbn}` : `https://openlibrary.org/search?q=${enc}`; break
+        case 'googlebooks': url = `https://www.google.com/search?tbm=bks&q=${isIsbn(q) ? 'isbn:' + isbn : enc}`; break
+        case 'bookfinder': url = isIsbn(q) ? `https://www.bookfinder.com/isbn/${isbn}/` : `https://www.bookfinder.com/search/?keywords=${enc}`; break
+        case 'abebooks': url = isIsbn(q) ? `https://www.abebooks.com/servlet/SearchResults?isbn=${isbn}` : `https://www.abebooks.com/servlet/SearchResults?kn=${enc}`; break
+        case 'worldcat': url = `https://search.worldcat.org/search?q=${enc}`; break
+      }
+      if (url) window.open(url, '_blank', 'noopener')
+    }
+    document.querySelectorAll('.source-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => openSource(btn.dataset.src))
+    })
+
+    const apiBtn = document.querySelector('#api-lookup')
+    const apiResult = document.querySelector('#api-result')
+    const apiHint = document.querySelector('#api-hint')
+
+    async function fetchGoogleBooks(isbn) {
+      try {
+        const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)
+        const j = await r.json()
+        if (!j.items || !j.items.length) return null
+        const v = j.items[0].volumeInfo
+        return {
+          tittel: v.title + (v.subtitle ? ': ' + v.subtitle : ''),
+          forfatter: (v.authors || []).join(', '),
+          forlag: v.publisher || '',
+          år: v.publishedDate || '',
+          sider: v.pageCount || '',
+        }
+      } catch { return null }
+    }
+
+    apiBtn.addEventListener('click', async () => {
+      const q = lval()
+      if (!isIsbn(q)) {
+        apiHint.hidden = false
+        apiHint.textContent = 'Automatisk henting krever et ISBN-nummer.'
+        apiResult.hidden = true
+        return
+      }
+      const isbn = cleanIsbn(q)
+      apiHint.hidden = false
+      apiHint.textContent = 'Henter...'
+      apiResult.hidden = true
+      const data = await fetchGoogleBooks(isbn)
+      if (!data) {
+        apiHint.textContent = 'Fant ingenting via Google Books. Prøv kildeknappene over.'
+        return
+      }
+      apiHint.textContent = 'Funnet:'
+      apiResult.hidden = false
+      apiResult.textContent =
+        `Tittel:    ${data.tittel}\n` +
+        `Forfatter: ${data.forfatter}\n` +
+        `Forlag:    ${data.forlag}\n` +
+        `År:        ${data.år}\n` +
+        `Sider:     ${data.sider}\n` +
+        `ISBN:      ${isbn}`
+    })
+
+    const searchInput = document.querySelector('#book-search')
+    const statusSelect = document.querySelector('#book-status')
+    function updateBooks() {
+      const search = searchInput.value.toLowerCase()
+      const status = statusSelect.value
+      document.querySelectorAll('.book-card').forEach((card) => {
+        const matchesSearch = card.dataset.title.includes(search) || card.dataset.author.includes(search) || card.dataset.isbn.includes(search)
+        const matchesStatus = !status || card.dataset.readstatus === status
+        card.style.display = matchesSearch && matchesStatus ? '' : 'none'
+      })
+    }
+    searchInput.addEventListener('input', updateBooks)
+    statusSelect.addEventListener('change', updateBooks)
+  </script>
+</Base>

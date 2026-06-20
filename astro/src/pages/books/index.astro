@@ -3,8 +3,8 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
 
 const books = await sanity.fetch(`
-  *[_type == "book"] | order(author asc, title asc) {
-    _id, title, author, year, genre, readStatus, ${SHARED_FIELDS}
+  *[_type == "book" && !(_id in path("drafts.**"))] | order(author asc, title asc) {
+    _id, title, author, year, genre, publisher, isbn, readStatus, externalImageUrl, ${SHARED_FIELDS}
   }
 `)
 ---
@@ -14,21 +14,117 @@ const books = await sanity.fetch(`
     <span class="count">{books.length} items</span>
   </div>
 
+  <details class="lookup-box">
+    <summary>Slå opp en bok eksternt (ISBN eller tittel)</summary>
+    <div class="lookup-inner">
+      <input id="book-lookup" type="search" placeholder="ISBN eller tittel..." />
+      <div class="source-buttons">
+        <button data-src="openlibrary">Open Library</button>
+        <button data-src="googlebooks">Google Books</button>
+        <button data-src="bookfinder">BookFinder</button>
+        <button data-src="abebooks">AbeBooks</button>
+        <button data-src="worldcat">WorldCat</button>
+      </div>
+      <button id="api-lookup" class="api-btn">Hent fakta automatisk</button>
+      <p class="hint" id="api-hint" hidden></p>
+      <pre id="api-result" class="api-result" hidden></pre>
+    </div>
+  </details>
+
+  <div class="book-tools">
+    <input id="book-search" type="search" placeholder="Søk i mine bøker..." />
+    <select id="book-status">
+      <option value="">All read status</option>
+      <option value="unread">Unread</option>
+      <option value="reading">Reading</option>
+      <option value="read">Read</option>
+      <option value="dnf">DNF</option>
+    </select>
+  </div>
+
   <div class="grid">
     {books.map((b: any) => (
-      <a class="card" href={`/books/${b._id}`}>
-        {b.photoUrl
-          ? <img class="card-photo" src={b.photoUrl} alt={b.title} loading="lazy" />
+      <a class="card book-card"
+         href={`/books/${b._id}`}
+         data-title={b.title?.toLowerCase() || ''}
+         data-author={b.author?.toLowerCase() || ''}
+         data-isbn={b.isbn || ''}
+         data-readstatus={b.readStatus || ''}>
+        {b.externalImageUrl
+          ? <img class="card-photo" src={b.externalImageUrl} alt={b.title} loading="lazy" />
           : <div class="card-photo-placeholder">📚</div>
         }
         <div class="card-title">{b.title}</div>
         <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
         <div class="card-meta">
-          <span class={`status-dot ${b.status}`}></span>
+          {b.status && <span class={`status-dot ${b.status}`}></span>}
           {b.readStatus && <span class="tag">{b.readStatus}</span>}
           {b.rating && <span class="rating">{b.rating}/10</span>}
         </div>
       </a>
     ))}
   </div>
-</Base>
+
+  <style>
+    .lookup-box {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      background: var(--surface);
+    }
+    .lookup-box summary {
+      cursor: pointer;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .lookup-inner { padding: 0 1rem 1rem; }
+    .lookup-inner input {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 0.75rem;
+    }
+    .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .source-buttons button, .api-btn {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.85rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .api-btn { border-color: var(--accent); }
+    .source-buttons button:hover { border-color: var(--accent); }
+    .hint { font-size: 0.85rem; color: var(--muted); margin: 0.75rem 0 0; }
+    .api-result {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      margin-top: 0.75rem;
+      overflow-x: auto;
+    }
+
+    .book-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .book-tools input, .book-tools select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+    }
+    .book-tools input { flex: 1; min-width: 200px; }
+  </style>
+
+  <script>
+    // Ekstern oppslag
+    const lookupInput = document.querySelector('#book-lookup')
+    function lval() { return lookupInput.value.trim() }
+    function isIsbn(s) { return /^[0-9Xx-]{10,17}$/.test(s.replace(/\s/g, '')) }

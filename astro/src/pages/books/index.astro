@@ -4,7 +4,7 @@ import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 const books = await sanity.fetch(`
   *[_type == "book" && !(_id in path("drafts.**"))] | order(author asc, title asc) {
-    _id, title, author, year, genre, publisher, isbn, readStatus, externalImageUrl, image, ${SHARED_FIELDS}
+    _id, title, author, year, genre, publisher, isbn, readStatus, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
 ---
@@ -14,7 +14,7 @@ const books = await sanity.fetch(`
     <span class="count">{books.length} items</span>
   </div>
 
-  <details class="lookup-box">
+  <details class="lookup-box" id="lookup-box">
     <summary>Slå opp en bok eksternt (ISBN eller tittel)</summary>
     <div class="lookup-inner">
       <input id="book-lookup" type="search" placeholder="ISBN eller tittel..." />
@@ -40,32 +40,42 @@ const books = await sanity.fetch(`
       <option value="read">Read</option>
       <option value="dnf">DNF</option>
     </select>
+    <select id="book-info-filter">
+      <option value="">Alle bøker</option>
+      <option value="needsinfo">Mangler info</option>
+    </select>
   </div>
 
   <div class="book-list">
     {books.map((b: any) => (
-      <a class="book-row"
-         href={`/books/${b._id}`}
-         data-title={b.title?.toLowerCase() || ''}
-         data-author={b.author?.toLowerCase() || ''}
-         data-isbn={b.isbn || ''}
-         data-readstatus={b.readStatus || ''}>
-        {b.image
-          ? <img class="book-thumb" src={urlFor(b.image).height(120).url()} alt={b.title} loading="lazy" />
-          : b.externalImageUrl
-          ? <img class="book-thumb" src={b.externalImageUrl} alt={b.title} loading="lazy" />
-          : <div class="book-thumb placeholder">📚</div>
-        }
-        <div class="book-info">
-          <div class="card-title">{b.title}</div>
-          <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
-          <div class="card-meta">
-            {b.publisher && <span class="tag">{b.publisher}</span>}
-            {b.readStatus && <span class="tag">{b.readStatus}</span>}
-            {b.rating && <span class="rating">{b.rating}/10</span>}
+      <div class="book-row-wrap"
+           data-title={b.title?.toLowerCase() || ''}
+           data-author={b.author?.toLowerCase() || ''}
+           data-isbn={b.isbn || ''}
+           data-readstatus={b.readStatus || ''}
+           data-needsinfo={b.needsInfo ? 'yes' : 'no'}>
+        <a class="book-row" href={`/books/${b._id}`}>
+          {b.image
+            ? <img class="book-thumb" src={urlFor(b.image).height(120).url()} alt={b.title} loading="lazy" />
+            : b.externalImageUrl
+            ? <img class="book-thumb" src={b.externalImageUrl} alt={b.title} loading="lazy" />
+            : <div class="book-thumb placeholder">📚</div>
+          }
+          <div class="book-info">
+            <div class="card-title">{b.title}</div>
+            <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
+            <div class="card-meta">
+              {b.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
+              {b.publisher && <span class="tag">{b.publisher}</span>}
+              {b.readStatus && <span class="tag">{b.readStatus}</span>}
+              {b.rating && <span class="rating">{b.rating}/10</span>}
+            </div>
           </div>
-        </div>
-      </a>
+        </a>
+        {b.needsInfo && b.isbn && (
+          <button class="lookup-btn" data-isbn={b.isbn}>🔍 Slå opp</button>
+        )}
+      </div>
     ))}
   </div>
 
@@ -86,14 +96,18 @@ const books = await sanity.fetch(`
     .book-tools input { flex: 1; min-width: 200px; }
 
     .book-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-    .book-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .book-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .book-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
     .book-row:hover { background: rgba(255,255,255,0.03); }
     .book-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
     .book-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
     .book-info { min-width: 0; }
+    .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
   </style>
 
   <script>
+    const lookupBox = document.querySelector('#lookup-box')
     const lookupInput = document.querySelector('#book-lookup')
     function lval() { return lookupInput.value.trim() }
     function isIsbn(s) { return /^[0-9Xx-]{10,17}$/.test(s.replace(/\s/g, '')) }
@@ -116,6 +130,17 @@ const books = await sanity.fetch(`
     }
     document.querySelectorAll('.source-buttons button').forEach((btn) => {
       btn.addEventListener('click', () => openSource(btn.dataset.src))
+    })
+
+    // "Slå opp"-knapp på plassholder-rader: fyll ISBN i feltet og scroll opp
+    document.querySelectorAll('.lookup-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault()
+        lookupInput.value = btn.dataset.isbn
+        lookupBox.open = true
+        lookupBox.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        lookupInput.focus()
+      })
     })
 
     const apiBtn = document.querySelector('#api-lookup')
@@ -168,16 +193,20 @@ const books = await sanity.fetch(`
 
     const searchInput = document.querySelector('#book-search')
     const statusSelect = document.querySelector('#book-status')
+    const infoFilter = document.querySelector('#book-info-filter')
     function updateBooks() {
       const search = searchInput.value.toLowerCase()
       const status = statusSelect.value
-      document.querySelectorAll('.book-row').forEach((row) => {
+      const info = infoFilter.value
+      document.querySelectorAll('.book-row-wrap').forEach((row) => {
         const matchesSearch = row.dataset.title.includes(search) || row.dataset.author.includes(search) || row.dataset.isbn.includes(search)
         const matchesStatus = !status || row.dataset.readstatus === status
-        row.style.display = matchesSearch && matchesStatus ? '' : 'none'
+        const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
+        row.style.display = matchesSearch && matchesStatus && matchesInfo ? '' : 'none'
       })
     }
     searchInput.addEventListener('input', updateBooks)
     statusSelect.addEventListener('change', updateBooks)
+    infoFilter.addEventListener('change', updateBooks)
   </script>
 </Base>

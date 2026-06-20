@@ -1,4 +1,5 @@
 import { createClient } from "@sanity/client"
+import { writeFileSync } from "fs"
 
 const client = createClient({
   projectId: process.env.SANITY_PROJECT_ID!,
@@ -13,6 +14,17 @@ const ISBNS = [
   "9781506715735",
   "9781908172983",
   "9781908172525",
+  "9781908172167",
+  "9781906064549",
+  "9781903511497",
+  "9784087792782",
+  "9781903511534",
+  "9781903511336",
+  "9781903511107",
+  "9780953711208",
+  "9781566867146",
+  "9780744010244",
+  "9780744012996",
 ]
 
 function cleanIsbn(raw: string) {
@@ -28,7 +40,6 @@ function parsePages(data: any): number | undefined {
   return undefined
 }
 
-// Kilde 1: Open Library
 async function fetchWithTimeout(url: string, ms = 8000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ms)
@@ -51,7 +62,7 @@ async function lookupOpenLibrary(isbn: string) {
       year: data.publish_date ? Number((String(data.publish_date).match(/\d{4}/) || [])[0]) || undefined : undefined,
       publisher: (data.publishers || []).map((p: any) => p.name).join(", ") || "",
       pages: parsePages(data),
-      externalImageUrl: data.cover?.large || data.cover?.medium || `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`,
+      externalImageUrl: data.cover?.large || data.cover?.medium || "",
       source: "OpenLibrary",
     }
   } catch (e) {
@@ -77,7 +88,7 @@ async function lookupGoogleBooks(isbn: string) {
       year: v.publishedDate ? Number((String(v.publishedDate).match(/\d{4}/) || [])[0]) || undefined : undefined,
       publisher: v.publisher || "",
       pages: v.pageCount || undefined,
-      externalImageUrl: cover || `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`,
+      externalImageUrl: cover || "",
       source: "GoogleBooks",
     }
   } catch (e) {
@@ -99,8 +110,9 @@ async function main() {
   const existingSet = new Set(existing.filter(Boolean))
 
   let created = 0
+  let placeholders = 0
   let skipped = 0
-  let failed = 0
+  const missing: string[] = []
 
   for (const raw of ISBNS) {
     const isbn = cleanIsbn(raw)
@@ -113,9 +125,21 @@ async function main() {
     }
 
     const info = await lookup(isbn)
+
     if (!info || !info.title) {
-      console.log(`FANT IKKE: ${isbn} — legg inn manuelt i Studio`)
-      failed++
+      await client.create({
+        _id: `book-isbn-${isbn}`,
+        _type: "book",
+        isbn,
+        title: `Ukjent bok (${isbn})`,
+        author: "Ukjent",
+        genre: "Game Guide",
+        needsInfo: true,
+      })
+      console.log(`PLASSHOLDER opprettet (mangler info): ${isbn}`)
+      missing.push(isbn)
+      placeholders++
+      await new Promise((r) => setTimeout(r, 300))
       continue
     }
 
@@ -125,6 +149,7 @@ async function main() {
       _type: "book",
       isbn,
       genre: "Game Guide",
+      needsInfo: false,
       ...fields,
     })
 
@@ -133,7 +158,14 @@ async function main() {
     await new Promise((r) => setTimeout(r, 300))
   }
 
-  console.log(`DONE — ${created} opprettet, ${skipped} hoppet over, ${failed} ikke funnet`)
+  console.log(`\nDONE — ${created} med data, ${placeholders} plassholdere, ${skipped} hoppet over`)
+
+  if (missing.length > 0) {
+    console.log(`\n=== ISBN-er som må fylles inn manuelt ===`)
+    missing.forEach((isbn) => console.log(isbn))
+    writeFileSync("missing-isbns.txt", missing.join("\n") + "\n")
+    console.log(`\nSkrevet til scripts/missing-isbns.txt`)
+  }
 }
 
 main().catch((err) => {

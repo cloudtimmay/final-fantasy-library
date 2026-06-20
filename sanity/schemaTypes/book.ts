@@ -12,6 +12,7 @@ export const book = defineType({
     defineField({ name: 'year', title: 'Publication year', type: 'number' }),
     defineField({ name: 'publisher', title: 'Publisher', type: 'string' }),
     defineField({ name: 'isbn', title: 'ISBN', type: 'string' }),
+    defineField({ name: 'needsInfo', title: 'Mangler info', type: 'boolean', initialValue: false }),
     defineField({ name: 'pages', title: 'Pages', type: 'number' }),
     defineField({ name: 'externalImageUrl', title: 'External Image URL', type: 'url' }),
     defineField({

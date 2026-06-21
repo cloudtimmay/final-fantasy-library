@@ -72,8 +72,8 @@ const books = await sanity.fetch(`
             </div>
           </div>
         </a>
-        {b.needsInfo && b.isbn && (
-          <button class="lookup-btn" data-isbn={b.isbn}>🔍 Slå opp</button>
+        {b.needsInfo && (
+          <button class="lookup-btn" data-query={b.isbn || b.title}>🔍 Slå opp</button>
         )}
       </div>
     ))}
@@ -132,11 +132,10 @@ const books = await sanity.fetch(`
       btn.addEventListener('click', () => openSource(btn.dataset.src))
     })
 
-    // "Slå opp"-knapp på plassholder-rader: fyll ISBN i feltet og scroll opp
     document.querySelectorAll('.lookup-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.preventDefault()
-        lookupInput.value = btn.dataset.isbn
+        lookupInput.value = btn.dataset.query
         lookupBox.open = true
         lookupBox.scrollIntoView({ behavior: 'smooth', block: 'start' })
         lookupInput.focus()

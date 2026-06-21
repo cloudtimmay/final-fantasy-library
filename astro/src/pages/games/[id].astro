@@ -41,7 +41,7 @@ if (!g) return Astro.redirect('/games')
 
     <table class="meta-table">
       {g.year             && <tr><td>Year</td><td>{g.year}</td></tr>}
-      {g.platform?.length && <tr><td>Platform</td><td>{g.platform.join(', ')}</td></tr>}
+      {g.platform && <tr><td>Platform</td><td>{g.platform}</td></tr>}
       {g.genre            && <tr><td>Genre</td><td>{g.genre}</td></tr>}
       {g.publisher        && <tr><td>Publisher</td><td>{g.publisher}</td></tr>}
       {g.completionStatus && <tr><td>Progress</td><td>{g.completionStatus}</td></tr>}

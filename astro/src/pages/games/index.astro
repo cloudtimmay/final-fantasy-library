@@ -8,7 +8,7 @@ const games = await sanity.fetch(`
   }
 `)
 
-const platformList = [...new Set(games.flatMap((g: any) => g.platform || []))].sort()
+const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolean))].sort()
 ---
 <Base title="Games">
   <div class="page-header">
@@ -46,7 +46,7 @@ const platformList = [...new Set(games.flatMap((g: any) => g.platform || []))].s
       <div class="game-row-wrap"
            data-title={g.title?.toLowerCase() || ''}
            data-developer={g.developer?.toLowerCase() || ''}
-           data-platform={(g.platform || []).join(',').toLowerCase()}
+           data-platform={(g.platform || '').toLowerCase()}
            data-needsinfo={g.needsInfo ? 'yes' : 'no'}>
         <a class="game-row" href={`/games/${g._id}`}>
           {g.image
@@ -60,7 +60,7 @@ const platformList = [...new Set(games.flatMap((g: any) => g.platform || []))].s
             <div class="card-sub">{g.developer}{g.year ? ` · ${g.year}` : ''}</div>
             <div class="card-meta">
               {g.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
-              {(g.platform || []).map((p: string) => <span class="tag">{p}</span>)}
+              {g.platform && <span class="tag">{g.platform}</span>}
               {g.completionStatus && <span class="tag">{g.completionStatus}</span>}
               {g.rating && <span class="rating">{g.rating}/10</span>}
             </div>
@@ -139,7 +139,7 @@ const platformList = [...new Set(games.flatMap((g: any) => g.platform || []))].s
       const info = infoFilter.value
       document.querySelectorAll('.game-row-wrap').forEach((row) => {
         const matchesSearch = row.dataset.title.includes(search) || row.dataset.developer.includes(search)
-        const matchesPlatform = !platform || row.dataset.platform.split(',').includes(platform)
+        const matchesPlatform = !platform || row.dataset.platform === platform
         const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
         row.style.display = matchesSearch && matchesPlatform && matchesInfo ? '' : 'none'
       })

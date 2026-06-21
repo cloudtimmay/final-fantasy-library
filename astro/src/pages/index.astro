@@ -14,7 +14,7 @@ const recentlyAdded = await sanity.fetch(`
     _id, _type, title, externalImageUrl, catalogNumber,
     "sub": select(
       _type == "album" => artist,
-      _type == "game"  => platform[0],
+      _type == "game"  => platform,
       _type == "figure"=> series,
       _type == "book"  => author
     ),

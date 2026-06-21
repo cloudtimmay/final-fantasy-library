@@ -18,14 +18,12 @@ export const game = defineType({
     
     defineField({
       name: 'platform',
-      title: 'Platform(s)',
-      type: 'array',
-      of: [{ type: 'string' }],
+      title: 'Platform',
+      type: 'string',
       options: {
         list: ['NES', 'SNES', 'PS1', 'PS2', 'PS3', 'PS4', 'PS5', 'PSP', 'PSVITA',
           'XBOX', 'PC', 'DS', '3DS', 'SWITCH', 'SWITCH2',
           'GAMECUBE', 'WII', 'WIIU'],
-        layout: 'tags',
       },
     }),
     defineField({

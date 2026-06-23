@@ -21,6 +21,7 @@ export default defineConfig({
             S.listItem().title('Games').schemaType('game').child(S.documentTypeList('game')),
             S.listItem().title('Figures').schemaType('figure').child(S.documentTypeList('figure')),
             S.listItem().title('Books').schemaType('book').child(S.documentTypeList('book')),
+            S.listItem().title('Shop Notes').schemaType('shopNote').child(S.documentTypeList('shopNote')),
           ]),
     }),
     visionTool(),

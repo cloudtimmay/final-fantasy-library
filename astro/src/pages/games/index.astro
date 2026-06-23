@@ -9,6 +9,15 @@ const games = await sanity.fetch(`
 `)
 
 const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolean))].sort()
+
+const now = Date.now()
+function isNew(acquiredDate: string | undefined): boolean {
+  if (!acquiredDate) return false
+  const d = new Date(acquiredDate).getTime()
+  if (isNaN(d)) return false
+  const days = (now - d) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 30
+}
 ---
 <Base title="Games">
   <div class="page-header">
@@ -31,6 +40,10 @@ const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolea
 
   <div class="game-tools">
     <input id="game-search" type="search" placeholder="Søk i mine spill..." />
+    <select id="game-sort">
+      <option value="title">Sorter på tittel</option>
+      <option value="acquired">Sorter på kjøpsdato</option>
+    </select>
     <select id="game-platform">
       <option value="">Alle plattformer</option>
       {platformList.map((p: any) => <option value={p}>{p}</option>)}
@@ -47,7 +60,8 @@ const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolea
            data-title={g.title?.toLowerCase() || ''}
            data-developer={g.developer?.toLowerCase() || ''}
            data-platform={(g.platform || '').toLowerCase()}
-           data-needsinfo={g.needsInfo ? 'yes' : 'no'}>
+           data-needsinfo={g.needsInfo ? 'yes' : 'no'}
+           data-acquired={g.acquiredDate || ''}>
         <a class="game-row" href={`/games/${g._id}`}>
           {g.image
             ? <img class="game-thumb" src={urlFor(g.image).height(120).url()} alt={g.title} loading="lazy" />
@@ -59,6 +73,7 @@ const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolea
             <div class="card-title">{g.title}</div>
             <div class="card-sub">{g.developer}{g.year ? ` · ${g.year}` : ''}</div>
             <div class="card-meta">
+              {isNew(g.acquiredDate) && <span class="tag new-tag">NY</span>}
               {g.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
               {g.platform && <span class="tag">{g.platform}</span>}
               {g.completionStatus && <span class="tag">{g.completionStatus}</span>}
@@ -95,6 +110,7 @@ const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolea
     .game-info { min-width: 0; }
     .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
     .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .game-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
@@ -130,21 +146,42 @@ const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolea
     })
 
     const searchInput = document.querySelector('#game-search')
+    const sortSelect = document.querySelector('#game-sort')
     const platformSelect = document.querySelector('#game-platform')
     const infoFilter = document.querySelector('#game-info-filter')
+    const list = document.querySelector('.game-list')
 
     function updateGames() {
       const search = searchInput.value.toLowerCase()
+      const sort = sortSelect.value
       const platform = platformSelect.value.toLowerCase()
       const info = infoFilter.value
-      document.querySelectorAll('.game-row-wrap').forEach((row) => {
+      const rows = Array.from(document.querySelectorAll('.game-row-wrap'))
+
+      rows.forEach((row) => {
         const matchesSearch = row.dataset.title.includes(search) || row.dataset.developer.includes(search)
         const matchesPlatform = !platform || row.dataset.platform === platform
         const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
         row.style.display = matchesSearch && matchesPlatform && matchesInfo ? '' : 'none'
       })
+
+      rows
+        .sort((a, b) => {
+          if (sort === 'acquired') {
+            const ad = a.dataset.acquired || ''
+            const bd = b.dataset.acquired || ''
+            if (!ad && !bd) return 0
+            if (!ad) return 1
+            if (!bd) return -1
+            return bd.localeCompare(ad)
+          }
+          return a.dataset.title.localeCompare(b.dataset.title)
+        })
+        .forEach((row) => list.appendChild(row))
     }
+
     searchInput.addEventListener('input', updateGames)
+    sortSelect.addEventListener('change', updateGames)
     platformSelect.addEventListener('change', updateGames)
     infoFilter.addEventListener('change', updateGames)
   </script>

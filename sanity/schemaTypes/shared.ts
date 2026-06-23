@@ -42,6 +42,7 @@ export const sharedFields = [
     name: 'acquiredDate',
     title: 'Acquired',
     type: 'date',
+    initialValue: () => new Date().toISOString().split('T')[0],
   },
   {
     name: 'purchasePrice',

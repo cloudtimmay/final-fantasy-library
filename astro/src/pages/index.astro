@@ -10,8 +10,9 @@ const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
 ])
 
 const recentlyAdded = await sanity.fetch(`
-  *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))] | order(_createdAt desc, _id) [0..7] {
-    _id, _type, title, externalImageUrl, catalogNumber,
+  *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))]
+    | order(coalesce(acquiredDate, _createdAt) desc, _id) [0..19] {
+    _id, _type, title, externalImageUrl, catalogNumber, acquiredDate,
     "sub": select(
       _type == "album" => artist,
       _type == "game"  => platform,
@@ -21,6 +22,16 @@ const recentlyAdded = await sanity.fetch(`
     status, rating, image
   }
 `)
+
+// "NY" hvis kjøpt siste 30 dager
+const now = Date.now()
+function isNew(acquiredDate: string | undefined): boolean {
+  if (!acquiredDate) return false
+  const d = new Date(acquiredDate).getTime()
+  if (isNaN(d)) return false
+  const days = (now - d) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 30
+}
 ---
 <Base title="Dashboard">
   <div class="page-header">
@@ -72,8 +83,10 @@ const recentlyAdded = await sanity.fetch(`
 
         <div class="recent-info">
           <div class="card-title">{item.title}</div>
-          {item.sub && <div class="card-sub">{item.sub}</div>}
+          {item.sub && <div class="card-sub">{Array.isArray(item.sub) ? item.sub.join(', ') : item.sub}</div>}
           <div class="card-meta">
+            {isNew(item.acquiredDate) && <span class="tag new-tag">NY</span>}
+            {item.acquiredDate && <span class="tag">Kjøpt {item.acquiredDate}</span>}
             {item.catalogNumber && <span class="tag">{item.catalogNumber}</span>}
             {item.rating && <span class="rating">{item.rating}/10</span>}
             {item.status && <span class={`status-dot ${item.status}`}></span>}
@@ -121,6 +134,12 @@ const recentlyAdded = await sanity.fetch(`
 
     .recent-info {
       min-width: 0;
+    }
+
+    .recent-row .card-meta .new-tag {
+      background: #2ecc71 !important;
+      color: #06281a !important;
+      font-weight: 700;
     }
   </style>
 </Base>

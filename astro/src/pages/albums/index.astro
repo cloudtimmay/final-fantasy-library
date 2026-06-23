@@ -12,6 +12,15 @@ const albums = await sanity.fetch(`
 `)
 
 const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))].sort()
+
+const now = Date.now()
+function isNew(acquiredDate: string | undefined): boolean {
+  if (!acquiredDate) return false
+  const d = new Date(acquiredDate).getTime()
+  if (isNaN(d)) return false
+  const days = (now - d) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 30
+}
 ---
 <Base title="Albums">
   <div class="page-header">
@@ -30,6 +39,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
       <option value="title">Sort by name</option>
       <option value="year">Sort by year</option>
       <option value="catalog">Sort by catalog number</option>
+      <option value="acquired">Sort by date acquired</option>
     </select>
     <select id="album-status">
       <option value="">All statuses</option>
@@ -46,7 +56,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
 
   <div class="album-list">
     {albums.map((a: any) => (
-      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''}>
+      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
         {a.externalImageUrl
           ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
           : <div class="album-thumb placeholder">🎵</div>
@@ -55,6 +65,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
           <div class="card-title">{a.title}</div>
           <div class="card-sub">{a.composer || a.artist}</div>
           <div class="card-meta">
+            {isNew(a.acquiredDate) && <span class="tag new-tag">NY</span>}
             {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
             {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
             {a.year && <span class="tag">{a.year}</span>}
@@ -79,6 +90,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
     .wishlist-tag { background: var(--wishlist); color: var(--bg); }
     .album-tools { display: flex; gap: 0.75rem; margin: 0.5rem 0 1.5rem; flex-wrap: wrap; }
     .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .album-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
@@ -126,6 +138,15 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
             return by - ay
           }
           if (sort === 'catalog') return a.dataset.catalog.localeCompare(b.dataset.catalog)
+          if (sort === 'acquired') {
+            // Nyeste kjøp først; tomme datoer havner nederst
+            const ad = a.dataset.acquired || ''
+            const bd = b.dataset.acquired || ''
+            if (!ad && !bd) return 0
+            if (!ad) return 1
+            if (!bd) return -1
+            return bd.localeCompare(ad)
+          }
           return a.dataset.title.localeCompare(b.dataset.title)
         })
         .forEach((row) => list.appendChild(row))

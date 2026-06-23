@@ -7,6 +7,15 @@ const books = await sanity.fetch(`
     _id, title, author, year, genre, publisher, isbn, readStatus, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
+
+const now = Date.now()
+function isNew(acquiredDate: string | undefined): boolean {
+  if (!acquiredDate) return false
+  const d = new Date(acquiredDate).getTime()
+  if (isNaN(d)) return false
+  const days = (now - d) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 30
+}
 ---
 <Base title="Books">
   <div class="page-header">
@@ -33,6 +42,10 @@ const books = await sanity.fetch(`
 
   <div class="book-tools">
     <input id="book-search" type="search" placeholder="Søk i mine bøker..." />
+    <select id="book-sort">
+      <option value="title">Sorter på tittel</option>
+      <option value="acquired">Sorter på kjøpsdato</option>
+    </select>
     <select id="book-status">
       <option value="">All read status</option>
       <option value="unread">Unread</option>
@@ -53,7 +66,8 @@ const books = await sanity.fetch(`
            data-author={b.author?.toLowerCase() || ''}
            data-isbn={b.isbn || ''}
            data-readstatus={b.readStatus || ''}
-           data-needsinfo={b.needsInfo ? 'yes' : 'no'}>
+           data-needsinfo={b.needsInfo ? 'yes' : 'no'}
+           data-acquired={b.acquiredDate || ''}>
         <a class="book-row" href={`/books/${b._id}`}>
           {b.image
             ? <img class="book-thumb" src={urlFor(b.image).height(120).url()} alt={b.title} loading="lazy" />
@@ -65,6 +79,7 @@ const books = await sanity.fetch(`
             <div class="card-title">{b.title}</div>
             <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
             <div class="card-meta">
+              {isNew(b.acquiredDate) && <span class="tag new-tag">NY</span>}
               {b.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
               {b.publisher && <span class="tag">{b.publisher}</span>}
               {b.readStatus && <span class="tag">{b.readStatus}</span>}
@@ -104,6 +119,7 @@ const books = await sanity.fetch(`
     .book-info { min-width: 0; }
     .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
     .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .book-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
@@ -191,20 +207,42 @@ const books = await sanity.fetch(`
     })
 
     const searchInput = document.querySelector('#book-search')
+    const sortSelect = document.querySelector('#book-sort')
     const statusSelect = document.querySelector('#book-status')
     const infoFilter = document.querySelector('#book-info-filter')
+    const list = document.querySelector('.book-list')
+
     function updateBooks() {
       const search = searchInput.value.toLowerCase()
+      const sort = sortSelect.value
       const status = statusSelect.value
       const info = infoFilter.value
-      document.querySelectorAll('.book-row-wrap').forEach((row) => {
+      const rows = Array.from(document.querySelectorAll('.book-row-wrap'))
+
+      rows.forEach((row) => {
         const matchesSearch = row.dataset.title.includes(search) || row.dataset.author.includes(search) || row.dataset.isbn.includes(search)
         const matchesStatus = !status || row.dataset.readstatus === status
         const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
         row.style.display = matchesSearch && matchesStatus && matchesInfo ? '' : 'none'
       })
+
+      rows
+        .sort((a, b) => {
+          if (sort === 'acquired') {
+            const ad = a.dataset.acquired || ''
+            const bd = b.dataset.acquired || ''
+            if (!ad && !bd) return 0
+            if (!ad) return 1
+            if (!bd) return -1
+            return bd.localeCompare(ad)
+          }
+          return a.dataset.title.localeCompare(b.dataset.title)
+        })
+        .forEach((row) => list.appendChild(row))
     }
+
     searchInput.addEventListener('input', updateBooks)
+    sortSelect.addEventListener('change', updateBooks)
     statusSelect.addEventListener('change', updateBooks)
     infoFilter.addEventListener('change', updateBooks)
   </script>

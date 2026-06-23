@@ -1,0 +1,93 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+const notes = await sanity.fetch(`
+  *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
+    _id, shopName, area, note, priority, address
+  }
+`)
+
+const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
+---
+<Base title="Shop Notes">
+  <div class="page-header">
+    <h1>Shop Notes</h1>
+    <span class="count">{notes.length} places</span>
+  </div>
+
+  <p class="hint">Places to check and notes from the trip. Edit in Studio.</p>
+
+  <div class="notes-tools">
+    <select id="area-filter">
+      <option value="">All areas</option>
+      {areas.map((a: any) => <option value={a}>{a}</option>)}
+    </select>
+    <select id="priority-filter">
+      <option value="">All</option>
+      <option value="must">Must visit</option>
+      <option value="maybe">Worth a look</option>
+      <option value="visited">Visited</option>
+    </select>
+  </div>
+
+  <div class="notes-list">
+    {notes.map((n: any) => {
+      const mapQuery = encodeURIComponent([n.shopName, n.area, n.address].filter(Boolean).join(' '))
+      return (
+        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''}>
+          <div class="note-head">
+            <span class="note-name">{n.shopName}</span>
+            {n.priority === 'must' && <span class="tag must">Must visit</span>}
+            {n.priority === 'maybe' && <span class="tag maybe">Worth a look</span>}
+            {n.priority === 'visited' && <span class="tag visited">Visited</span>}
+          </div>
+          {n.area && <div class="note-area">📍 {n.area}</div>}
+          {n.note && <div class="note-body">{n.note}</div>}
+          {n.address && <div class="note-address">{n.address}</div>}
+          <a class="map-btn" href={`https://www.google.com/maps/search/?api=1&query=${mapQuery}`} target="_blank" rel="noopener">🗺️ Open in Maps</a>
+        </div>
+      )
+    })}
+  </div>
+
+  <style>
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+    .notes-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .notes-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+
+    .notes-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .note-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .note-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+    .note-name { font-weight: 700; font-size: 1.05rem; }
+    .note-area { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .note-body { white-space: pre-wrap; font-size: 0.95rem; margin-bottom: 0.5rem; }
+    .note-address { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; }
+    .tag { padding: 0.25rem 0.55rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+    .tag.must { background: #e74c3c; color: #fff; }
+    .tag.maybe { background: #f39c12; color: #2a1a04; }
+    .tag.visited { background: #2ecc71; color: #06281a; }
+    .map-btn {
+      display: inline-block; background: var(--bg); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.45rem 0.8rem; border-radius: 6px;
+      text-decoration: none; font-size: 0.85rem;
+    }
+    .map-btn:hover { background: rgba(255,255,255,0.04); }
+  </style>
+
+  <script>
+    const areaFilter = document.querySelector('#area-filter')
+    const priorityFilter = document.querySelector('#priority-filter')
+    function update() {
+      const area = areaFilter.value
+      const priority = priorityFilter.value
+      document.querySelectorAll('.note-card').forEach((card) => {
+        const matchesArea = !area || card.dataset.area === area
+        const matchesPriority = !priority || card.dataset.priority === priority
+        card.style.display = matchesArea && matchesPriority ? '' : 'none'
+      })
+    }
+    areaFilter.addEventListener('change', update)
+    priorityFilter.addEventListener('change', update)
+  </script>
+</Base>

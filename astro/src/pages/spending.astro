@@ -13,7 +13,7 @@ const items = await sanity.fetch(`
     <h1>Spending</h1>
   </div>
 
-  <p class="hint">Totals are calculated from items that have a purchase price. Set the period to see trip spending.</p>
+  <p class="hint">Totals are calculated from items that have a purchase price. JPY is converted to NOK using the rate below (editable — set it to match your card).</p>
 
   <div class="period-tools">
     <label>From <input id="from-date" type="date" /></label>
@@ -22,14 +22,26 @@ const items = await sanity.fetch(`
     <button id="period-all">All time</button>
   </div>
 
+  <div class="rate-row">
+    <label>1 JPY = <input id="rate" type="number" step="0.0001" value="0.060" /> NOK</label>
+  </div>
+
   <div class="totals">
     <div class="total-card">
       <div class="total-label">Total (JPY)</div>
       <div class="total-num" id="total-yen">¥0</div>
     </div>
     <div class="total-card">
-      <div class="total-label">Total (NOK)</div>
+      <div class="total-label">JPY → NOK (est.)</div>
+      <div class="total-num" id="total-yen-nok">0 kr</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Logged NOK</div>
       <div class="total-num" id="total-nok">0 kr</div>
+    </div>
+    <div class="total-card highlight">
+      <div class="total-label">Combined (NOK)</div>
+      <div class="total-num" id="total-combined">0 kr</div>
     </div>
     <div class="total-card">
       <div class="total-label">Items</div>
@@ -42,9 +54,12 @@ const items = await sanity.fetch(`
   <script define:vars={{ items }}>
     const fromInput = document.querySelector('#from-date')
     const toInput = document.querySelector('#to-date')
+    const rateInput = document.querySelector('#rate')
     const list = document.querySelector('#spend-list')
     const totalYenEl = document.querySelector('#total-yen')
+    const totalYenNokEl = document.querySelector('#total-yen-nok')
     const totalNokEl = document.querySelector('#total-nok')
+    const totalCombinedEl = document.querySelector('#total-combined')
     const totalCountEl = document.querySelector('#total-count')
 
     function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
@@ -60,7 +75,7 @@ const items = await sanity.fetch(`
     function update() {
       const from = fromInput.value
       const to = toInput.value
-      // If no period set, include everything
+      const rate = Number(rateInput.value) || 0
       const filtered = (!from && !to)
         ? items.slice()
         : items.filter((i) => inRange(i.acquiredDate, from, to))
@@ -71,8 +86,11 @@ const items = await sanity.fetch(`
         if (i.purchasePrice) nok += Number(i.purchasePrice)
       })
 
+      const yenAsNok = yen * rate
       totalYenEl.textContent = fmtYen(yen)
+      totalYenNokEl.textContent = fmtNok(yenAsNok)
       totalNokEl.textContent = fmtNok(nok)
+      totalCombinedEl.textContent = fmtNok(yenAsNok + nok)
       totalCountEl.textContent = filtered.length
 
       const sorted = filtered.slice().sort((a, b) => (b.acquiredDate || '').localeCompare(a.acquiredDate || ''))
@@ -104,21 +122,27 @@ const items = await sanity.fetch(`
     })
     fromInput.addEventListener('change', update)
     toInput.addEventListener('change', update)
+    rateInput.addEventListener('input', update)
 
     update()
   </script>
 
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
-    .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
     .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
     .period-tools input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; }
     .period-tools button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
 
+    .rate-row { margin-bottom: 1.5rem; }
+    .rate-row label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
+    .rate-row input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; width: 100px; }
+
     .totals { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
-    .total-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; flex: 1; min-width: 140px; }
+    .total-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; flex: 1; min-width: 120px; }
+    .total-card.highlight { border-color: var(--accent); }
     .total-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
-    .total-num { font-size: 1.6rem; font-weight: 700; }
+    .total-num { font-size: 1.4rem; font-weight: 700; }
 
     .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
     .spend-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }

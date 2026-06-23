@@ -1,0 +1,130 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+const items = await sanity.fetch(`
+  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**")) && (defined(purchasePrice) || defined(purchasePriceYen))] {
+    _id, _type, title, acquiredDate, purchasePrice, purchasePriceYen, status
+  }
+`)
+---
+<Base title="Spending">
+  <div class="page-header">
+    <h1>Spending</h1>
+  </div>
+
+  <p class="hint">Totals are calculated from items that have a purchase price. Set the period to see trip spending.</p>
+
+  <div class="period-tools">
+    <label>From <input id="from-date" type="date" /></label>
+    <label>To <input id="to-date" type="date" /></label>
+    <button id="period-30">Last 30 days</button>
+    <button id="period-all">All time</button>
+  </div>
+
+  <div class="totals">
+    <div class="total-card">
+      <div class="total-label">Total (JPY)</div>
+      <div class="total-num" id="total-yen">¥0</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Total (NOK)</div>
+      <div class="total-num" id="total-nok">0 kr</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Items</div>
+      <div class="total-num" id="total-count">0</div>
+    </div>
+  </div>
+
+  <div class="spend-list" id="spend-list"></div>
+
+  <script define:vars={{ items }}>
+    const fromInput = document.querySelector('#from-date')
+    const toInput = document.querySelector('#to-date')
+    const list = document.querySelector('#spend-list')
+    const totalYenEl = document.querySelector('#total-yen')
+    const totalNokEl = document.querySelector('#total-nok')
+    const totalCountEl = document.querySelector('#total-count')
+
+    function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
+    function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
+
+    function inRange(dateStr, from, to) {
+      if (!dateStr) return false
+      if (from && dateStr < from) return false
+      if (to && dateStr > to) return false
+      return true
+    }
+
+    function update() {
+      const from = fromInput.value
+      const to = toInput.value
+      // If no period set, include everything
+      const filtered = (!from && !to)
+        ? items.slice()
+        : items.filter((i) => inRange(i.acquiredDate, from, to))
+
+      let yen = 0, nok = 0
+      filtered.forEach((i) => {
+        if (i.purchasePriceYen) yen += Number(i.purchasePriceYen)
+        if (i.purchasePrice) nok += Number(i.purchasePrice)
+      })
+
+      totalYenEl.textContent = fmtYen(yen)
+      totalNokEl.textContent = fmtNok(nok)
+      totalCountEl.textContent = filtered.length
+
+      const sorted = filtered.slice().sort((a, b) => (b.acquiredDate || '').localeCompare(a.acquiredDate || ''))
+      list.innerHTML = sorted.map((i) => {
+        const icon = i._type === 'album' ? '🎵' : i._type === 'game' ? '🎮' : i._type === 'book' ? '📚' : '🗿'
+        const yenStr = i.purchasePriceYen ? fmtYen(i.purchasePriceYen) : ''
+        const nokStr = i.purchasePrice ? fmtNok(i.purchasePrice) : ''
+        const price = [yenStr, nokStr].filter(Boolean).join(' · ')
+        return `<div class="spend-row">
+          <span class="spend-icon">${icon}</span>
+          <span class="spend-title">${i.title || ''}</span>
+          <span class="spend-date">${i.acquiredDate || ''}</span>
+          <span class="spend-price">${price}</span>
+        </div>`
+      }).join('')
+    }
+
+    document.querySelector('#period-30').addEventListener('click', () => {
+      const now = new Date()
+      const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      toInput.value = now.toISOString().split('T')[0]
+      fromInput.value = past.toISOString().split('T')[0]
+      update()
+    })
+    document.querySelector('#period-all').addEventListener('click', () => {
+      fromInput.value = ''
+      toInput.value = ''
+      update()
+    })
+    fromInput.addEventListener('change', update)
+    toInput.addEventListener('change', update)
+
+    update()
+  </script>
+
+  <style>
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
+    .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
+    .period-tools input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; }
+    .period-tools button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+
+    .totals { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    .total-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; flex: 1; min-width: 140px; }
+    .total-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .total-num { font-size: 1.6rem; font-weight: 700; }
+
+    .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .spend-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .spend-icon { flex-shrink: 0; }
+    .spend-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .spend-date { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
+    .spend-price { font-weight: 600; flex-shrink: 0; }
+  </style>
+</Base>

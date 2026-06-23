@@ -19,4 +19,4 @@ export function urlFor(source: any) {
 
 // Re-usable GROQ query fragments
 export const SHARED_FIELDS =
-  `status, rating, tags, image, acquiredDate, purchasePrice, notes`
+  `status, rating, tags, image, acquiredDate, purchasePrice, purchasePriceYen, notes`

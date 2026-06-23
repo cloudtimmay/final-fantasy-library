@@ -50,6 +50,11 @@ export const sharedFields = [
     type: 'number',
   },
   {
+    name: 'purchasePriceYen',
+    title: 'Purchase price (JPY)',
+    type: 'number',
+  },
+  {
     name: 'notes',
     title: 'Notes',
     type: 'text',

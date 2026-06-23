@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
+
+const items = await sanity.fetch(`
+  *[_type in ["album","game","book","figure"] && status == "wishlist" && !(_id in path("drafts.**"))]
+    | order(_type asc, title asc) {
+    _id, _type, title, catalogNumber, barcode, isbn, year, image, externalImageUrl,
+    "creator": select(
+      _type == "album" => coalesce(composer, artist),
+      _type == "game"  => developer,
+      _type == "book"  => author,
+      _type == "figure"=> series
+    )
+  }
+`)
+---
+<Base title="Wishlist">
+  <div class="page-header">
+    <h1>Wishlist / Hunt list</h1>
+    <span class="count">{items.length} items</span>
+  </div>
+
+  <p class="hint">What you're looking for. Tap the lookup link to pull up details in a store.</p>
+
+  <div class="wish-tools">
+    <input id="wish-search" type="search" placeholder="Search wishlist..." />
+    <select id="wish-type">
+      <option value="">All types</option>
+      <option value="album">Albums</option>
+      <option value="game">Games</option>
+      <option value="book">Books</option>
+      <option value="figure">Figures</option>
+    </select>
+  </div>
+
+  <div class="wish-list">
+    {items.map((i: any) => {
+      const q = encodeURIComponent(i.title || '')
+      let lookupUrl = ''
+      let lookupLabel = ''
+      if (i._type === 'album') { lookupUrl = `https://vgmdb.net/search?q=${q}`; lookupLabel = 'VGMdb' }
+      else if (i._type === 'book') { lookupUrl = `https://openlibrary.org/search?q=${q}`; lookupLabel = 'Open Library' }
+      else if (i._type === 'game') { lookupUrl = `https://www.mobygames.com/search/?q=${q}`; lookupLabel = 'MobyGames' }
+      else { lookupUrl = `https://myfigurecollection.net/?_tb=item&keywords=${q}`; lookupLabel = 'MFC' }
+      const ref = i.catalogNumber || i.barcode || i.isbn || ''
+      return (
+        <div class="wish-row-wrap"
+             data-title={i.title?.toLowerCase() || ''}
+             data-creator={(i.creator || '').toLowerCase()}
+             data-ref={ref.toLowerCase()}
+             data-type={i._type}>
+          <a class="wish-row" href={`/${i._type}s/${i._id}`}>
+            {i.image
+              ? <img class="wish-thumb" src={urlFor(i.image).height(120).url()} alt={i.title} loading="lazy" />
+              : i.externalImageUrl
+              ? <img class="wish-thumb" src={i.externalImageUrl} alt={i.title} loading="lazy" />
+              : <div class="wish-thumb placeholder">{i._type === 'album' ? '🎵' : i._type === 'game' ? '🎮' : i._type === 'book' ? '📚' : '🗿'}</div>
+            }
+            <div class="wish-info">
+              <div class="card-title">{i.title}</div>
+              <div class="card-sub">{i.creator}{i.year ? ` · ${i.year}` : ''}</div>
+              <div class="card-meta">
+                <span class="tag type-tag">{i._type}</span>
+                {ref && <span class="tag">{ref}</span>}
+              </div>
+            </div>
+          </a>
+          <a class="wish-lookup" href={lookupUrl} target="_blank" rel="noopener">{lookupLabel} ↗</a>
+        </div>
+      )
+    })}
+  </div>
+
+  <style>
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+    .wish-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .wish-tools input, .wish-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .wish-tools input { flex: 1; min-width: 200px; }
+
+    .wish-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .wish-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .wish-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
+    .wish-row:hover { background: rgba(255,255,255,0.03); }
+    .wish-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
+    .wish-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .wish-info { min-width: 0; }
+    .type-tag { background: var(--border); color: var(--text); text-transform: capitalize; }
+    .wish-lookup {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.45rem 0.7rem; border-radius: 6px; text-decoration: none; font-size: 0.8rem;
+      white-space: nowrap; flex-shrink: 0;
+    }
+  </style>
+
+  <script>
+    const searchInput = document.querySelector('#wish-search')
+    const typeSelect = document.querySelector('#wish-type')
+
+    function updateWish() {
+      const search = searchInput.value.toLowerCase()
+      const type = typeSelect.value
+      document.querySelectorAll('.wish-row-wrap').forEach((row) => {
+        const matchesSearch =
+          row.dataset.title.includes(search) ||
+          row.dataset.creator.includes(search) ||
+          row.dataset.ref.includes(search)
+        const matchesType = !type || row.dataset.type === type
+        row.style.display = matchesSearch && matchesType ? '' : 'none'
+      })
+    }
+    searchInput.addEventListener('input', updateWish)
+    typeSelect.addEventListener('change', updateWish)
+  </script>
+</Base>

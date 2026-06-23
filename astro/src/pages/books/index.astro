@@ -24,9 +24,9 @@ function isNew(acquiredDate: string | undefined): boolean {
   </div>
 
   <details class="lookup-box" id="lookup-box">
-    <summary>Slå opp en bok eksternt (ISBN eller tittel)</summary>
+    <summary>Look up a book externally (ISBN or title)</summary>
     <div class="lookup-inner">
-      <input id="book-lookup" type="search" placeholder="ISBN eller tittel..." />
+      <input id="book-lookup" type="search" placeholder="ISBN or title..." />
       <div class="source-buttons">
         <button data-src="openlibrary">Open Library</button>
         <button data-src="googlebooks">Google Books</button>
@@ -34,17 +34,14 @@ function isNew(acquiredDate: string | undefined): boolean {
         <button data-src="abebooks">AbeBooks</button>
         <button data-src="worldcat">WorldCat</button>
       </div>
-      <button id="api-lookup" class="api-btn">Hent fakta automatisk</button>
-      <p class="hint" id="api-hint" hidden></p>
-      <pre id="api-result" class="api-result" hidden></pre>
     </div>
   </details>
 
   <div class="book-tools">
-    <input id="book-search" type="search" placeholder="Søk i mine bøker..." />
+    <input id="book-search" type="search" placeholder="Search my books..." />
     <select id="book-sort">
-      <option value="title">Sorter på tittel</option>
-      <option value="acquired">Sorter på kjøpsdato</option>
+      <option value="title">Sort by title</option>
+      <option value="acquired">Sort by date acquired</option>
     </select>
     <select id="book-status">
       <option value="">All read status</option>
@@ -54,8 +51,8 @@ function isNew(acquiredDate: string | undefined): boolean {
       <option value="dnf">DNF</option>
     </select>
     <select id="book-info-filter">
-      <option value="">Alle bøker</option>
-      <option value="needsinfo">Mangler info</option>
+      <option value="">All books</option>
+      <option value="needsinfo">Missing info</option>
     </select>
   </div>
 
@@ -79,8 +76,8 @@ function isNew(acquiredDate: string | undefined): boolean {
             <div class="card-title">{b.title}</div>
             <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
             <div class="card-meta">
-              {isNew(b.acquiredDate) && <span class="tag new-tag">NY</span>}
-              {b.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
+              {isNew(b.acquiredDate) && <span class="tag new-tag">NEW</span>}
+              {b.needsInfo && <span class="tag needsinfo-tag">Missing info</span>}
               {b.publisher && <span class="tag">{b.publisher}</span>}
               {b.readStatus && <span class="tag">{b.readStatus}</span>}
               {b.rating && <span class="rating">{b.rating}/10</span>}
@@ -88,7 +85,7 @@ function isNew(acquiredDate: string | undefined): boolean {
           </div>
         </a>
         {b.needsInfo && (
-          <button class="lookup-btn" data-query={b.isbn || b.title}>🔍 Slå opp</button>
+          <button class="lookup-btn" data-query={b.isbn || b.title}>🔍 Look up</button>
         )}
       </div>
     ))}
@@ -99,12 +96,9 @@ function isNew(acquiredDate: string | undefined): boolean {
     .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); }
     .lookup-inner { padding: 0 1rem 1rem; }
     .lookup-inner input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; }
-    .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
-    .source-buttons button, .api-btn { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
-    .api-btn { border-color: var(--accent); }
+    .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .source-buttons button { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .source-buttons button:hover { border-color: var(--accent); }
-    .hint { font-size: 0.85rem; color: var(--muted); margin: 0.75rem 0 0; }
-    .api-result { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem; white-space: pre-wrap; margin-top: 0.75rem; overflow-x: auto; }
 
     .book-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .book-tools input, .book-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
@@ -156,54 +150,6 @@ function isNew(acquiredDate: string | undefined): boolean {
         lookupBox.scrollIntoView({ behavior: 'smooth', block: 'start' })
         lookupInput.focus()
       })
-    })
-
-    const apiBtn = document.querySelector('#api-lookup')
-    const apiResult = document.querySelector('#api-result')
-    const apiHint = document.querySelector('#api-hint')
-
-    async function fetchGoogleBooks(isbn) {
-      try {
-        const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)
-        const j = await r.json()
-        if (!j.items || !j.items.length) return null
-        const v = j.items[0].volumeInfo
-        return {
-          tittel: v.title + (v.subtitle ? ': ' + v.subtitle : ''),
-          forfatter: (v.authors || []).join(', '),
-          forlag: v.publisher || '',
-          år: v.publishedDate || '',
-          sider: v.pageCount || '',
-        }
-      } catch { return null }
-    }
-
-    apiBtn.addEventListener('click', async () => {
-      const q = lval()
-      if (!isIsbn(q)) {
-        apiHint.hidden = false
-        apiHint.textContent = 'Automatisk henting krever et ISBN-nummer.'
-        apiResult.hidden = true
-        return
-      }
-      const isbn = cleanIsbn(q)
-      apiHint.hidden = false
-      apiHint.textContent = 'Henter...'
-      apiResult.hidden = true
-      const data = await fetchGoogleBooks(isbn)
-      if (!data) {
-        apiHint.textContent = 'Fant ingenting via Google Books. Prøv kildeknappene over.'
-        return
-      }
-      apiHint.textContent = 'Funnet:'
-      apiResult.hidden = false
-      apiResult.textContent =
-        `Tittel:    ${data.tittel}\n` +
-        `Forfatter: ${data.forfatter}\n` +
-        `Forlag:    ${data.forlag}\n` +
-        `År:        ${data.år}\n` +
-        `Sider:     ${data.sider}\n` +
-        `ISBN:      ${isbn}`
     })
 
     const searchInput = document.querySelector('#book-search')

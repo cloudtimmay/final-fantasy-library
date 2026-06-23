@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity, SHARED_FIELDS } from '../lib/sanity'
+
+const items = await sanity.fetch(`
+  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**"))] {
+    _id, _type, title, status, catalogNumber, barcode, isbn, year,
+    artist, composer, author, developer, platform, series, publisher,
+    purchasePrice, purchasePriceYen, acquiredDate
+  }
+`)
+
+// Split into collection (everything not wishlist) and wishlist
+const collection = items.filter((i: any) => i.status !== 'wishlist')
+const wishlist = items.filter((i: any) => i.status === 'wishlist')
+---
+<Base title="Export">
+  <div class="export-wrap">
+    <h1>Export for offline use</h1>
+    <p class="hint">Download CSV files to your phone before travelling. They work without internet — open them in a notes or spreadsheet app, or search with your browser's find function.</p>
+
+    <div class="export-stats">
+      <div><strong>{collection.length}</strong> items in collection</div>
+      <div><strong>{wishlist.length}</strong> items on wishlist</div>
+    </div>
+
+    <div class="export-buttons">
+      <button id="dl-collection">⬇ Download collection (CSV)</button>
+      <button id="dl-wishlist">⬇ Download wishlist (CSV)</button>
+      <button id="dl-both">⬇ Download both (one file)</button>
+    </div>
+
+    <p class="hint" id="export-msg" hidden></p>
+  </div>
+
+  <script define:vars={{ collection, wishlist }}>
+    function field(v) {
+      if (v === null || v === undefined) return ''
+      if (Array.isArray(v)) v = v.join(' / ')
+      const s = String(v)
+      // Escape for CSV: wrap in quotes, double internal quotes
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"'
+      }
+      return s
+    }
+
+    function rowFor(i) {
+      const ref = i.catalogNumber || i.barcode || i.isbn || ''
+      const creator = i.composer || i.artist || i.author || i.developer || ''
+      return [
+        i._type,
+        field(i.title),
+        field(creator),
+        field(i.series || ''),
+        field(i.platform || ''),
+        field(ref),
+        field(i.year || ''),
+        field(i.status || ''),
+        field(i.acquiredDate || ''),
+        field(i.purchasePriceYen || ''),
+        field(i.purchasePrice || ''),
+      ].join(',')
+    }
+
+    const header = 'type,title,creator,series,platform,ref,year,status,acquired,price_yen,price_nok'
+
+    function toCsv(list) {
+      return [header, ...list.map(rowFor)].join('\n')
+    }
+
+    function download(filename, text) {
+      const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      const msg = document.querySelector('#export-msg')
+      msg.hidden = false
+      msg.textContent = 'Downloaded ' + filename
+    }
+
+    const date = new Date().toISOString().split('T')[0]
+
+    document.querySelector('#dl-collection').addEventListener('click', () => {
+      download(`ff-collection-${date}.csv`, toCsv(collection))
+    })
+    document.querySelector('#dl-wishlist').addEventListener('click', () => {
+      download(`ff-wishlist-${date}.csv`, toCsv(wishlist))
+    })
+    document.querySelector('#dl-both').addEventListener('click', () => {
+      const text =
+        '=== COLLECTION ===\n' + toCsv(collection) +
+        '\n\n=== WISHLIST ===\n' + toCsv(wishlist)
+      download(`ff-library-${date}.csv`, text)
+    })
+  </script>
+
+  <style>
+    .export-wrap { max-width: 640px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.5rem; }
+    .export-stats { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; }
+    .export-stats div { font-size: 0.95rem; }
+    .export-buttons { display: flex; flex-direction: column; gap: 0.75rem; max-width: 360px; }
+    .export-buttons button {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.85rem 1rem; border-radius: 8px; cursor: pointer; font-size: 1rem; text-align: left;
+    }
+    .export-buttons button:hover { background: rgba(255,255,255,0.04); }
+  </style>
+</Base>

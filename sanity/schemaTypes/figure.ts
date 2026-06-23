@@ -1,5 +1,6 @@
 import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
+import { ExternalImagePreview } from '../components/ExternalImagePreview'
 
 export const figure = defineType({
   name: 'figure',
@@ -9,7 +10,10 @@ export const figure = defineType({
   fields: [
     defineField({ name: 'title', title: 'Name / Title', type: 'string', validation: (R) => R.required() }),
     defineField({ name: 'series', title: 'Series / Franchise', type: 'string' }),
+    defineField({ name: 'manufacturer', title: 'Manufacturer', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
+    defineField({ name: 'needsInfo', title: 'Missing info', type: 'boolean', initialValue: false }),
+    defineField({ name: 'externalImageUrl', title: 'External Image URL', type: 'url' }),
     defineField({
       name: 'scale',
       title: 'Scale',
@@ -42,6 +46,20 @@ export const figure = defineType({
     ...sharedFields.map((f) => defineField(f as any)),
   ],
   preview: {
-    select: { title: 'title', subtitle: 'series' },
+    select: {
+      title: 'title',
+      subtitle: 'series',
+      image: 'image',
+      externalImageUrl: 'externalImageUrl',
+    },
+    prepare({ title, subtitle, image, externalImageUrl }) {
+      return {
+        title,
+        subtitle,
+        media: image
+          ? image
+          : () => ExternalImagePreview({ title, subtitle, externalImageUrl }),
+      }
+    },
   },
 })

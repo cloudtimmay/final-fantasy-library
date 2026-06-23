@@ -3,10 +3,21 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 const figures = await sanity.fetch(`
-  *[_type == "figure"] | order(series asc, title asc) {
-    _id, title, series, manufacturer, year, scale, condition, ${SHARED_FIELDS}
+  *[_type == "figure" && !(_id in path("drafts.**"))] | order(series asc, title asc) {
+    _id, title, series, manufacturer, year, scale, condition, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
+
+const seriesList = [...new Set(figures.map((f: any) => f.series).filter(Boolean))].sort()
+
+const now = Date.now()
+function isNew(acquiredDate: string | undefined): boolean {
+  if (!acquiredDate) return false
+  const d = new Date(acquiredDate).getTime()
+  if (isNaN(d)) return false
+  const days = (now - d) / (1000 * 60 * 60 * 24)
+  return days >= 0 && days <= 30
+}
 ---
 <Base title="Figures">
   <div class="page-header">
@@ -14,26 +25,161 @@ const figures = await sanity.fetch(`
     <span class="count">{figures.length} items</span>
   </div>
 
-  <div class="grid">
+  <details class="lookup-box" id="lookup-box">
+    <summary>Look up a figure externally (name)</summary>
+    <div class="lookup-inner">
+      <input id="figure-lookup" type="search" placeholder="Figure name..." />
+      <div class="source-buttons">
+        <button data-src="mfc">MyFigureCollection</button>
+        <button data-src="google">Google</button>
+        <button data-src="googleimg">Google Images</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="figure-tools">
+    <input id="figure-search" type="search" placeholder="Search my figures..." />
+    <select id="figure-sort">
+      <option value="title">Sort by name</option>
+      <option value="acquired">Sort by date acquired</option>
+    </select>
+    <select id="figure-series">
+      <option value="">All series</option>
+      {seriesList.map((s: any) => <option value={s}>{s}</option>)}
+    </select>
+    <select id="figure-info-filter">
+      <option value="">All figures</option>
+      <option value="needsinfo">Missing info</option>
+    </select>
+  </div>
+
+  <div class="figure-list">
     {figures.map((f: any) => (
-      <a class="card" href={`/figures/${f._id}`}>
-        {f.image
-          ? <img
-          class="card-photo"
-          src={urlFor(f.image).height(180).url()}
-          alt={f.title}
-          loading="lazy"
-          />
-          : <div class="card-photo-placeholder">🗿</div>
-        }
-        <div class="card-title">{f.title}</div>
-        <div class="card-sub">{f.series}{f.manufacturer ? ` · ${f.manufacturer}` : ''}</div>
-        <div class="card-meta">
-          <span class={`status-dot ${f.status}`}></span>
-          {f.scale && <span class="tag">{f.scale}</span>}
-          {f.rating && <span class="rating">{f.rating}/10</span>}
-        </div>
-      </a>
+      <div class="figure-row-wrap"
+           data-title={f.title?.toLowerCase() || ''}
+           data-series={f.series || ''}
+           data-needsinfo={f.needsInfo ? 'yes' : 'no'}
+           data-acquired={f.acquiredDate || ''}>
+        <a class="figure-row" href={`/figures/${f._id}`}>
+          {f.image
+            ? <img class="figure-thumb" src={urlFor(f.image).height(120).url()} alt={f.title} loading="lazy" />
+            : f.externalImageUrl
+            ? <img class="figure-thumb" src={f.externalImageUrl} alt={f.title} loading="lazy" />
+            : <div class="figure-thumb placeholder">🗿</div>
+          }
+          <div class="figure-info">
+            <div class="card-title">{f.title}</div>
+            <div class="card-sub">{f.series}{f.manufacturer ? ` · ${f.manufacturer}` : ''}</div>
+            <div class="card-meta">
+              {isNew(f.acquiredDate) && <span class="tag new-tag">NEW</span>}
+              {f.needsInfo && <span class="tag needsinfo-tag">Missing info</span>}
+              {f.scale && <span class="tag">{f.scale}</span>}
+              {f.year && <span class="tag">{f.year}</span>}
+              {f.rating && <span class="rating">{f.rating}/10</span>}
+            </div>
+          </div>
+        </a>
+        {f.needsInfo && (
+          <button class="lookup-btn" data-query={f.title}>🔍 Look up</button>
+        )}
+      </div>
     ))}
   </div>
+
+  <style>
+    .lookup-box { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1.5rem; background: var(--surface); }
+    .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); }
+    .lookup-inner { padding: 0 1rem 1rem; }
+    .lookup-inner input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; }
+    .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .source-buttons button { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    .source-buttons button:hover { border-color: var(--accent); }
+
+    .figure-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .figure-tools input, .figure-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .figure-tools input { flex: 1; min-width: 200px; }
+
+    .figure-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .figure-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .figure-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
+    .figure-row:hover { background: rgba(255,255,255,0.03); }
+    .figure-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
+    .figure-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .figure-info { min-width: 0; }
+    .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .figure-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
+  </style>
+
+  <script>
+    const lookupBox = document.querySelector('#lookup-box')
+    const lookupInput = document.querySelector('#figure-lookup')
+    function lval() { return lookupInput.value.trim() }
+
+    function openSource(src) {
+      const q = lval()
+      if (!q) return
+      const enc = encodeURIComponent(q)
+      let url = ''
+      switch (src) {
+        case 'mfc': url = `https://myfigurecollection.net/?_tb=item&keywords=${enc}`; break
+        case 'google': url = `https://www.google.com/search?q=${enc}+figure`; break
+        case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+figure`; break
+      }
+      if (url) window.open(url, '_blank', 'noopener')
+    }
+    document.querySelectorAll('.source-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => openSource(btn.dataset.src))
+    })
+
+    document.querySelectorAll('.lookup-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault()
+        lookupInput.value = btn.dataset.query
+        lookupBox.open = true
+        lookupBox.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        lookupInput.focus()
+      })
+    })
+
+    const searchInput = document.querySelector('#figure-search')
+    const sortSelect = document.querySelector('#figure-sort')
+    const seriesSelect = document.querySelector('#figure-series')
+    const infoFilter = document.querySelector('#figure-info-filter')
+    const list = document.querySelector('.figure-list')
+
+    function updateFigures() {
+      const search = searchInput.value.toLowerCase()
+      const sort = sortSelect.value
+      const series = seriesSelect.value
+      const info = infoFilter.value
+      const rows = Array.from(document.querySelectorAll('.figure-row-wrap'))
+
+      rows.forEach((row) => {
+        const matchesSearch = row.dataset.title.includes(search)
+        const matchesSeries = !series || row.dataset.series === series
+        const matchesInfo = !info || (info === 'needsinfo' && row.dataset.needsinfo === 'yes')
+        row.style.display = matchesSearch && matchesSeries && matchesInfo ? '' : 'none'
+      })
+
+      rows
+        .sort((a, b) => {
+          if (sort === 'acquired') {
+            const ad = a.dataset.acquired || ''
+            const bd = b.dataset.acquired || ''
+            if (!ad && !bd) return 0
+            if (!ad) return 1
+            if (!bd) return -1
+            return bd.localeCompare(ad)
+          }
+          return a.dataset.title.localeCompare(b.dataset.title)
+        })
+        .forEach((row) => list.appendChild(row))
+    }
+
+    searchInput.addEventListener('input', updateFigures)
+    sortSelect.addEventListener('change', updateFigures)
+    seriesSelect.addEventListener('change', updateFigures)
+    infoFilter.addEventListener('change', updateFigures)
+  </script>
 </Base>

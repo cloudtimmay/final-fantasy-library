@@ -1,0 +1,165 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity, urlFor } from '../lib/sanity'
+
+const q = (Astro.url.searchParams.get('q') || '').trim()
+
+let results: any[] = []
+if (q) {
+  const term = `*${q}*`
+  results = await sanity.fetch(
+    `*[
+      _type in ["album","game","book"] &&
+      !(_id in path("drafts.**")) &&
+      (
+        title match $term ||
+        catalogNumber match $term ||
+        barcode match $term ||
+        isbn match $term ||
+        artist match $term ||
+        composer match $term ||
+        author match $term
+      )
+    ] | order(_type asc, title asc) {
+      _id, _type, title, status, image, externalImageUrl,
+      catalogNumber, barcode, isbn,
+      "sub": select(
+        _type == "album" => coalesce(composer, artist),
+        _type == "game"  => platform,
+        _type == "book"  => author
+      )
+    }`,
+    { term }
+  )
+}
+---
+<Base title="Scan">
+  <div class="scan-wrap">
+    <h1>Scan</h1>
+    <p class="hint">Søk på tittel, katalognummer, strekkode eller ISBN.</p>
+
+    <form class="scan-form" method="get" action="/scan">
+      <input
+        id="scan-input"
+        name="q"
+        type="search"
+        value={q}
+        placeholder="Tittel, katalognr, strekkode..."
+        autofocus
+        autocomplete="off"
+      />
+      <button type="submit">Søk</button>
+    </form>
+
+    {q && (
+      <div class="scan-results">
+        {results.length === 0 ? (
+          <div class="no-match">
+            <strong>Ikke i samlingen.</strong>
+            <span>Ingen treff på «{q}». Slå opp eksternt nedenfor.</span>
+          </div>
+        ) : (
+          results.map((r: any) => (
+            <a class="result-row" href={`/${r._type}s/${r._id}`}>
+              {r.image
+                ? <img class="result-thumb" src={urlFor(r.image).height(120).url()} alt={r.title} />
+                : r.externalImageUrl
+                ? <img class="result-thumb" src={r.externalImageUrl} alt={r.title} />
+                : <div class="result-thumb placeholder">{r._type === 'album' ? '🎵' : r._type === 'game' ? '🎮' : '📚'}</div>
+              }
+              <div class="result-info">
+                <div class="result-title">{r.title}</div>
+                <div class="result-sub">
+                  {Array.isArray(r.sub) ? r.sub.join(', ') : r.sub}
+                  {r.catalogNumber ? ` · ${r.catalogNumber}` : ''}
+                </div>
+              </div>
+              <div class="result-status">
+                {r.status === 'owned' && <span class="badge owned">EID</span>}
+                {r.status === 'wishlist' && <span class="badge wishlist">ØNSKELISTE</span>}
+                {r.status === 'sold' && <span class="badge sold">SOLGT</span>}
+                {r.status === 'lent' && <span class="badge lent">UTLÅNT</span>}
+                {!r.status && <span class="badge">{r._type}</span>}
+              </div>
+            </a>
+          ))
+        )}
+      </div>
+    )}
+
+    {q && (
+      <div class="ext-lookup">
+        <h2>Slå opp «{q}» eksternt</h2>
+
+        <div class="ext-group">
+          <span class="ext-label">Album</span>
+          <a target="_blank" rel="noopener" href={`https://vgmdb.net/search?q=${encodeURIComponent(q)}`}>VGMdb ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' soundtrack album')}`}>Google ↗</a>
+        </div>
+
+        <div class="ext-group">
+          <span class="ext-label">Bøker</span>
+          <a target="_blank" rel="noopener" href={`https://openlibrary.org/search?q=${encodeURIComponent(q)}`}>Open Library ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.bookfinder.com/search/?keywords=${encodeURIComponent(q)}`}>BookFinder ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' book')}`}>Google ↗</a>
+        </div>
+
+        <div class="ext-group">
+          <span class="ext-label">Spill</span>
+          <a target="_blank" rel="noopener" href={`https://www.mobygames.com/search/?q=${encodeURIComponent(q)}`}>MobyGames ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.igdb.com/search?type=1&q=${encodeURIComponent(q)}`}>IGDB ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' game')}`}>Google ↗</a>
+        </div>
+
+        <div class="ext-group">
+          <span class="ext-label">Generelt</span>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q)}`}>Google ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}`}>Google bilder ↗</a>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <style>
+    .scan-wrap { max-width: 640px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+
+    .scan-form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .scan-form input {
+      flex: 1; min-width: 0; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.9rem 1rem; border-radius: 8px; font-size: 1.1rem;
+    }
+    .scan-form button {
+      background: var(--accent, #4a9); color: var(--bg); border: none;
+      padding: 0.9rem 1.4rem; border-radius: 8px; font-size: 1.1rem; cursor: pointer; font-weight: 600;
+    }
+
+    .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
+    .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .result-row:hover { background: rgba(255,255,255,0.03); }
+    .result-thumb { width: 52px; height: 52px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 4px; }
+    .result-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+    .result-info { flex: 1; min-width: 0; }
+    .result-title { font-weight: 600; }
+    .result-sub { font-size: 0.85rem; color: var(--muted); }
+    .result-status { flex-shrink: 0; }
+    .badge { display: inline-block; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; background: var(--border); color: var(--text); }
+    .badge.owned { background: #2ecc71; color: #06281a; }
+    .badge.wishlist { background: #3498db; color: #04263d; }
+    .badge.sold { background: #e67e22; color: #2a1604; }
+    .badge.lent { background: #9b59b6; color: #1f0d28; }
+
+    .no-match { padding: 1.25rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+    .no-match strong { font-size: 1.1rem; }
+    .no-match span { color: var(--muted); font-size: 0.9rem; }
+
+    .ext-lookup h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+    .ext-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+    .ext-label { font-size: 0.8rem; color: var(--muted); width: 60px; flex-shrink: 0; }
+    .ext-group a {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.5rem 0.85rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
+    }
+    .ext-group a:hover { border-color: var(--accent); }
+  </style>
+</Base>

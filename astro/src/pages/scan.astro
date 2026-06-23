@@ -36,7 +36,7 @@ if (q) {
 <Base title="Scan">
   <div class="scan-wrap">
     <h1>Scan</h1>
-    <p class="hint">Søk på tittel, katalognummer, strekkode eller ISBN.</p>
+    <p class="hint">Søk på tittel, katalognummer, strekkode eller ISBN — eller skann strekkoden.</p>
 
     <form class="scan-form" method="get" action="/scan">
       <input
@@ -45,11 +45,14 @@ if (q) {
         type="search"
         value={q}
         placeholder="Tittel, katalognr, strekkode..."
-        autofocus
         autocomplete="off"
       />
       <button type="submit">Søk</button>
     </form>
+
+    <button id="scan-toggle" class="scan-cam-btn" type="button">📷 Skann strekkode</button>
+    <div id="scan-reader" class="scan-reader" hidden></div>
+    <p id="scan-msg" class="scan-msg" hidden></p>
 
     {q && (
       <div class="scan-results">
@@ -124,7 +127,7 @@ if (q) {
     .scan-wrap { max-width: 640px; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
 
-    .scan-form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .scan-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .scan-form input {
       flex: 1; min-width: 0; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); padding: 0.9rem 1rem; border-radius: 8px; font-size: 1.1rem;
@@ -133,6 +136,13 @@ if (q) {
       background: var(--accent, #4a9); color: var(--bg); border: none;
       padding: 0.9rem 1.4rem; border-radius: 8px; font-size: 1.1rem; cursor: pointer; font-weight: 600;
     }
+
+    .scan-cam-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-bottom: 1rem;
+    }
+    .scan-reader { width: 100%; max-width: 400px; margin: 0 auto 1rem; border-radius: 8px; overflow: hidden; }
+    .scan-msg { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem; }
 
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
     .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
@@ -162,4 +172,64 @@ if (q) {
     }
     .ext-group a:hover { border-color: var(--accent); }
   </style>
+
+  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script is:inline>
+    (function () {
+      const toggle = document.getElementById('scan-toggle')
+      const reader = document.getElementById('scan-reader')
+      const msg = document.getElementById('scan-msg')
+      const input = document.getElementById('scan-input')
+      let scanner = null
+      let running = false
+
+      function showMsg(text) {
+        msg.hidden = false
+        msg.textContent = text
+      }
+
+      async function startScan() {
+        if (typeof Html5Qrcode === 'undefined') {
+          showMsg('Skanner kunne ikke lastes. Sjekk nettforbindelsen.')
+          return
+        }
+        reader.hidden = false
+        msg.hidden = true
+        scanner = new Html5Qrcode('scan-reader')
+        try {
+          await scanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 150 } },
+            (decodedText) => {
+              // Strekkode lest -> fyll inn og søk
+              input.value = decodedText.replace(/[^0-9Xx]/g, '')
+              stopScan().then(() => {
+                input.form.submit()
+              })
+            },
+            () => {} // ignorer "ingen kode i bildet"-feil
+          )
+          running = true
+          toggle.textContent = '✕ Lukk skanner'
+        } catch (err) {
+          showMsg('Fikk ikke tilgang til kamera. Tillat kamera i nettleseren og prøv igjen.')
+          reader.hidden = true
+        }
+      }
+
+      async function stopScan() {
+        if (scanner && running) {
+          try { await scanner.stop() } catch (e) {}
+          running = false
+        }
+        reader.hidden = true
+        toggle.textContent = '📷 Skann strekkode'
+      }
+
+      toggle.addEventListener('click', () => {
+        if (running) stopScan()
+        else startScan()
+      })
+    })()
+  </script>
 </Base>

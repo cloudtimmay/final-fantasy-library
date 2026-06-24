@@ -97,18 +97,6 @@ defineField({
 }),
 
 defineField({
-  name: 'publisher',
-  title: 'Publisher',
-  type: 'string',
-}),
-
-defineField({
-  name: 'distributor',
-  title: 'Distributor',
-  type: 'string',
-}),
-
-defineField({
   name: 'tracklist',
   title: 'Tracklist',
   type: 'array',

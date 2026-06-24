@@ -11,7 +11,15 @@ const items = await sanity.fetch(`
 // Fetch ALL trip settings, oldest first, so we can offer a switcher when there is more than one.
 const allTrips = await sanity.fetch(`
   *[_type == "tripSettings"] | order(_createdAt asc) {
-    _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate
+    _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate,
+    childBudgets[]{ person, budgetNok, budgetYen }
+  }
+`)
+
+// Fetch all family purchases, each linked to a trip via its reference.
+const familyPurchases = await sanity.fetch(`
+  *[_type == "familyPurchase" && !(_id in path("drafts.**"))] {
+    _id, name, person, priceNok, priceYen, "tripId": trip._ref
   }
 `)
 
@@ -30,13 +38,22 @@ const activeTripId = settings?._id ?? null
 const defaultRate = settings?.jpyToNokRate ?? 0.060
 const budgetNok = settings?.budgetNok ?? null
 const budgetYen = settings?.budgetYen ?? null
+const childBudgets = settings?.childBudgets ?? []
+
+// Family purchases for the active trip only.
+const tripPurchases = familyPurchases.filter((p) => p.tripId === activeTripId)
+
+// People shown in the family section = those with a trip budget, plus anyone with a purchase on this trip.
+const tripPeople = childBudgets.map((c) => c.person).filter(Boolean)
+const purchasePeople = [...new Set(tripPurchases.map((p) => p.person).filter(Boolean))]
+const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
 ---
 <Base title="Spending">
   <div class="page-header">
     <h1>Spending</h1>
   </div>
 
-  <p class="hint">Totals are calculated from items that have a purchase price. Budget and rate are set in Studio (Trip Settings).</p>
+  <p class="hint">FF collection totals are at the top. Family purchases for the selected trip are below. Budgets and rate are set in Studio (Trip Settings).</p>
 
   {allTrips.length > 1 && (
     <nav class="trip-switcher">
@@ -50,56 +67,83 @@ const budgetYen = settings?.budgetYen ?? null
     </nav>
   )}
 
-  <div class="period-tools">
-    <label>From <input id="from-date" type="date" /></label>
-    <label>To <input id="to-date" type="date" /></label>
-    <button id="period-30">Last 30 days</button>
-    <button id="period-all">All time</button>
-  </div>
-
   <div class="rate-row">
     <label>1 JPY = <input id="rate" type="number" step="0.0001" value={defaultRate} /> NOK</label>
   </div>
 
-  <div class="totals">
-    <div class="total-card">
-      <div class="total-label">Total (JPY)</div>
-      <div class="total-num" id="total-yen">¥0</div>
-    </div>
-    <div class="total-card">
-      <div class="total-label">JPY → NOK (est.)</div>
-      <div class="total-num" id="total-yen-nok">0 kr</div>
-    </div>
-    <div class="total-card">
-      <div class="total-label">Logged NOK</div>
-      <div class="total-num" id="total-nok">0 kr</div>
-    </div>
-    <div class="total-card highlight">
-      <div class="total-label">Combined (NOK)</div>
-      <div class="total-num" id="total-combined">0 kr</div>
-    </div>
-    <div class="total-card">
-      <div class="total-label">Items</div>
-      <div class="total-num" id="total-count">0</div>
-    </div>
-  </div>
+  <!-- ===== FF COLLECTION (your own spending) ===== -->
+  <section class="section">
+    <h2 class="section-title">My FF collection</h2>
 
-  {(budgetNok || budgetYen) && (
-    <div class="budget-block" id="budget-block"
-         data-budget-nok={budgetNok ?? ''}
-         data-budget-yen={budgetYen ?? ''}>
-      <div class="budget-head">
-        <span>Budget</span>
-        <span id="budget-label"></span>
+    <div class="period-tools">
+      <label>From <input id="from-date" type="date" /></label>
+      <label>To <input id="to-date" type="date" /></label>
+      <button id="period-30">Last 30 days</button>
+      <button id="period-all">All time</button>
+    </div>
+
+    <div class="totals">
+      <div class="total-card">
+        <div class="total-label">Total (JPY)</div>
+        <div class="total-num" id="total-yen">¥0</div>
       </div>
-      <div class="budget-bar"><div class="budget-fill" id="budget-fill"></div></div>
-      <div class="budget-meta" id="budget-meta"></div>
+      <div class="total-card">
+        <div class="total-label">JPY → NOK (est.)</div>
+        <div class="total-num" id="total-yen-nok">0 kr</div>
+      </div>
+      <div class="total-card">
+        <div class="total-label">Logged NOK</div>
+        <div class="total-num" id="total-nok">0 kr</div>
+      </div>
+      <div class="total-card highlight">
+        <div class="total-label">Combined (NOK)</div>
+        <div class="total-num" id="total-combined">0 kr</div>
+      </div>
+      <div class="total-card">
+        <div class="total-label">Items</div>
+        <div class="total-num" id="total-count">0</div>
+      </div>
     </div>
-  )}
 
-  <div class="spend-list" id="spend-list"></div>
+    {(budgetNok || budgetYen) && (
+      <div class="budget-block" id="budget-block"
+           data-budget-nok={budgetNok ?? ''}
+           data-budget-yen={budgetYen ?? ''}>
+        <div class="budget-head">
+          <span>Trip budget</span>
+          <span id="budget-label"></span>
+        </div>
+        <div class="budget-bar"><div class="budget-fill" id="budget-fill"></div></div>
+        <div class="budget-meta" id="budget-meta"></div>
+      </div>
+    )}
 
-  <script define:vars={{ items, budgetNok, budgetYen }}>
+    <div class="spend-list" id="spend-list"></div>
+  </section>
+
+  <!-- ===== FAMILY PURCHASES (this trip only) ===== -->
+  <section class="section">
+    <h2 class="section-title">Family purchases — {settings ? (settings.label || 'this trip') : 'no trip'}</h2>
+
+    {peopleList.length > 0 ? (
+      <>
+        <nav class="person-filter" id="person-filter">
+          <span class="person-filter-label">Person:</span>
+          <button class="person-btn active" data-person="">All</button>
+          {peopleList.map((p) => (
+            <button class="person-btn" data-person={p}>{p}</button>
+          ))}
+        </nav>
+
+        <div class="child-summary" id="child-summary"></div>
+        <div class="spend-list" id="family-list"></div>
+      </>
+    ) : (
+      <p class="hint">No family purchases or per-child budgets for this trip yet. Add them in Studio (Family Purchases / Trip Settings).</p>
+    )}
+  </section>
+
+  <script define:vars={{ items, budgetNok, budgetYen, childBudgets, peopleList, tripPurchases }}>
     const fromInput = document.querySelector('#from-date')
     const toInput = document.querySelector('#to-date')
     const rateInput = document.querySelector('#rate')
@@ -115,6 +159,12 @@ const budgetYen = settings?.budgetYen ?? null
     const budgetMeta = document.querySelector('#budget-meta')
     const budgetLabel = document.querySelector('#budget-label')
 
+    const personFilter = document.querySelector('#person-filter')
+    const childSummary = document.querySelector('#child-summary')
+    const familyList = document.querySelector('#family-list')
+
+    let selectedPerson = '' // '' means "All"
+
     function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
     function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
 
@@ -125,7 +175,21 @@ const budgetYen = settings?.budgetYen ?? null
       return true
     }
 
-    function update() {
+    // Resolve a budget (given in NOK and/or JPY) into both currencies using the rate.
+    function budgetBoth(bNok, bYen, rate) {
+      let nok = null, yen = null, nokExplicit = false, yenExplicit = false
+      if (bNok) { nok = Number(bNok); yen = rate > 0 ? nok / rate : null; nokExplicit = true }
+      else if (bYen) { yen = Number(bYen); nok = yen * rate; yenExplicit = true }
+      return { nok, yen, nokExplicit, yenExplicit }
+    }
+
+    function childBudgetFor(person) {
+      const entry = (childBudgets || []).find((c) => c.person === person)
+      return entry ? { nok: entry.budgetNok ?? null, yen: entry.budgetYen ?? null } : { nok: null, yen: null }
+    }
+
+    // ---- FF collection section (unchanged behaviour) ----
+    function updateCollection() {
       const from = fromInput.value
       const to = toInput.value
       const rate = Number(rateInput.value) || 0
@@ -147,28 +211,16 @@ const budgetYen = settings?.budgetYen ?? null
       totalCombinedEl.textContent = fmtNok(combinedNok)
       totalCountEl.textContent = filtered.length
 
-      // Budget: show both currencies, deriving the missing one from the rate
       if (budgetBlock) {
-        let budgetInNok = null
-        let budgetInYen = null
-
-        if (budgetNok) {
-          budgetInNok = Number(budgetNok)
-          budgetInYen = rate > 0 ? budgetInNok / rate : null
-        } else if (budgetYen) {
-          budgetInYen = Number(budgetYen)
-          budgetInNok = budgetInYen * rate
-        }
-
-        if (budgetInNok && budgetInNok > 0) {
-          const pct = Math.min(100, (combinedNok / budgetInNok) * 100)
-          const remaining = budgetInNok - combinedNok
+        const b = budgetBoth(budgetNok, budgetYen, rate)
+        if (b.nok && b.nok > 0) {
+          const pct = Math.min(100, (combinedNok / b.nok) * 100)
+          const remaining = b.nok - combinedNok
           budgetFill.style.width = pct.toFixed(1) + '%'
-          budgetFill.classList.toggle('over', combinedNok > budgetInNok)
+          budgetFill.classList.toggle('over', combinedNok > b.nok)
 
-          // Show budget in both currencies
-          const nokPart = fmtNok(budgetInNok) + (budgetNok ? '' : ' est.')
-          const yenPart = budgetInYen ? fmtYen(budgetInYen) + (budgetYen ? '' : ' est.') : ''
+          const nokPart = fmtNok(b.nok) + (b.nokExplicit ? '' : ' est.')
+          const yenPart = b.yen ? fmtYen(b.yen) + (b.yenExplicit ? '' : ' est.') : ''
           budgetLabel.textContent = [nokPart, yenPart].filter(Boolean).join(' · ')
 
           if (remaining >= 0) {
@@ -198,6 +250,88 @@ const budgetYen = settings?.budgetYen ?? null
       }).join('')
     }
 
+    // ---- Family section (this trip only, respects selectedPerson) ----
+    function updateFamily() {
+      if (!childSummary) return
+      const rate = Number(rateInput.value) || 0
+
+      // Which people to show summary rows for.
+      const peopleToShow = selectedPerson ? [selectedPerson] : (peopleList || [])
+
+      const rows = peopleToShow.map((person) => {
+        const its = (tripPurchases || []).filter((p) => p.person === person)
+        let yen = 0, nok = 0
+        its.forEach((p) => {
+          if (p.priceYen) yen += Number(p.priceYen)
+          if (p.priceNok) nok += Number(p.priceNok)
+        })
+        const combinedNok = yen * rate + nok
+        const cb = childBudgetFor(person)
+        const b = budgetBoth(cb.nok, cb.yen, rate)
+        return { person, combinedNok, count: its.length, b }
+      })
+
+      childSummary.innerHTML = rows.map((r) => {
+        const hasBudget = r.b.nok && r.b.nok > 0
+        let bar = ''
+        let meta = `${fmtNok(r.combinedNok)} · ${r.count} item${r.count === 1 ? '' : 's'}`
+        let over = false
+
+        if (hasBudget) {
+          const pct = Math.min(100, (r.combinedNok / r.b.nok) * 100)
+          over = r.combinedNok > r.b.nok
+          const remaining = r.b.nok - r.combinedNok
+          bar = `<div class="cs-bar"><div class="cs-fill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div></div>`
+          const budLabel = fmtNok(r.b.nok) + (r.b.nokExplicit ? '' : ' est.')
+          meta = remaining >= 0
+            ? `${fmtNok(r.combinedNok)} / ${budLabel} · ${fmtNok(remaining)} left`
+            : `${fmtNok(r.combinedNok)} / ${budLabel} · ${fmtNok(-remaining)} over`
+        }
+
+        return `<div class="cs-row">
+          <div class="cs-head">
+            <span class="cs-name">${r.person}</span>
+            <span class="cs-spent ${over ? 'over' : ''}">${meta}</span>
+          </div>
+          ${bar}
+        </div>`
+      }).join('')
+
+      // Family purchase list, filtered by selected person.
+      if (familyList) {
+        const visible = selectedPerson
+          ? (tripPurchases || []).filter((p) => p.person === selectedPerson)
+          : (tripPurchases || [])
+        const sorted = visible.slice().sort((a, b) => (a.person || '').localeCompare(b.person || ''))
+        familyList.innerHTML = sorted.map((p) => {
+          const yenStr = p.priceYen ? fmtYen(p.priceYen) : ''
+          const nokStr = p.priceNok ? fmtNok(p.priceNok) : ''
+          const price = [yenStr, nokStr].filter(Boolean).join(' · ')
+          return `<div class="spend-row">
+            <span class="spend-icon">🛍️</span>
+            <span class="spend-title">${p.name || ''}</span>
+            <span class="spend-who">${p.person || ''}</span>
+            <span class="spend-price">${price}</span>
+          </div>`
+        }).join('')
+      }
+    }
+
+    function update() {
+      updateCollection()
+      updateFamily()
+    }
+
+    if (personFilter) {
+      personFilter.querySelectorAll('.person-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedPerson = btn.dataset.person || ''
+          personFilter.querySelectorAll('.person-btn').forEach((b) => b.classList.toggle('active', b === btn))
+          updateFamily()
+        })
+      })
+    }
+
     document.querySelector('#period-30').addEventListener('click', () => {
       const now = new Date()
       const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -222,8 +356,51 @@ const budgetYen = settings?.budgetYen ?? null
 
     .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
     .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }
-    .trip-btn { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text); font-size: 0.85rem; background: var(--surface); }
-    .trip-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .trip-btn,
+    .person-btn {
+      padding: 0.45rem 0.95rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    }
+
+    .trip-btn:hover,
+    .person-btn:hover {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    }
+
+    .trip-btn:active,
+    .person-btn:active {
+      transform: translateY(1px);
+    }
+
+    .trip-btn.active,
+    .person-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 45%, transparent);
+      font-weight: 600;
+    }
+
+    .section { margin-bottom: 2.5rem; }
+    .section-title { font-size: 1.1rem; margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+
+    .person-filter { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .person-filter-label { font-size: 0.85rem; color: var(--muted); }
+    .person-btn { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 0.85rem; cursor: pointer; }
+    .person-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
     .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
     .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
@@ -248,10 +425,21 @@ const budgetYen = settings?.budgetYen ?? null
     .budget-meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
     .budget-meta.over { color: #e74c3c; font-weight: 600; }
 
+    .child-summary { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .cs-row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+    .cs-head { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .cs-name { font-weight: 600; }
+    .cs-spent { color: var(--muted); text-align: right; }
+    .cs-spent.over { color: #e74c3c; font-weight: 600; }
+    .cs-bar { background: var(--border); border-radius: 999px; height: 8px; overflow: hidden; }
+    .cs-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
+    .cs-fill.over { background: #e74c3c; }
+
     .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
     .spend-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
     .spend-icon { flex-shrink: 0; }
     .spend-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .spend-who { flex-shrink: 0; font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; }
     .spend-date { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
     .spend-price { font-weight: 600; flex-shrink: 0; }
   </style>

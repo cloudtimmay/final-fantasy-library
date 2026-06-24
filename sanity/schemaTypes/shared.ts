@@ -16,20 +16,6 @@ export const sharedFields = [
     initialValue: 'owned',
   },
   {
-    name: 'rating',
-    title: 'Rating',
-    type: 'number',
-    description: '1–10',
-    validation: (Rule: any) => Rule.min(1).max(10).integer(),
-  },
-  {
-    name: 'tags',
-    title: 'Tags',
-    type: 'array',
-    of: [{ type: 'string' }],
-    options: { layout: 'tags' },
-  },
-  {
     name: 'image',
     title: 'Image',
     type: 'image',
@@ -37,7 +23,6 @@ export const sharedFields = [
     hotspot: true,
     },
   },
-
   {
     name: 'acquiredDate',
     title: 'Acquired',

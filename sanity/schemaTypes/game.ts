@@ -1,6 +1,7 @@
 import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
 import { ExternalImagePreview } from '../components/ExternalImagePreview'
+import { seriesList } from './seriesList'
 
 export const game = defineType({
   name: 'game',
@@ -9,6 +10,12 @@ export const game = defineType({
   icon: () => '🎮',
   fields: [
     defineField({ name: 'title', title: 'Title', type: 'string', validation: (R) => R.required() }),
+    defineField({
+      name: 'series',
+      title: 'Series / Franchise',
+      type: 'string',
+      options: { list: seriesList },
+    }),
     defineField({ name: 'developer', title: 'Developer', type: 'string' }),
     defineField({ name: 'publisher', title: 'Publisher', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),

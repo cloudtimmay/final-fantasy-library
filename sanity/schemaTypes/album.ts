@@ -1,6 +1,7 @@
 import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
 import { ExternalImagePreview } from '../components/ExternalImagePreview'
+import { seriesList } from './seriesList'
 
 export const album = defineType({
   name: 'album',
@@ -9,7 +10,15 @@ export const album = defineType({
   icon: () => '🎵',
   fields: [
     defineField({ name: 'title', title: 'Title', type: 'string', validation: (R) => R.required() }),
-    defineField({ name: 'artist', title: 'Artist / Band', type: 'string', validation: (R) => R.required() }),
+    defineField({
+  name: 'series',
+  title: 'Series / Franchise',
+  type: 'string',
+  options: {
+        list: seriesList,
+      },
+}),
+    defineField({ name: 'artist', title: 'Artist / Band', type: 'string' }),
     defineField({ name: 'composer', title: 'Composer(s)', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
     defineField({
@@ -17,7 +26,7 @@ export const album = defineType({
       title: 'Genre',
       type: 'string',
       options: {
-        list: ['Rock', 'Metal', 'Jazz', 'Classical', 'Electronic', 'Pop', 'Hip-hop', 'Folk', 'Blues', 'Other'],
+        list: ['Soundtrack', 'Remix', 'Jazz', 'Orchestral', 'Other'],
       },
     }),
     defineField({
@@ -68,44 +77,6 @@ defineField({
       title: 'External Image URL',
       type: 'url',
     }),
-
-    defineField({
-  name: 'series',
-  title: 'Series / Game',
-  type: 'string',
-  options: {
-    list: [
-      { title: 'Final Fantasy I', value: 'Final Fantasy I' },
-      { title: 'Final Fantasy II', value: 'Final Fantasy II' },
-      { title: 'Final Fantasy III', value: 'Final Fantasy III' },
-      { title: 'Final Fantasy IV', value: 'Final Fantasy IV' },
-      { title: 'Final Fantasy V', value: 'Final Fantasy V' },
-      { title: 'Final Fantasy VI', value: 'Final Fantasy VI' },
-      { title: 'Final Fantasy VII', value: 'Final Fantasy VII' },
-      { title: 'Final Fantasy VII Remake', value: 'Final Fantasy VII Remake' },
-      { title: 'Final Fantasy VII Rebirth', value: 'Final Fantasy VII Rebirth' },
-      { title: 'Final Fantasy VIII', value: 'Final Fantasy VIII' },
-      { title: 'Final Fantasy IX', value: 'Final Fantasy IX' },
-      { title: 'Final Fantasy X', value: 'Final Fantasy X' },
-      { title: 'Final Fantasy XI', value: 'Final Fantasy XI' },
-      { title: 'Final Fantasy XII', value: 'Final Fantasy XII' },
-      { title: 'Final Fantasy XIII', value: 'Final Fantasy XIII' },
-      { title: 'Final Fantasy XIV', value: 'Final Fantasy XIV' },
-      { title: 'Final Fantasy XV', value: 'Final Fantasy XV' },
-      { title: 'Final Fantasy XVI', value: 'Final Fantasy XVI' },
-      { title: 'Final Fantasy Tactics', value: 'Final Fantasy Tactics' },
-      { title: 'Final Fantasy Crystal Chronicles', value: 'Final Fantasy Crystal Chronicles' },
-      { title: 'Dissidia Final Fantasy', value: 'Dissidia Final Fantasy' },
-      { title: 'Theatrhythm Final Fantasy', value: 'Theatrhythm Final Fantasy' },
-      { title: 'Chocobo', value: 'Chocobo' },
-      { title: 'The Black Mages', value: 'The Black Mages' },
-      { title: 'Distant Worlds', value: 'Distant Worlds' },
-      { title: 'Piano Collections', value: 'Piano Collections' },
-      { title: 'BRA★BRA Final Fantasy', value: 'BRA★BRA Final Fantasy' },
-      { title: 'Other', value: 'Other' },
-    ],
-  },
-}),
 
 defineField({
   name: 'barcode',

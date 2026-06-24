@@ -8,10 +8,25 @@ const items = await sanity.fetch(`
   }
 `)
 
-const settings = await sanity.fetch(`
-  *[_type == "tripSettings"][0] { budgetNok, budgetYen, jpyToNokRate }
+// Fetch ALL trip settings, oldest first, so we can offer a switcher when there is more than one.
+const allTrips = await sanity.fetch(`
+  *[_type == "tripSettings"] | order(_createdAt asc) {
+    _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate
+  }
 `)
 
+// Pick the active trip: from ?trip=<id> if valid, otherwise the first (oldest) one.
+const requestedId = Astro.url.searchParams.get('trip')
+const settings = allTrips.find((t) => t._id === requestedId) ?? allTrips[0] ?? null
+
+// Build a readable label for each switcher button.
+function tripLabel(trip, index) {
+  if (trip.label) return trip.label
+  if (trip._createdAt) return new Date(trip._createdAt).toLocaleDateString('en-GB')
+  return `Trip ${index + 1}`
+}
+
+const activeTripId = settings?._id ?? null
 const defaultRate = settings?.jpyToNokRate ?? 0.060
 const budgetNok = settings?.budgetNok ?? null
 const budgetYen = settings?.budgetYen ?? null
@@ -22,6 +37,18 @@ const budgetYen = settings?.budgetYen ?? null
   </div>
 
   <p class="hint">Totals are calculated from items that have a purchase price. Budget and rate are set in Studio (Trip Settings).</p>
+
+  {allTrips.length > 1 && (
+    <nav class="trip-switcher">
+      <span class="trip-switcher-label">Trip:</span>
+      {allTrips.map((trip, index) => (
+        <a
+          href={`/spending?trip=${trip._id}`}
+          class:list={['trip-btn', { active: trip._id === activeTripId }]}
+        >{tripLabel(trip, index)}</a>
+      ))}
+    </nav>
+  )}
 
   <div class="period-tools">
     <label>From <input id="from-date" type="date" /></label>
@@ -192,6 +219,12 @@ const budgetYen = settings?.budgetYen ?? null
 
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
+
+    .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }
+    .trip-btn { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text); font-size: 0.85rem; background: var(--surface); }
+    .trip-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
     .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
     .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
     .period-tools input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; }

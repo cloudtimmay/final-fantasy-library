@@ -3,105 +3,256 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 
 const items = await sanity.fetch(`
-  *[_type in ["album","game","figure"] && !(_id in path("drafts.**")) && defined(series)] {
-    _id, _type, title, series, status
+  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**")) && (defined(purchasePrice) || defined(purchasePriceYen))] {
+    _id, _type, title, acquiredDate, purchasePrice, purchasePriceYen, status
   }
 `)
 
-// Group by series
-const groups: Record<string, any[]> = {}
-for (const it of items) {
-  const s = it.series || 'Uten serie'
-  if (!groups[s]) groups[s] = []
-  groups[s].push(it)
+// Fetch ALL trip settings, oldest first, so we can offer a switcher when there is more than one.
+const allTrips = await sanity.fetch(`
+  *[_type == "tripSettings"] | order(_createdAt asc) {
+    _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate
+  }
+`)
+
+// Pick the active trip: from ?trip=<id> if valid, otherwise the first (oldest) one.
+const requestedId = Astro.url.searchParams.get('trip')
+const settings = allTrips.find((t) => t._id === requestedId) ?? allTrips[0] ?? null
+
+// Build a readable label for each switcher button.
+function tripLabel(trip, index) {
+  if (trip.label) return trip.label
+  if (trip._createdAt) return new Date(trip._createdAt).toLocaleDateString('en-GB')
+  return `Trip ${index + 1}`
 }
 
-const seriesNames = Object.keys(groups).sort()
+const activeTripId = settings?._id ?? null
+const defaultRate = settings?.jpyToNokRate ?? 0.060
+const budgetNok = settings?.budgetNok ?? null
+const budgetYen = settings?.budgetYen ?? null
 ---
-<Base title="Series">
+<Base title="Spending">
   <div class="page-header">
-    <h1>Series overview</h1>
-    <span class="count">{seriesNames.length} series</span>
+    <h1>Spending</h1>
   </div>
 
-  <p class="hint">Your collection grouped by Final Fantasy title. Tap a series to see the items, or use the reference links to explore what exists.</p>
+  <p class="hint">Totals are calculated from items that have a purchase price. Budget and rate are set in Studio (Trip Settings).</p>
 
-  <input id="series-search" type="search" placeholder="Search series..." />
+  {allTrips.length > 1 && (
+    <nav class="trip-switcher">
+      <span class="trip-switcher-label">Trip:</span>
+      {allTrips.map((trip, index) => (
+        <a
+          href={`/spending?trip=${trip._id}`}
+          class:list={['trip-btn', { active: trip._id === activeTripId }]}
+        >{tripLabel(trip, index)}</a>
+      ))}
+    </nav>
+  )}
 
-  <div class="series-list">
-    {seriesNames.map((name) => {
-      const list = groups[name]
-      const owned = list.filter((i: any) => i.status === 'owned').length
-      const wishlist = list.filter((i: any) => i.status === 'wishlist').length
-      const q = encodeURIComponent(name)
-      return (
-        <details class="series-card" data-name={name.toLowerCase()}>
-          <summary>
-            <span class="series-name">{name}</span>
-            <span class="series-counts">
-              <span class="count-owned">{owned} owned</span>
-              {wishlist > 0 && <span class="count-wish">{wishlist} wishlist</span>}
-            </span>
-          </summary>
-          <div class="series-body">
-            <div class="ref-links">
-              <span class="ref-label">Explore:</span>
-              <a target="_blank" rel="noopener" href={`https://finalfantasy.fandom.com/wiki/Special:Search?query=${q}`}>FF Wiki ↗</a>
-              <a target="_blank" rel="noopener" href={`https://vgmdb.net/search?q=${q}`}>VGMdb ↗</a>
-              <a target="_blank" rel="noopener" href={`https://www.1999.co.jp/eng/search?searchkey=${q}`}>Hobby Search ↗</a>
-            </div>
-            <div class="series-items">
-              {list.map((i: any) => (
-                <a class="series-item" href={`/${i._type}s/${i._id}`}>
-                  <span class="item-icon">{i._type === 'album' ? '🎵' : i._type === 'game' ? '🎮' : '🗿'}</span>
-                  <span class="item-title">{i.title}</span>
-                  {i.status === 'wishlist' && <span class="tag wish">wishlist</span>}
-                  {i.status === 'owned' && <span class="tag owned">owned</span>}
-                </a>
-              ))}
-            </div>
-          </div>
-        </details>
-      )
-    })}
+  <div class="period-tools">
+    <label>From <input id="from-date" type="date" /></label>
+    <label>To <input id="to-date" type="date" /></label>
+    <button id="period-30">Last 30 days</button>
+    <button id="period-all">All time</button>
   </div>
+
+  <div class="rate-row">
+    <label>1 JPY = <input id="rate" type="number" step="0.0001" value={defaultRate} /> NOK</label>
+  </div>
+
+  <div class="totals">
+    <div class="total-card">
+      <div class="total-label">Total (JPY)</div>
+      <div class="total-num" id="total-yen">¥0</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">JPY → NOK (est.)</div>
+      <div class="total-num" id="total-yen-nok">0 kr</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Logged NOK</div>
+      <div class="total-num" id="total-nok">0 kr</div>
+    </div>
+    <div class="total-card highlight">
+      <div class="total-label">Combined (NOK)</div>
+      <div class="total-num" id="total-combined">0 kr</div>
+    </div>
+    <div class="total-card">
+      <div class="total-label">Items</div>
+      <div class="total-num" id="total-count">0</div>
+    </div>
+  </div>
+
+  {(budgetNok || budgetYen) && (
+    <div class="budget-block" id="budget-block"
+         data-budget-nok={budgetNok ?? ''}
+         data-budget-yen={budgetYen ?? ''}>
+      <div class="budget-head">
+        <span>Budget</span>
+        <span id="budget-label"></span>
+      </div>
+      <div class="budget-bar"><div class="budget-fill" id="budget-fill"></div></div>
+      <div class="budget-meta" id="budget-meta"></div>
+    </div>
+  )}
+
+  <div class="spend-list" id="spend-list"></div>
+
+  <script define:vars={{ items, budgetNok, budgetYen }}>
+    const fromInput = document.querySelector('#from-date')
+    const toInput = document.querySelector('#to-date')
+    const rateInput = document.querySelector('#rate')
+    const list = document.querySelector('#spend-list')
+    const totalYenEl = document.querySelector('#total-yen')
+    const totalYenNokEl = document.querySelector('#total-yen-nok')
+    const totalNokEl = document.querySelector('#total-nok')
+    const totalCombinedEl = document.querySelector('#total-combined')
+    const totalCountEl = document.querySelector('#total-count')
+
+    const budgetBlock = document.querySelector('#budget-block')
+    const budgetFill = document.querySelector('#budget-fill')
+    const budgetMeta = document.querySelector('#budget-meta')
+    const budgetLabel = document.querySelector('#budget-label')
+
+    function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
+    function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
+
+    function inRange(dateStr, from, to) {
+      if (!dateStr) return false
+      if (from && dateStr < from) return false
+      if (to && dateStr > to) return false
+      return true
+    }
+
+    function update() {
+      const from = fromInput.value
+      const to = toInput.value
+      const rate = Number(rateInput.value) || 0
+      const filtered = (!from && !to)
+        ? items.slice()
+        : items.filter((i) => inRange(i.acquiredDate, from, to))
+
+      let yen = 0, nok = 0
+      filtered.forEach((i) => {
+        if (i.purchasePriceYen) yen += Number(i.purchasePriceYen)
+        if (i.purchasePrice) nok += Number(i.purchasePrice)
+      })
+
+      const yenAsNok = yen * rate
+      const combinedNok = yenAsNok + nok
+      totalYenEl.textContent = fmtYen(yen)
+      totalYenNokEl.textContent = fmtNok(yenAsNok)
+      totalNokEl.textContent = fmtNok(nok)
+      totalCombinedEl.textContent = fmtNok(combinedNok)
+      totalCountEl.textContent = filtered.length
+
+      // Budget: show both currencies, deriving the missing one from the rate
+      if (budgetBlock) {
+        let budgetInNok = null
+        let budgetInYen = null
+
+        if (budgetNok) {
+          budgetInNok = Number(budgetNok)
+          budgetInYen = rate > 0 ? budgetInNok / rate : null
+        } else if (budgetYen) {
+          budgetInYen = Number(budgetYen)
+          budgetInNok = budgetInYen * rate
+        }
+
+        if (budgetInNok && budgetInNok > 0) {
+          const pct = Math.min(100, (combinedNok / budgetInNok) * 100)
+          const remaining = budgetInNok - combinedNok
+          budgetFill.style.width = pct.toFixed(1) + '%'
+          budgetFill.classList.toggle('over', combinedNok > budgetInNok)
+
+          // Show budget in both currencies
+          const nokPart = fmtNok(budgetInNok) + (budgetNok ? '' : ' est.')
+          const yenPart = budgetInYen ? fmtYen(budgetInYen) + (budgetYen ? '' : ' est.') : ''
+          budgetLabel.textContent = [nokPart, yenPart].filter(Boolean).join(' · ')
+
+          if (remaining >= 0) {
+            const remYen = rate > 0 ? remaining / rate : 0
+            budgetMeta.textContent = `${fmtNok(combinedNok)} spent · ${fmtNok(remaining)} left (${fmtYen(remYen)})`
+            budgetMeta.classList.remove('over')
+          } else {
+            const overYen = rate > 0 ? (-remaining) / rate : 0
+            budgetMeta.textContent = `${fmtNok(combinedNok)} spent · ${fmtNok(-remaining)} over (${fmtYen(overYen)})`
+            budgetMeta.classList.add('over')
+          }
+        }
+      }
+
+      const sorted = filtered.slice().sort((a, b) => (b.acquiredDate || '').localeCompare(a.acquiredDate || ''))
+      list.innerHTML = sorted.map((i) => {
+        const icon = i._type === 'album' ? '🎵' : i._type === 'game' ? '🎮' : i._type === 'book' ? '📚' : '🗿'
+        const yenStr = i.purchasePriceYen ? fmtYen(i.purchasePriceYen) : ''
+        const nokStr = i.purchasePrice ? fmtNok(i.purchasePrice) : ''
+        const price = [yenStr, nokStr].filter(Boolean).join(' · ')
+        return `<div class="spend-row">
+          <span class="spend-icon">${icon}</span>
+          <span class="spend-title">${i.title || ''}</span>
+          <span class="spend-date">${i.acquiredDate || ''}</span>
+          <span class="spend-price">${price}</span>
+        </div>`
+      }).join('')
+    }
+
+    document.querySelector('#period-30').addEventListener('click', () => {
+      const now = new Date()
+      const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      toInput.value = now.toISOString().split('T')[0]
+      fromInput.value = past.toISOString().split('T')[0]
+      update()
+    })
+    document.querySelector('#period-all').addEventListener('click', () => {
+      fromInput.value = ''
+      toInput.value = ''
+      update()
+    })
+    fromInput.addEventListener('change', update)
+    toInput.addEventListener('change', update)
+    rateInput.addEventListener('input', update)
+
+    update()
+  </script>
 
   <style>
-    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
-    #series-search { width: 100%; max-width: 360px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 1.5rem; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
 
-    .series-list { display: flex; flex-direction: column; gap: 0.6rem; }
-    .series-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-    .series-card summary { cursor: pointer; padding: 0.85rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    .series-name { font-weight: 700; }
-    .series-counts { display: flex; gap: 0.6rem; font-size: 0.8rem; }
-    .count-owned { color: #2ecc71; font-weight: 600; }
-    .count-wish { color: #3498db; font-weight: 600; }
+    .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }
+    .trip-btn { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text); font-size: 0.85rem; background: var(--surface); }
+    .trip-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-    .series-body { padding: 0 1rem 1rem; }
-    .ref-links { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.85rem; padding-bottom: 0.85rem; border-bottom: 1px solid var(--border); }
-    .ref-label { font-size: 0.8rem; color: var(--muted); }
-    .ref-links a { font-size: 0.8rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.35rem 0.6rem; border-radius: 6px; text-decoration: none; }
-    .ref-links a:hover { border-color: var(--accent); }
+    .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
+    .period-tools input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; }
+    .period-tools button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
 
-    .series-items { display: flex; flex-direction: column; }
-    .series-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; text-decoration: none; color: inherit; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-    .series-item:last-child { border-bottom: none; }
-    .series-item:hover { background: rgba(255,255,255,0.03); }
-    .item-icon { flex-shrink: 0; }
-    .item-title { flex: 1; min-width: 0; }
-    .tag { padding: 0.2rem 0.5rem; border-radius: 5px; font-size: 0.72rem; font-weight: 700; }
-    .tag.wish { background: #3498db; color: #04263d; }
-    .tag.owned { background: #2ecc71; color: #06281a; }
+    .rate-row { margin-bottom: 1.5rem; }
+    .rate-row label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
+    .rate-row input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; width: 100px; }
+
+    .totals { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .total-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; flex: 1; min-width: 120px; }
+    .total-card.highlight { border-color: var(--accent); }
+    .total-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .total-num { font-size: 1.4rem; font-weight: 700; }
+
+    .budget-block { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+    .budget-head { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.6rem; font-weight: 600; }
+    .budget-bar { background: var(--border); border-radius: 999px; height: 12px; overflow: hidden; }
+    .budget-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
+    .budget-fill.over { background: #e74c3c; }
+    .budget-meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+    .budget-meta.over { color: #e74c3c; font-weight: 600; }
+
+    .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .spend-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .spend-icon { flex-shrink: 0; }
+    .spend-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .spend-date { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
+    .spend-price { font-weight: 600; flex-shrink: 0; }
   </style>
-
-  <script>
-    const search = document.querySelector('#series-search')
-    search.addEventListener('input', () => {
-      const q = search.value.toLowerCase()
-      document.querySelectorAll('.series-card').forEach((card) => {
-        card.style.display = card.dataset.name.includes(q) ? '' : 'none'
-      })
-    })
-  </script>
 </Base>

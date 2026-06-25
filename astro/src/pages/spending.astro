@@ -16,10 +16,13 @@ const allTrips = await sanity.fetch(`
   }
 `)
 
-// Fetch all family purchases, each linked to a trip via its reference.
+// Fetch all family purchases (shopping list). Store name is pulled via the reference.
 const familyPurchases = await sanity.fetch(`
   *[_type == "familyPurchase" && !(_id in path("drafts.**"))] {
-    _id, name, person, priceNok, priceYen, "tripId": trip._ref
+    _id, name, person, status, priceNok, priceYen, purchaseDate,
+    "tripId": trip._ref,
+    "storeId": store._ref,
+    "storeName": store->shopName
   }
 `)
 
@@ -53,7 +56,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     <h1>Spending</h1>
   </div>
 
-  <p class="hint">FF collection totals are at the top. Family purchases for the selected trip are below. Budgets and rate are set in Studio (Trip Settings).</p>
+  <p class="hint">FF collection totals are at the top. Family shopping list for the selected trip is below. Budgets and rate are set in Studio (Trip Settings).</p>
 
   {allTrips.length > 1 && (
     <nav class="trip-switcher">
@@ -121,9 +124,9 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     <div class="spend-list" id="spend-list"></div>
   </section>
 
-  <!-- ===== FAMILY PURCHASES (this trip only) ===== -->
+  <!-- ===== FAMILY SHOPPING LIST (this trip only) ===== -->
   <section class="section">
-    <h2 class="section-title">Family purchases — {settings ? (settings.label || 'this trip') : 'no trip'}</h2>
+    <h2 class="section-title">Family shopping — {settings ? (settings.label || 'this trip') : 'no trip'}</h2>
 
     {peopleList.length > 0 ? (
       <>
@@ -136,6 +139,13 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
         </nav>
 
         <div class="child-summary" id="child-summary"></div>
+
+        <div class="store-wrap" id="store-wrap">
+          <h3 class="store-title">Tax-free by store / day</h3>
+          <div class="store-list" id="store-list"></div>
+          <p class="store-note">Assumes shelf prices include 10% tax. Tax-free applies at ¥5,000+ (pre-tax) per store per day. Counts everyone's purchases for this trip.</p>
+        </div>
+
         <div class="spend-list" id="family-list"></div>
       </>
     ) : (
@@ -162,8 +172,13 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     const personFilter = document.querySelector('#person-filter')
     const childSummary = document.querySelector('#child-summary')
     const familyList = document.querySelector('#family-list')
+    const storeWrap = document.querySelector('#store-wrap')
+    const storeList = document.querySelector('#store-list')
 
     let selectedPerson = '' // '' means "All"
+
+    const TAX_RATE = 0.10
+    const PRETAX_THRESHOLD = 5000
 
     function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
     function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
@@ -250,42 +265,42 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       }).join('')
     }
 
-    // ---- Family section (this trip only, respects selectedPerson) ----
+    // ---- Family section (this trip only; bought vs planned; respects selectedPerson) ----
     function updateFamily() {
       if (!childSummary) return
       const rate = Number(rateInput.value) || 0
-
-      // Which people to show summary rows for.
       const peopleToShow = selectedPerson ? [selectedPerson] : (peopleList || [])
 
       const rows = peopleToShow.map((person) => {
         const its = (tripPurchases || []).filter((p) => p.person === person)
-        let yen = 0, nok = 0
+        let boughtNok = 0, plannedNok = 0
         its.forEach((p) => {
-          if (p.priceYen) yen += Number(p.priceYen)
-          if (p.priceNok) nok += Number(p.priceNok)
+          const nok = (p.priceYen ? Number(p.priceYen) * rate : 0) + (p.priceNok ? Number(p.priceNok) : 0)
+          if (p.status === 'bought') boughtNok += nok
+          else plannedNok += nok
         })
-        const combinedNok = yen * rate + nok
         const cb = childBudgetFor(person)
         const b = budgetBoth(cb.nok, cb.yen, rate)
-        return { person, combinedNok, count: its.length, b }
+        return { person, boughtNok, plannedNok, count: its.length, b }
       })
 
       childSummary.innerHTML = rows.map((r) => {
         const hasBudget = r.b.nok && r.b.nok > 0
         let bar = ''
-        let meta = `${fmtNok(r.combinedNok)} · ${r.count} item${r.count === 1 ? '' : 's'}`
         let over = false
+        let meta = `${fmtNok(r.boughtNok)} spent`
+        if (r.plannedNok > 0) meta += ` · +${fmtNok(r.plannedNok)} planned`
+        meta += ` · ${r.count} item${r.count === 1 ? '' : 's'}`
 
         if (hasBudget) {
-          const pct = Math.min(100, (r.combinedNok / r.b.nok) * 100)
-          over = r.combinedNok > r.b.nok
-          const remaining = r.b.nok - r.combinedNok
+          const pct = Math.min(100, (r.boughtNok / r.b.nok) * 100)
+          over = r.boughtNok > r.b.nok
+          const remaining = r.b.nok - r.boughtNok
           bar = `<div class="cs-bar"><div class="cs-fill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div></div>`
           const budLabel = fmtNok(r.b.nok) + (r.b.nokExplicit ? '' : ' est.')
-          meta = remaining >= 0
-            ? `${fmtNok(r.combinedNok)} / ${budLabel} · ${fmtNok(remaining)} left`
-            : `${fmtNok(r.combinedNok)} / ${budLabel} · ${fmtNok(-remaining)} over`
+          const remPart = remaining >= 0 ? `${fmtNok(remaining)} left` : `${fmtNok(-remaining)} over`
+          const planPart = r.plannedNok > 0 ? ` · +${fmtNok(r.plannedNok)} planned` : ''
+          meta = `${fmtNok(r.boughtNok)} / ${budLabel} · ${remPart}${planPart}`
         }
 
         return `<div class="cs-row">
@@ -296,30 +311,95 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
           ${bar}
         </div>`
       }).join('')
-
-      // Family purchase list, filtered by selected person.
+      
+      // Family purchase list, filtered by selected person. Always shows both currencies.
       if (familyList) {
         const visible = selectedPerson
           ? (tripPurchases || []).filter((p) => p.person === selectedPerson)
           : (tripPurchases || [])
         const sorted = visible.slice().sort((a, b) => (a.person || '').localeCompare(b.person || ''))
         familyList.innerHTML = sorted.map((p) => {
-          const yenStr = p.priceYen ? fmtYen(p.priceYen) : ''
-          const nokStr = p.priceNok ? fmtNok(p.priceNok) : ''
+          const hasYen = p.priceYen != null && p.priceYen !== ''
+          const hasNok = p.priceNok != null && p.priceNok !== ''
+
+          // Show yen and NOK side by side, deriving whichever is missing from the rate.
+          let yenStr = ''
+          let nokStr = ''
+          if (hasYen) {
+            yenStr = fmtYen(Number(p.priceYen))
+            nokStr = hasNok ? fmtNok(Number(p.priceNok)) : fmtNok(Number(p.priceYen) * rate) + ' est.'
+          } else if (hasNok) {
+            nokStr = fmtNok(Number(p.priceNok))
+            yenStr = rate > 0 ? fmtYen(Number(p.priceNok) / rate) + ' est.' : ''
+          }
           const price = [yenStr, nokStr].filter(Boolean).join(' · ')
+
+          const icon = p.status === 'bought' ? '✅' : '🛒'
+          const store = p.storeName ? `<span class="spend-store">${p.storeName}</span>` : ''
           return `<div class="spend-row">
-            <span class="spend-icon">🛍️</span>
+            <span class="spend-icon">${icon}</span>
             <span class="spend-title">${p.name || ''}</span>
             <span class="spend-who">${p.person || ''}</span>
+            ${store}
             <span class="spend-price">${price}</span>
           </div>`
         }).join('')
       }
     }
 
+    // ---- Tax-free tracker, grouped by store + day (all people, this trip) ----
+    function updateStores() {
+      if (!storeWrap) return
+      const groups = {}
+      ;(tripPurchases || []).forEach((p) => {
+        if (!p.priceYen) return
+        const storeName = (p.storeName && p.storeName.trim()) ? p.storeName.trim() : '— No store —'
+        const day = p.purchaseDate || '— No date —'
+        const key = storeName + '||' + day
+        if (!groups[key]) groups[key] = { storeName, day, incl: 0 }
+        groups[key].incl += Number(p.priceYen)
+      })
+
+      const keys = Object.keys(groups).sort((a, b) => {
+        // Sort by date desc, then store name.
+        const ga = groups[a], gb = groups[b]
+        if (ga.day !== gb.day) return gb.day.localeCompare(ga.day)
+        return ga.storeName.localeCompare(gb.storeName)
+      })
+
+      if (!keys.length) { storeWrap.style.display = 'none'; return }
+      storeWrap.style.display = ''
+
+      storeList.innerHTML = keys.map((key) => {
+        const g = groups[key]
+        const incl = g.incl
+        const preTax = incl / (1 + TAX_RATE)
+        const hasStore = g.storeName !== '— No store —'
+        const reached = preTax >= PRETAX_THRESHOLD
+        let cls = '', meta
+
+        if (!hasStore) {
+          meta = `${fmtYen(incl)} · assign a store to track tax-free`
+        } else if (reached) {
+          const saved = incl - preTax
+          cls = 'ok'
+          meta = `${fmtYen(incl)} · tax-free reached · save ~${fmtYen(saved)}`
+        } else {
+          const neededIncl = PRETAX_THRESHOLD * (1 + TAX_RATE) - incl
+          meta = `${fmtYen(incl)} · ${fmtYen(neededIncl)} more to reach tax-free`
+        }
+
+        return `<div class="store-row ${cls}">
+          <span class="store-name">${g.storeName} <span class="store-day">${g.day}</span></span>
+          <span class="store-meta">${meta}</span>
+        </div>`
+      }).join('')
+    }
+
     function update() {
       updateCollection()
       updateFamily()
+      updateStores()
     }
 
     if (personFilter) {
@@ -356,6 +436,9 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
 
     .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
     .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }
+    .person-filter { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .person-filter-label { font-size: 0.85rem; color: var(--muted); }
+
     .trip-btn,
     .person-btn {
       padding: 0.45rem 0.95rem;
@@ -397,11 +480,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     .section { margin-bottom: 2.5rem; }
     .section-title { font-size: 1.1rem; margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
 
-    .person-filter { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
-    .person-filter-label { font-size: 0.85rem; color: var(--muted); }
-    .person-btn { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 0.85rem; cursor: pointer; }
-    .person-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-
     .period-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
     .period-tools label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
     .period-tools input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; }
@@ -435,11 +513,23 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     .cs-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
     .cs-fill.over { background: #e74c3c; }
 
+    .store-wrap { margin-bottom: 1.5rem; }
+    .store-title { font-size: 0.95rem; margin: 0 0 0.6rem; }
+    .store-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .store-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.85rem; }
+    .store-row.ok { border-color: #2ecc71; }
+    .store-name { font-weight: 600; }
+    .store-day { font-weight: 400; color: var(--muted); font-size: 0.75rem; margin-left: 0.4rem; }
+    .store-meta { color: var(--muted); text-align: right; }
+    .store-row.ok .store-meta { color: #2ecc71; }
+    .store-note { font-size: 0.75rem; color: var(--muted); margin: 0.6rem 0 0; }
+
     .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
     .spend-row { display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
     .spend-icon { flex-shrink: 0; }
     .spend-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .spend-who { flex-shrink: 0; font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.5rem; }
+    .spend-store { flex-shrink: 0; font-size: 0.75rem; color: var(--muted); }
     .spend-date { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
     .spend-price { font-weight: 600; flex-shrink: 0; }
   </style>

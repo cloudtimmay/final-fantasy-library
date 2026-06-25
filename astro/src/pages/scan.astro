@@ -2,6 +2,8 @@
 import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
 
+const STUDIO_URL = 'https://fflibrary.sanity.studio'
+
 const q = (Astro.url.searchParams.get('q') || '').trim()
 
 let results: any[] = []
@@ -36,7 +38,7 @@ if (q) {
 <Base title="Scan">
   <div class="scan-wrap">
     <h1>Scan</h1>
-    <p class="hint">Søk på tittel, katalognummer, strekkode eller ISBN — eller skann strekkoden.</p>
+    <p class="hint">Search by title, catalog number, barcode or ISBN — or scan the barcode.</p>
 
     <form class="scan-form" method="get" action="/scan">
       <input
@@ -44,22 +46,27 @@ if (q) {
         name="q"
         type="search"
         value={q}
-        placeholder="Tittel, katalognr, strekkode..."
+        placeholder="Title, catalog no., barcode..."
         autocomplete="off"
       />
-      <button type="submit">Søk</button>
+      <button type="submit">Search</button>
     </form>
 
-    <button id="scan-toggle" class="scan-cam-btn" type="button">📷 Skann strekkode</button>
+    <button id="scan-toggle" class="scan-cam-btn" type="button">📷 Scan barcode</button>
     <div id="scan-reader" class="scan-reader" hidden></div>
     <p id="scan-msg" class="scan-msg" hidden></p>
+
+    <button id="family-register" class="scan-fam-btn" type="button" data-studio={STUDIO_URL}>
+      🛍️ Register as family purchase
+    </button>
+    <p id="family-msg" class="family-msg" hidden></p>
 
     {q && (
       <div class="scan-results">
         {results.length === 0 ? (
           <div class="no-match">
-            <strong>Ikke i samlingen.</strong>
-            <span>Ingen treff på «{q}». Slå opp eksternt nedenfor.</span>
+            <strong>Not in collection.</strong>
+            <span>No matches for “{q}”. Look it up externally below.</span>
           </div>
         ) : (
           results.map((r: any) => (
@@ -78,10 +85,10 @@ if (q) {
                 </div>
               </div>
               <div class="result-status">
-                {r.status === 'owned' && <span class="badge owned">EID</span>}
-                {r.status === 'wishlist' && <span class="badge wishlist">ØNSKELISTE</span>}
-                {r.status === 'sold' && <span class="badge sold">SOLGT</span>}
-                {r.status === 'lent' && <span class="badge lent">UTLÅNT</span>}
+                {r.status === 'owned' && <span class="badge owned">OWNED</span>}
+                {r.status === 'wishlist' && <span class="badge wishlist">WISHLIST</span>}
+                {r.status === 'sold' && <span class="badge sold">SOLD</span>}
+                {r.status === 'lent' && <span class="badge lent">LENT OUT</span>}
                 {!r.status && <span class="badge">{r._type}</span>}
               </div>
             </a>
@@ -92,32 +99,32 @@ if (q) {
 
     {q && (
       <div class="ext-lookup">
-        <h2>Slå opp «{q}» eksternt</h2>
+        <h2>Look up “{q}” externally</h2>
 
         <div class="ext-group">
-          <span class="ext-label">Album</span>
+          <span class="ext-label">Albums</span>
           <a target="_blank" rel="noopener" href={`https://vgmdb.net/search?q=${encodeURIComponent(q)}`}>VGMdb ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' soundtrack album')}`}>Google ↗</a>
         </div>
 
         <div class="ext-group">
-          <span class="ext-label">Bøker</span>
+          <span class="ext-label">Books</span>
           <a target="_blank" rel="noopener" href={`https://openlibrary.org/search?q=${encodeURIComponent(q)}`}>Open Library ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.bookfinder.com/search/?keywords=${encodeURIComponent(q)}`}>BookFinder ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' book')}`}>Google ↗</a>
         </div>
 
         <div class="ext-group">
-          <span class="ext-label">Spill</span>
+          <span class="ext-label">Games</span>
           <a target="_blank" rel="noopener" href={`https://www.mobygames.com/search/?q=${encodeURIComponent(q)}`}>MobyGames ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.igdb.com/search?type=1&q=${encodeURIComponent(q)}`}>IGDB ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' game')}`}>Google ↗</a>
         </div>
 
         <div class="ext-group">
-          <span class="ext-label">Generelt</span>
+          <span class="ext-label">General</span>
           <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q)}`}>Google ↗</a>
-          <a target="_blank" rel="noopener" href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}`}>Google bilder ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}`}>Google Images ↗</a>
         </div>
       </div>
     )}
@@ -143,6 +150,13 @@ if (q) {
     }
     .scan-reader { width: 100%; max-width: 400px; margin: 0 auto 1rem; border-radius: 8px; overflow: hidden; }
     .scan-msg { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem; }
+
+    .scan-fam-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-bottom: 0.5rem;
+    }
+    .scan-fam-btn:hover { border-color: var(--accent); }
+    .family-msg { font-size: 0.85rem; color: #2ecc71; margin-bottom: 1rem; }
 
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
     .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
@@ -190,7 +204,7 @@ if (q) {
 
       async function startScan() {
         if (typeof Html5Qrcode === 'undefined') {
-          showMsg('Skanner kunne ikke lastes. Sjekk nettforbindelsen.')
+          showMsg('Scanner could not be loaded. Check your connection.')
           return
         }
         reader.hidden = false
@@ -201,18 +215,18 @@ if (q) {
             { facingMode: 'environment' },
             { fps: 10, qrbox: { width: 250, height: 150 } },
             (decodedText) => {
-              // Strekkode lest -> fyll inn og søk
+              // Barcode read -> fill in and search
               input.value = decodedText.replace(/[^0-9Xx]/g, '')
               stopScan().then(() => {
                 input.form.submit()
               })
             },
-            () => {} // ignorer "ingen kode i bildet"-feil
+            () => {} // ignore "no code in frame" errors
           )
           running = true
-          toggle.textContent = '✕ Lukk skanner'
+          toggle.textContent = '✕ Close scanner'
         } catch (err) {
-          showMsg('Fikk ikke tilgang til kamera. Tillat kamera i nettleseren og prøv igjen.')
+          showMsg('Could not access camera. Allow camera in your browser and try again.')
           reader.hidden = true
         }
       }
@@ -223,13 +237,37 @@ if (q) {
           running = false
         }
         reader.hidden = true
-        toggle.textContent = '📷 Skann strekkode'
+        toggle.textContent = '📷 Scan barcode'
       }
 
       toggle.addEventListener('click', () => {
         if (running) stopScan()
         else startScan()
       })
+
+      // ---- Register as family purchase: copy code, open Studio ----
+      const famBtn = document.getElementById('family-register')
+      const famMsg = document.getElementById('family-msg')
+      if (famBtn) {
+        famBtn.addEventListener('click', async () => {
+          const code = (input.value || '').trim()
+          const studio = famBtn.dataset.studio
+          const url = studio + '/intent/create/type=familyPurchase;template=familyPurchase/'
+
+          if (code) {
+            try {
+              await navigator.clipboard.writeText(code)
+              famMsg.hidden = false
+              famMsg.textContent = `Copied “${code}” — paste it into Name/Barcode in Studio.`
+            } catch (e) {
+              famMsg.hidden = false
+              famMsg.style.color = 'var(--muted)'
+              famMsg.textContent = `Could not copy automatically. Code: ${code}`
+            }
+          }
+          window.open(url, '_blank', 'noopener')
+        })
+      }
     })()
   </script>
 </Base>

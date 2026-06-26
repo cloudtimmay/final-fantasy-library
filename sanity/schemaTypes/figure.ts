@@ -2,6 +2,7 @@ import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
 import { ExternalImagePreview } from '../components/ExternalImagePreview'
 import { MfcImport } from '../components/MfcImport'
+import { seriesList } from './seriesList'
 
 export const figure = defineType({
   name: 'figure',
@@ -10,7 +11,14 @@ export const figure = defineType({
   icon: () => '🗿',
   fields: [
     defineField({ name: 'title', title: 'Name / Title', type: 'string', validation: (R) => R.required() }),
-    defineField({ name: 'series', title: 'Series / Franchise', type: 'string' }),
+    defineField({
+      name: 'series',
+      title: 'Series / Franchise',
+      type: 'string',
+      options: {
+        list: seriesList,
+      },
+    }),
     defineField({ name: 'manufacturer', title: 'Manufacturer', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
     defineField({ name: 'needsInfo', title: 'Missing info', type: 'boolean', initialValue: false }),

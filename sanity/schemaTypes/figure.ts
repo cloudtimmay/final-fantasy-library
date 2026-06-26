@@ -1,6 +1,7 @@
 import { defineType, defineField } from 'sanity'
 import { sharedFields } from './shared'
 import { ExternalImagePreview } from '../components/ExternalImagePreview'
+import { MfcImport } from '../components/MfcImport'
 
 export const figure = defineType({
   name: 'figure',
@@ -13,6 +14,13 @@ export const figure = defineType({
     defineField({ name: 'manufacturer', title: 'Manufacturer', type: 'string' }),
     defineField({ name: 'year', title: 'Release year', type: 'number' }),
     defineField({ name: 'needsInfo', title: 'Missing info', type: 'boolean', initialValue: false }),
+    defineField({
+      name: 'barcode',
+      title: 'Barcode (JAN)',
+      type: 'string',
+      description: 'Scan/type the JAN. Use the lookup buttons to find it on MFC, then paste the item URL below to auto-fill.',
+      components: { input: MfcImport },
+    }),
     defineField({ name: 'externalImageUrl', title: 'External Image URL', type: 'url' }),
     defineField({
       name: 'scale',

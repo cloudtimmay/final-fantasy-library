@@ -60,6 +60,9 @@ async function main() {
     process.stdin.once("data", () => resolve())
   })
 
+  let created = 0
+  let updated = 0
+
   for (const album of albums) {
     console.log(`Scraping ${album.vgmdbId} - ${album.vgmdbUrl}`)
 
@@ -93,6 +96,18 @@ const data = await page.evaluate(`
         if (key.toLowerCase() === label.toLowerCase()) return value
       }
       return ''
+    }
+
+    // Album title: VGMdb shows it in the H1 (with language spans).
+    function getTitle() {
+      const h1 = document.querySelector('h1')
+      if (!h1) return ''
+      // Prefer the English/romanised name if multiple language spans exist.
+      const spans = Array.from(h1.querySelectorAll('span.albumtitle'))
+      const en = spans.find((s) => s.getAttribute('lang') === 'en')
+      if (en) return clean(en.textContent)
+      if (spans.length) return clean(spans[0].textContent)
+      return clean(h1.textContent)
     }
 
     const tracklist = []
@@ -135,6 +150,7 @@ const data = await page.evaluate(`
     })
 
     return {
+      title: getTitle(),
       catalogNumber: getInfo('Catalog Number'),
       barcode: getInfo('Barcode'),
       releaseDate: getInfo('Release Date'),
@@ -148,19 +164,45 @@ const data = await page.evaluate(`
   })()
 `)
 
-    await client
-      .patch(`album-vgmdb-${album.vgmdbId}`)
-      .set({ ...data, vgmdbUrl: album.vgmdbUrl })
-      .commit()
+    const docId = `album-vgmdb-${album.vgmdbId}`
 
-    console.log(`Updated ${album.vgmdbId}: ${data.tracklist.length} tracks`)
+    // Does this album already exist? If yes -> patch (preserve manual fields).
+    // If no -> create it with the scraped title.
+    const exists = await client.fetch(`count(*[_id == $id]) > 0`, { id: docId })
+
+    if (exists) {
+      // Don't overwrite a manually-set title: only patch the scraped data fields.
+      const { title, ...rest } = data
+      await client
+        .patch(docId)
+        .set({ ...rest, vgmdbUrl: album.vgmdbUrl })
+        .commit()
+      console.log(`  Updated ${album.vgmdbId}: ${data.tracklist.length} tracks`)
+      updated++
+    } else {
+      await client.create({
+        _id: docId,
+        _type: "album",
+        vgmdbId: album.vgmdbId,
+        vgmdbUrl: album.vgmdbUrl,
+        title: data.title || `VGMdb album ${album.vgmdbId}`,
+        needsInfo: true,
+        ...data,
+      })
+      console.log(`  Created ${album.vgmdbId}: ${data.title || "(no title)"} — ${data.tracklist.length} tracks`)
+      created++
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400))
   }
 
   await browser.close()
-  console.log("DONE")
+  console.log(`\nDONE — ${created} created, ${updated} updated`)
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })

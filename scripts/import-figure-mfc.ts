@@ -12,6 +12,8 @@ const client = createClient({
 // Paste figure barcodes (JAN) here, one per line.
 const BARCODES = [
   "4988601310307",
+  "4988601311861",
+  
 
 ]
 

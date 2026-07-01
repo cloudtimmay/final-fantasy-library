@@ -56,24 +56,29 @@ function isNew(acquiredDate: string | undefined): boolean {
 
   <div class="album-list">
     {albums.map((a: any) => (
-      <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
-        {a.externalImageUrl
-          ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
-          : <div class="album-thumb placeholder">🎵</div>
-        }
-        <div class="album-info">
-          <div class="card-title">{a.title}</div>
-          <div class="card-sub">{a.composer || a.artist}</div>
-          <div class="card-meta">
-            {isNew(a.acquiredDate) && <span class="tag new-tag">NY</span>}
-            {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
-            {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
-            {a.year && <span class="tag">{a.year}</span>}
-            {a.format && <span class="tag">{a.format}</span>}
-            {a.trackCount > 0 && <span class="tag">{a.discCount > 1 ? `${a.discCount} disker · ` : ''}{a.trackCount} spor</span>}
+      <div class="album-row-wrap" data-wishlist={a.status === 'wishlist' ? 'yes' : 'no'}>
+        <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
+          {a.externalImageUrl
+            ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
+            : <div class="album-thumb placeholder">🎵</div>
+          }
+          <div class="album-info">
+            <div class="card-title">{a.title}</div>
+            <div class="card-sub">{a.composer || a.artist}</div>
+            <div class="card-meta">
+              {isNew(a.acquiredDate) && <span class="tag new-tag">NY</span>}
+              {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
+              {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
+              {a.year && <span class="tag">{a.year}</span>}
+              {a.format && <span class="tag">{a.format}</span>}
+              {a.trackCount > 0 && <span class="tag">{a.discCount > 1 ? `${a.discCount} disker · ` : ''}{a.trackCount} spor</span>}
+            </div>
           </div>
-        </div>
-      </a>
+        </a>
+        {a.status === 'wishlist' && (
+          <button class="got-btn" data-id={a._id}>✓ Got it</button>
+        )}
+      </div>
     ))}
   </div>
 
@@ -82,19 +87,24 @@ function isNew(acquiredDate: string | undefined): boolean {
     .vgmdb-lookup input { flex: 1; min-width: 200px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .vgmdb-lookup button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
     .album-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-    .album-row { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
+    .album-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .album-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
     .album-row:hover { background: rgba(255,255,255,0.03); }
     .album-thumb { width: 56px; height: 56px; object-fit: cover; background: var(--border); flex-shrink: 0; }
     .album-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
     .album-info { min-width: 0; }
     .wishlist-tag { background: var(--wishlist); color: var(--bg); }
+    .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
+    .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .got-btn:disabled { opacity: 0.6; cursor: default; }
     .album-tools { display: flex; gap: 0.75rem; margin: 0.5rem 0 1.5rem; flex-wrap: wrap; }
     .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .album-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
-    // VGMdb-oppslag (ny fane)
+    import { initGotIt } from '../../scripts/got-it.js'
+
     const vgmdbInput = document.querySelector('#vgmdb-search')
     const vgmdbBtn = document.querySelector('#vgmdb-go')
     function vgmdbSearch() {
@@ -105,7 +115,6 @@ function isNew(acquiredDate: string | undefined): boolean {
     vgmdbBtn.addEventListener('click', vgmdbSearch)
     vgmdbInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') vgmdbSearch() })
 
-    // Filtrering av egen samling
     const searchInput = document.querySelector('#album-search')
     const sortSelect = document.querySelector('#album-sort')
     const statusSelect = document.querySelector('#album-status')
@@ -117,9 +126,10 @@ function isNew(acquiredDate: string | undefined): boolean {
       const sort = sortSelect.value
       const status = statusSelect.value
       const series = seriesSelect.value
-      const rows = Array.from(document.querySelectorAll('.album-row'))
+      const rows = Array.from(document.querySelectorAll('.album-row-wrap'))
 
-      rows.forEach((row) => {
+      rows.forEach((wrap) => {
+        const row = wrap.querySelector('.album-row')
         const matchesSearch =
           row.dataset.title.includes(search) ||
           row.dataset.artist.includes(search) ||
@@ -127,34 +137,31 @@ function isNew(acquiredDate: string | undefined): boolean {
           row.dataset.catalog.includes(search)
         const matchesStatus = !status || row.dataset.status === status
         const matchesSeries = !series || row.dataset.series === series
-        row.style.display = matchesSearch && matchesStatus && matchesSeries ? '' : 'none'
+        wrap.style.display = matchesSearch && matchesStatus && matchesSeries ? '' : 'none'
       })
 
       rows
         .sort((a, b) => {
-          if (sort === 'year') {
-            const ay = Number(a.dataset.year) || 0
-            const by = Number(b.dataset.year) || 0
-            return by - ay
-          }
-          if (sort === 'catalog') return a.dataset.catalog.localeCompare(b.dataset.catalog)
+          const ra = a.querySelector('.album-row'), rb = b.querySelector('.album-row')
+          if (sort === 'year') return (Number(rb.dataset.year) || 0) - (Number(ra.dataset.year) || 0)
+          if (sort === 'catalog') return ra.dataset.catalog.localeCompare(rb.dataset.catalog)
           if (sort === 'acquired') {
-            // Nyeste kjøp først; tomme datoer havner nederst
-            const ad = a.dataset.acquired || ''
-            const bd = b.dataset.acquired || ''
+            const ad = ra.dataset.acquired || '', bd = rb.dataset.acquired || ''
             if (!ad && !bd) return 0
             if (!ad) return 1
             if (!bd) return -1
             return bd.localeCompare(ad)
           }
-          return a.dataset.title.localeCompare(b.dataset.title)
+          return ra.dataset.title.localeCompare(rb.dataset.title)
         })
-        .forEach((row) => list.appendChild(row))
+        .forEach((wrap) => list.appendChild(wrap))
     }
 
     searchInput.addEventListener('input', updateAlbums)
     sortSelect.addEventListener('change', updateAlbums)
     statusSelect.addEventListener('change', updateAlbums)
     seriesSelect.addEventListener('change', updateAlbums)
+
+    initGotIt()
   </script>
 </Base>

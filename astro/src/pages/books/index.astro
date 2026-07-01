@@ -59,6 +59,7 @@ function isNew(acquiredDate: string | undefined): boolean {
   <div class="book-list">
     {books.map((b: any) => (
       <div class="book-row-wrap"
+           data-wishlist={b.status === 'wishlist' ? 'yes' : 'no'}
            data-title={b.title?.toLowerCase() || ''}
            data-author={b.author?.toLowerCase() || ''}
            data-isbn={b.isbn || ''}
@@ -77,6 +78,7 @@ function isNew(acquiredDate: string | undefined): boolean {
             <div class="card-sub">{b.author}{b.year ? ` · ${b.year}` : ''}</div>
             <div class="card-meta">
               {isNew(b.acquiredDate) && <span class="tag new-tag">NEW</span>}
+              {b.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
               {b.needsInfo && <span class="tag needsinfo-tag">Missing info</span>}
               {b.publisher && <span class="tag">{b.publisher}</span>}
               {b.readStatus && <span class="tag">{b.readStatus}</span>}
@@ -84,7 +86,9 @@ function isNew(acquiredDate: string | undefined): boolean {
             </div>
           </div>
         </a>
-        {b.needsInfo && (
+        {b.status === 'wishlist' ? (
+          <button class="got-btn" data-id={b._id}>✓ Got it</button>
+        ) : b.needsInfo && (
           <button class="lookup-btn" data-query={b.isbn || b.title}>🔍 Look up</button>
         )}
       </div>
@@ -112,11 +116,17 @@ function isNew(acquiredDate: string | undefined): boolean {
     .book-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
     .book-info { min-width: 0; }
     .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .wishlist-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
     .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .got-btn:disabled { opacity: 0.6; cursor: default; }
     .book-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
+    import { initGotIt } from '../../scripts/got-it.js'
+
     const lookupBox = document.querySelector('#lookup-box')
     const lookupInput = document.querySelector('#book-lookup')
     function lval() { return lookupInput.value.trim() }
@@ -175,8 +185,7 @@ function isNew(acquiredDate: string | undefined): boolean {
       rows
         .sort((a, b) => {
           if (sort === 'acquired') {
-            const ad = a.dataset.acquired || ''
-            const bd = b.dataset.acquired || ''
+            const ad = a.dataset.acquired || '', bd = b.dataset.acquired || ''
             if (!ad && !bd) return 0
             if (!ad) return 1
             if (!bd) return -1
@@ -191,5 +200,7 @@ function isNew(acquiredDate: string | undefined): boolean {
     sortSelect.addEventListener('change', updateBooks)
     statusSelect.addEventListener('change', updateBooks)
     infoFilter.addEventListener('change', updateBooks)
+
+    initGotIt()
   </script>
 </Base>

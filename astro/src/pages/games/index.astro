@@ -57,10 +57,12 @@ function isNew(acquiredDate: string | undefined): boolean {
   <div class="game-list">
     {games.map((g: any) => (
       <div class="game-row-wrap"
+           data-wishlist={g.status === 'wishlist' ? 'yes' : 'no'}
            data-title={g.title?.toLowerCase() || ''}
            data-developer={g.developer?.toLowerCase() || ''}
            data-platform={(g.platform || '').toLowerCase()}
            data-needsinfo={g.needsInfo ? 'yes' : 'no'}
+           data-status={g.status || ''}
            data-acquired={g.acquiredDate || ''}>
         <a class="game-row" href={`/games/${g._id}`}>
           {g.image
@@ -74,6 +76,7 @@ function isNew(acquiredDate: string | undefined): boolean {
             <div class="card-sub">{g.developer}{g.year ? ` · ${g.year}` : ''}</div>
             <div class="card-meta">
               {isNew(g.acquiredDate) && <span class="tag new-tag">NY</span>}
+              {g.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
               {g.needsInfo && <span class="tag needsinfo-tag">Mangler info</span>}
               {g.platform && <span class="tag">{g.platform}</span>}
               {g.completionStatus && <span class="tag">{g.completionStatus}</span>}
@@ -81,7 +84,9 @@ function isNew(acquiredDate: string | undefined): boolean {
             </div>
           </div>
         </a>
-        {g.needsInfo && (
+        {g.status === 'wishlist' ? (
+          <button class="got-btn" data-id={g._id}>✓ Got it</button>
+        ) : g.needsInfo && (
           <button class="lookup-btn" data-query={g.barcode || g.title}>🔍 Slå opp</button>
         )}
       </div>
@@ -109,11 +114,17 @@ function isNew(acquiredDate: string | undefined): boolean {
     .game-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
     .game-info { min-width: 0; }
     .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .wishlist-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
+    .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
     .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+    .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .got-btn:disabled { opacity: 0.6; cursor: default; }
     .game-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
+    import { initGotIt } from '../../scripts/got-it.js'
+
     const lookupBox = document.querySelector('#lookup-box')
     const lookupInput = document.querySelector('#game-lookup')
     function lval() { return lookupInput.value.trim() }
@@ -168,8 +179,7 @@ function isNew(acquiredDate: string | undefined): boolean {
       rows
         .sort((a, b) => {
           if (sort === 'acquired') {
-            const ad = a.dataset.acquired || ''
-            const bd = b.dataset.acquired || ''
+            const ad = a.dataset.acquired || '', bd = b.dataset.acquired || ''
             if (!ad && !bd) return 0
             if (!ad) return 1
             if (!bd) return -1
@@ -184,5 +194,7 @@ function isNew(acquiredDate: string | undefined): boolean {
     sortSelect.addEventListener('change', updateGames)
     platformSelect.addEventListener('change', updateGames)
     infoFilter.addEventListener('change', updateGames)
+
+    initGotIt()
   </script>
 </Base>

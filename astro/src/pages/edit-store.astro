@@ -1,0 +1,212 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+const id = (Astro.url.searchParams.get('id') || '').trim()
+
+let shop: any = null
+if (id) {
+  shop = await sanity.fetch(
+    `*[_type == "shopNote" && _id == $id][0]{
+      _id, shopName, area, note, priority, address, latitude, longitude
+    }`,
+    { id }
+  )
+}
+---
+<Base title="Edit shop">
+  <div class="add-wrap">
+    {!shop ? (
+      <>
+        <h1>Shop not found</h1>
+        <p class="hint">This shop could not be loaded. <a href="/notes">Back to notes</a>.</p>
+      </>
+    ) : (
+      <>
+        <h1>Edit shop</h1>
+        <p class="hint">Update the details for this shop.</p>
+
+        <input id="s-id" type="hidden" value={shop._id} />
+
+        <div class="field">
+          <label>Shop / Place *</label>
+          <input id="s-name" type="text" value={shop.shopName || ''} />
+        </div>
+
+        <div class="field">
+          <label>Area</label>
+          <select id="s-area">
+            <option value="">Select area…</option>
+            {['Akihabara','Ikebukuro','Nakano','Shinjuku','Shibuya','Other'].map((a) => (
+              <option value={a} selected={shop.area === a}>{a}</option>
+            ))}
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Note</label>
+          <textarea id="s-note" rows="4">{shop.note || ''}</textarea>
+        </div>
+
+        <div class="field">
+          <label>Priority</label>
+          <select id="s-priority">
+            <option value="maybe" selected={shop.priority === 'maybe'}>Worth a look</option>
+            <option value="must" selected={shop.priority === 'must'}>Must visit</option>
+            <option value="visited" selected={shop.priority === 'visited'}>Visited</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Address / how to find</label>
+          <input id="s-address" type="text" value={shop.address || ''} />
+        </div>
+
+        <div class="field">
+          <label>Location</label>
+          <button id="s-locate" type="button" class="locate-btn">📍 Use my location</button>
+          <p id="s-coords" class="coords" hidden></p>
+          <p id="s-locate-msg" class="locate-msg" hidden></p>
+        </div>
+
+        <button id="s-save" type="button" class="save-btn">Save changes</button>
+        <p id="s-msg" class="save-msg" hidden></p>
+
+        <a href="/notes" class="back-link">← Back to notes</a>
+      </>
+    )}
+  </div>
+
+  {shop && (
+    <script define:vars={{ initLat: shop.latitude ?? null, initLng: shop.longitude ?? null }}>
+      const idInput = document.querySelector('#s-id')
+      const nameInput = document.querySelector('#s-name')
+      const areaSel = document.querySelector('#s-area')
+      const noteInput = document.querySelector('#s-note')
+      const prioritySel = document.querySelector('#s-priority')
+      const addressInput = document.querySelector('#s-address')
+      const locateBtn = document.querySelector('#s-locate')
+      const coords = document.querySelector('#s-coords')
+      const locateMsg = document.querySelector('#s-locate-msg')
+      const saveBtn = document.querySelector('#s-save')
+      const msg = document.querySelector('#s-msg')
+
+      let lat = initLat
+      let lng = initLng
+
+      function renderCoords() {
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          coords.hidden = false
+          coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
+            `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
+        } else {
+          coords.hidden = true
+        }
+      }
+      renderCoords()
+
+      function showMsg(text, ok) {
+        msg.hidden = false
+        msg.textContent = text
+        msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+      }
+
+      locateBtn.addEventListener('click', () => {
+        if (!('geolocation' in navigator)) {
+          locateMsg.hidden = false
+          locateMsg.textContent = 'Geolocation is not supported by this browser.'
+          return
+        }
+        locateBtn.disabled = true
+        locateBtn.textContent = 'Locating…'
+        locateMsg.hidden = true
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            lat = pos.coords.latitude
+            lng = pos.coords.longitude
+            renderCoords()
+            locateBtn.disabled = false
+            locateBtn.textContent = '📍 Update location'
+          },
+          (err) => {
+            locateMsg.hidden = false
+            locateMsg.textContent =
+              err.code === 1
+                ? 'Location permission denied. Allow location and try again.'
+                : 'Could not get location. Try again.'
+            locateBtn.disabled = false
+            locateBtn.textContent = '📍 Use my location'
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        )
+      })
+
+      async function save() {
+        if (!nameInput.value.trim()) return showMsg('Please enter a shop name.', false)
+
+        saveBtn.disabled = true
+        saveBtn.textContent = 'Saving…'
+
+        try {
+          const res = await fetch('/api/shop-note-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: idInput.value,
+              shopName: nameInput.value.trim(),
+              area: areaSel.value || undefined,
+              note: noteInput.value.trim() || undefined,
+              priority: prioritySel.value,
+              address: addressInput.value.trim() || undefined,
+              latitude: lat,
+              longitude: lng,
+            }),
+          })
+          const data = await res.json()
+          if (!res.ok) {
+            showMsg(data.error || 'Save failed.', false)
+            return
+          }
+          showMsg('Saved ✓ — redirecting…', true)
+          setTimeout(() => { window.location.href = '/notes' }, 700)
+        } catch (e) {
+          showMsg('Network error.', false)
+          saveBtn.disabled = false
+          saveBtn.textContent = 'Save changes'
+        }
+      }
+
+      saveBtn.addEventListener('click', save)
+    </script>
+  )}
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .hint a { color: var(--accent); }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .locate-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+    }
+    .locate-btn:disabled { opacity: 0.6; cursor: default; }
+    .coords { font-size: 0.9rem; margin: 0.6rem 0 0; }
+    .coords a { color: var(--accent); }
+    .locate-msg { font-size: 0.85rem; color: #e74c3c; margin: 0.5rem 0 0; }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

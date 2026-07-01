@@ -20,7 +20,6 @@ export const album = defineType({
 }),
     defineField({ name: 'artist', title: 'Artist / Band', type: 'string' }),
     defineField({ name: 'composer', title: 'Composer(s)', type: 'string' }),
-    defineField({ name: 'year', title: 'Release year', type: 'number' }),
     defineField({
       name: 'genre',
       title: 'Genre',
@@ -94,6 +93,25 @@ defineField({
   name: 'releasePrice',
   title: 'Release Price',
   type: 'string',
+}),
+
+defineField({
+  name: 'publisher',
+  title: 'Publisher',
+  type: 'string',
+}),
+
+defineField({
+  name: 'distributor',
+  title: 'Distributor',
+  type: 'string',
+}),
+
+defineField({
+  name: 'needsInfo',
+  title: 'Missing info',
+  type: 'boolean',
+  initialValue: false,
 }),
 
 defineField({

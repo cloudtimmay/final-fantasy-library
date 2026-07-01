@@ -48,9 +48,12 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
           {n.area && <div class="note-area">📍 {n.area}</div>}
           {n.note && <div class="note-body">{n.note}</div>}
           {n.address && <div class="note-address">{n.address}</div>}
-          <a class="map-btn" href={mapHref} target="_blank" rel="noopener">
-            🗺️ Open in Maps{hasCoords && <span class="pinned"> · pinned</span>}
-          </a>
+         <div class="note-actions">
+            <a class="map-btn" href={mapHref} target="_blank" rel="noopener">
+              🗺️ Open in Maps{hasCoords && <span class="pinned"> · pinned</span>}
+            </a>
+            <a class="edit-btn" href={`/edit-store?id=${n._id}`}>✏️ Edit</a>
+          </div>
         </div>
       )
     })}
@@ -80,6 +83,13 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
     }
     .map-btn:hover { background: rgba(255,255,255,0.04); }
     .pinned { color: var(--accent); font-weight: 600; }
+    .note-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .edit-btn {
+      display: inline-block; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); padding: 0.45rem 0.8rem; border-radius: 6px;
+      text-decoration: none; font-size: 0.85rem;
+    }
+    .edit-btn:hover { border-color: var(--accent); }
   </style>
 
   <script>

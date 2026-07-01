@@ -50,6 +50,7 @@ const today = new Date().toISOString().split('T')[0]
     <div class="field">
       <label>Store</label>
       <select id="f-store"></select>
+      <a href="/add-store" class="add-store-link">+ Add a new shop</a>
     </div>
 
     <div class="field-row">
@@ -247,5 +248,7 @@ const today = new Date().toISOString().split('T')[0]
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+    .add-store-link { display: inline-block; margin-top: 0.4rem; font-size: 0.85rem; color: var(--accent); text-decoration: none; }
+    .add-store-link:hover { text-decoration: underline; }
   </style>
 </Base>

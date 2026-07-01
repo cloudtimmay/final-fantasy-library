@@ -62,7 +62,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     <nav class="trip-switcher">
       <span class="trip-switcher-label">Trip:</span>
       {allTrips.map((trip, index) => (
-        
+        <a
           href={`/spending?trip=${trip._id}`}
           class:list={['trip-btn', { active: trip._id === activeTripId }]}
         >{tripLabel(trip, index)}</a>

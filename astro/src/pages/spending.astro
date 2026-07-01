@@ -62,7 +62,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     <nav class="trip-switcher">
       <span class="trip-switcher-label">Trip:</span>
       {allTrips.map((trip, index) => (
-        <a
+        
           href={`/spending?trip=${trip._id}`}
           class:list={['trip-btn', { active: trip._id === activeTripId }]}
         >{tripLabel(trip, index)}</a>
@@ -311,7 +311,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
           ${bar}
         </div>`
       }).join('')
-      
+
       // Family purchase list, filtered by selected person. Always shows both currencies.
       if (familyList) {
         const visible = selectedPerson
@@ -336,14 +336,44 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
 
           const icon = p.status === 'bought' ? '✅' : '🛒'
           const store = p.storeName ? `<span class="spend-store">${p.storeName}</span>` : ''
+          const btn = p.status === 'bought'
+            ? `<button class="mark-btn undo" data-id="${p._id}" data-to="planned">↩︎ Planned</button>`
+            : `<button class="mark-btn" data-id="${p._id}" data-to="bought">Mark bought</button>`
           return `<div class="spend-row">
             <span class="spend-icon">${icon}</span>
             <span class="spend-title">${p.name || ''}</span>
             <span class="spend-who">${p.person || ''}</span>
             ${store}
             <span class="spend-price">${price}</span>
+            ${btn}
           </div>`
         }).join('')
+
+        // Wire up the "Mark bought / Planned" buttons.
+        familyList.querySelectorAll('.mark-btn').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault()
+            const id = btn.dataset.id
+            const to = btn.dataset.to
+            btn.disabled = true
+            btn.textContent = '…'
+            try {
+              const res = await fetch('/api/family-purchase-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, status: to }),
+              })
+              if (!res.ok) { btn.disabled = false; btn.textContent = 'Retry'; return }
+              const rec = (tripPurchases || []).find((p) => p._id === id)
+              if (rec) rec.status = to
+              updateFamily()
+              updateStores()
+            } catch {
+              btn.disabled = false
+              btn.textContent = 'Retry'
+            }
+          })
+        })
       }
     }
 
@@ -361,7 +391,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       })
 
       const keys = Object.keys(groups).sort((a, b) => {
-        // Sort by date desc, then store name.
         const ga = groups[a], gb = groups[b]
         if (ga.day !== gb.day) return gb.day.localeCompare(ga.day)
         return ga.storeName.localeCompare(gb.storeName)
@@ -532,5 +561,12 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     .spend-store { flex-shrink: 0; font-size: 0.75rem; color: var(--muted); }
     .spend-date { color: var(--muted); font-size: 0.8rem; flex-shrink: 0; }
     .spend-price { font-weight: 600; flex-shrink: 0; }
+
+    .mark-btn {
+      flex-shrink: 0; background: var(--accent); color: #fff; border: none;
+      padding: 0.35rem 0.7rem; border-radius: 6px; font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+    }
+    .mark-btn.undo { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+    .mark-btn:disabled { opacity: 0.6; cursor: default; }
   </style>
 </Base>

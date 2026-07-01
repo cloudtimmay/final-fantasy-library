@@ -21,7 +21,7 @@ const items = await sanity.fetch(`
     <span class="count">{items.length} items</span>
   </div>
 
-  <p class="hint">What you're looking for. Tap the lookup link to pull up details in a store.</p>
+  <p class="hint">What you're looking for. Tap the lookup link to pull up details in a store. Tap “Got it” when you buy it.</p>
 
   <div class="wish-tools">
     <input id="wish-search" type="search" placeholder="Search wishlist..." />
@@ -66,7 +66,10 @@ const items = await sanity.fetch(`
               </div>
             </div>
           </a>
-          <a class="wish-lookup" href={lookupUrl} target="_blank" rel="noopener">{lookupLabel} ↗</a>
+          <div class="wish-actions">
+            <a class="wish-lookup" href={lookupUrl} target="_blank" rel="noopener">{lookupLabel} ↗</a>
+            <button class="got-btn" data-id={i._id}>✓ Got it</button>
+          </div>
         </div>
       )
     })}
@@ -86,11 +89,19 @@ const items = await sanity.fetch(`
     .wish-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
     .wish-info { min-width: 0; }
     .type-tag { background: var(--border); color: var(--text); text-transform: capitalize; }
+
+    .wish-actions { display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; }
     .wish-lookup {
       background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.45rem 0.7rem; border-radius: 6px; text-decoration: none; font-size: 0.8rem;
-      white-space: nowrap; flex-shrink: 0;
+      white-space: nowrap; text-align: center;
     }
+    .got-btn {
+      background: #2ecc71; color: #06281a; border: none;
+      padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600;
+      cursor: pointer; white-space: nowrap;
+    }
+    .got-btn:disabled { opacity: 0.6; cursor: default; }
   </style>
 
   <script>
@@ -111,5 +122,33 @@ const items = await sanity.fetch(`
     }
     searchInput.addEventListener('input', updateWish)
     typeSelect.addEventListener('change', updateWish)
+
+    // "Got it" → set status to owned and remove from the wishlist view.
+    document.querySelectorAll('.got-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault()
+        const id = btn.dataset.id
+        btn.disabled = true
+        btn.textContent = '…'
+        try {
+          const res = await fetch('/api/item-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, status: 'owned' }),
+          })
+          if (!res.ok) { btn.disabled = false; btn.textContent = 'Retry'; return }
+          const wrap = btn.closest('.wish-row-wrap')
+          if (wrap) wrap.remove()
+          const countEl = document.querySelector('.count')
+          if (countEl) {
+            const remaining = document.querySelectorAll('.wish-row-wrap').length
+            countEl.textContent = `${remaining} items`
+          }
+        } catch {
+          btn.disabled = false
+          btn.textContent = 'Retry'
+        }
+      })
+    })
   </script>
 </Base>

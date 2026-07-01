@@ -1,0 +1,188 @@
+---
+import Base from '../layouts/Base.astro'
+---
+<Base title="Add shop">
+  <div class="add-wrap">
+    <h1>Add shop</h1>
+    <p class="hint">Save a shop with an optional pinned location. Use “Use my location” while you're standing there.</p>
+
+    <div class="field">
+      <label>Shop / Place *</label>
+      <input id="s-name" type="text" placeholder="Shop name" />
+    </div>
+
+    <div class="field">
+      <label>Area</label>
+      <select id="s-area">
+        <option value="">Select area…</option>
+        <option value="Akihabara">Akihabara</option>
+        <option value="Ikebukuro">Ikebukuro</option>
+        <option value="Nakano">Nakano</option>
+        <option value="Shinjuku">Shinjuku</option>
+        <option value="Shibuya">Shibuya</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Note</label>
+      <textarea id="s-note" rows="3" placeholder="What's here, what to look for…"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Priority</label>
+      <select id="s-priority">
+        <option value="maybe">Worth a look</option>
+        <option value="must">Must visit</option>
+        <option value="visited">Visited</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Address / how to find</label>
+      <input id="s-address" type="text" placeholder="Floor, landmark, directions…" />
+    </div>
+
+    <div class="field">
+      <label>Location</label>
+      <button id="s-locate" type="button" class="locate-btn">📍 Use my location</button>
+      <p id="s-coords" class="coords" hidden></p>
+      <p id="s-locate-msg" class="locate-msg" hidden></p>
+    </div>
+
+    <button id="s-save" type="button" class="save-btn">Save shop</button>
+    <p id="s-msg" class="save-msg" hidden></p>
+
+    <a href="/add" class="back-link">← Back to add purchase</a>
+  </div>
+
+  <script>
+    const nameInput = document.querySelector('#s-name')
+    const areaSel = document.querySelector('#s-area')
+    const noteInput = document.querySelector('#s-note')
+    const prioritySel = document.querySelector('#s-priority')
+    const addressInput = document.querySelector('#s-address')
+    const locateBtn = document.querySelector('#s-locate')
+    const coords = document.querySelector('#s-coords')
+    const locateMsg = document.querySelector('#s-locate-msg')
+    const saveBtn = document.querySelector('#s-save')
+    const msg = document.querySelector('#s-msg')
+
+    let lat = null
+    let lng = null
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    locateBtn.addEventListener('click', () => {
+      if (!('geolocation' in navigator)) {
+        locateMsg.hidden = false
+        locateMsg.textContent = 'Geolocation is not supported by this browser.'
+        return
+      }
+      locateBtn.disabled = true
+      locateBtn.textContent = 'Locating…'
+      locateMsg.hidden = true
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          lat = pos.coords.latitude
+          lng = pos.coords.longitude
+          coords.hidden = false
+          coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
+            `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
+          locateBtn.disabled = false
+          locateBtn.textContent = '📍 Update location'
+        },
+        (err) => {
+          locateMsg.hidden = false
+          locateMsg.textContent =
+            err.code === 1
+              ? 'Location permission denied. Allow location and try again.'
+              : 'Could not get location. Try again.'
+          locateBtn.disabled = false
+          locateBtn.textContent = '📍 Use my location'
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      )
+    })
+
+    async function save() {
+      if (!nameInput.value.trim()) return showMsg('Please enter a shop name.', false)
+
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+
+      try {
+        const res = await fetch('/api/shop-note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopName: nameInput.value.trim(),
+            area: areaSel.value || undefined,
+            note: noteInput.value.trim() || undefined,
+            priority: prioritySel.value,
+            address: addressInput.value.trim() || undefined,
+            latitude: lat,
+            longitude: lng,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          showMsg(data.error || 'Save failed.', false)
+          return
+        }
+        showMsg('Saved ✓', true)
+
+        // Reset for the next shop.
+        nameInput.value = ''
+        noteInput.value = ''
+        addressInput.value = ''
+        prioritySel.value = 'maybe'
+        lat = null
+        lng = null
+        coords.hidden = true
+        locateBtn.textContent = '📍 Use my location'
+        nameInput.focus()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save shop'
+      }
+    }
+
+    saveBtn.addEventListener('click', save)
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .locate-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+    }
+    .locate-btn:disabled { opacity: 0.6; cursor: default; }
+    .coords { font-size: 0.9rem; margin: 0.6rem 0 0; }
+    .coords a { color: var(--accent); }
+    .locate-msg { font-size: 0.85rem; color: #e74c3c; margin: 0.5rem 0 0; }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

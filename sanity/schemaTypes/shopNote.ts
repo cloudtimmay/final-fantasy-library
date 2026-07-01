@@ -31,6 +31,8 @@ export const shopNote = defineType({
       initialValue: 'maybe',
     }),
     defineField({ name: 'address', title: 'Address / how to find', type: 'string' }),
+    defineField({ name: 'latitude', title: 'Latitude', type: 'number' }),
+    defineField({ name: 'longitude', title: 'Longitude', type: 'number' }),
   ],
   preview: {
     select: { title: 'shopName', subtitle: 'area' },

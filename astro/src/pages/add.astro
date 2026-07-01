@@ -1,0 +1,187 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+// Load trips (with per-child budgets → people) and stores for the dropdowns.
+const trips = await sanity.fetch(`
+  *[_type == "tripSettings"] | order(_createdAt asc) {
+    _id, label, childBudgets[]{ person }
+  }
+`)
+
+const stores = await sanity.fetch(`
+  *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(shopName asc) {
+    _id, shopName, area
+  }
+`)
+
+const today = new Date().toISOString().split('T')[0]
+---
+<Base title="Add family purchase">
+  <div class="add-wrap">
+    <h1>Add family purchase</h1>
+    <p class="hint">Register a purchase for the trip budget. Trip and store stay selected so you can add several in a row.</p>
+
+    <div class="field">
+      <label>Trip *</label>
+      <select id="f-trip"></select>
+    </div>
+
+    <div class="field">
+      <label>Person *</label>
+      <select id="f-person"></select>
+    </div>
+
+    <div class="field">
+      <label>Name *</label>
+      <input id="f-name" type="text" placeholder="What is it?" />
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Price (JPY)</label>
+        <input id="f-yen" type="number" inputmode="numeric" placeholder="¥" />
+      </div>
+      <div class="field">
+        <label>Price (NOK)</label>
+        <input id="f-nok" type="number" inputmode="numeric" placeholder="kr" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Store</label>
+      <select id="f-store"></select>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Date</label>
+        <input id="f-date" type="date" value={today} />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="planned">Planned</option>
+          <option value="bought">Bought</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Barcode</label>
+      <input id="f-barcode" type="text" placeholder="Scanned code (optional)" />
+    </div>
+
+    <button id="f-save" type="button" class="save-btn">Save purchase</button>
+    <p id="f-msg" class="save-msg" hidden></p>
+
+    <a href="/scan" class="back-link">← Back to scan</a>
+  </div>
+
+  <script define:vars={{ trips, stores }}>
+    const tripSel = document.querySelector('#f-trip')
+    const personSel = document.querySelector('#f-person')
+    const storeSel = document.querySelector('#f-store')
+    const nameInput = document.querySelector('#f-name')
+    const yenInput = document.querySelector('#f-yen')
+    const nokInput = document.querySelector('#f-nok')
+    const dateInput = document.querySelector('#f-date')
+    const statusSel = document.querySelector('#f-status')
+    const barcodeInput = document.querySelector('#f-barcode')
+    const saveBtn = document.querySelector('#f-save')
+    const msg = document.querySelector('#f-msg')
+
+    // Populate trips.
+    tripSel.innerHTML = '<option value="">Select trip…</option>' +
+      trips.map((t) => `<option value="${t._id}">${t.label || 'Trip'}</option>`).join('')
+
+    // Populate stores.
+    storeSel.innerHTML = '<option value="">No store</option>' +
+      stores.map((s) => `<option value="${s._id}">${s.shopName}${s.area ? ' (' + s.area + ')' : ''}</option>`).join('')
+
+    // People depend on the selected trip's childBudgets.
+    function refreshPeople() {
+      const trip = trips.find((t) => t._id === tripSel.value)
+      const people = trip ? (trip.childBudgets || []).map((c) => c.person).filter(Boolean) : []
+      personSel.innerHTML = '<option value="">Select person…</option>' +
+        [...new Set(people)].map((p) => `<option value="${p}">${p}</option>`).join('')
+    }
+    tripSel.addEventListener('change', refreshPeople)
+    refreshPeople()
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    async function save() {
+      if (!tripSel.value) return showMsg('Please select a trip.', false)
+      if (!personSel.value) return showMsg('Please select a person.', false)
+      if (!nameInput.value.trim()) return showMsg('Please enter a name.', false)
+
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+
+      try {
+        const res = await fetch('/api/family-purchase', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nameInput.value.trim(),
+            person: personSel.value,
+            tripId: tripSel.value,
+            storeId: storeSel.value || undefined,
+            priceYen: yenInput.value,
+            priceNok: nokInput.value,
+            purchaseDate: dateInput.value,
+            status: statusSel.value,
+            barcode: barcodeInput.value.trim() || undefined,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          showMsg(data.error || 'Save failed.', false)
+          return
+        }
+        showMsg('Saved ✓ — ready for the next one.', true)
+
+        // Keep trip + store (same shop), reset the rest for the next item.
+        nameInput.value = ''
+        yenInput.value = ''
+        nokInput.value = ''
+        barcodeInput.value = ''
+        statusSel.value = 'planned'
+        nameInput.focus()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save purchase'
+      }
+    }
+
+    saveBtn.addEventListener('click', save)
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field-row { display: flex; gap: 1rem; }
+    .field-row .field { flex: 1; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+    }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

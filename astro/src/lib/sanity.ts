@@ -11,6 +11,15 @@ export const sanity = createClient({
   token: import.meta.env.SANITY_TOKEN,
 })
 
+// Write client — server-side only. Uses the Editor token, never sent to the browser.
+export const sanityWrite = createClient({
+  projectId: import.meta.env.SANITY_PROJECT_ID,
+  dataset: import.meta.env.SANITY_DATASET ?? 'production',
+  apiVersion: '2024-01-01',
+  useCdn: false,
+  token: import.meta.env.SANITY_WRITE_TOKEN,
+})
+
 const builder = imageUrlBuilder(sanity)
 
 export function urlFor(source: any) {

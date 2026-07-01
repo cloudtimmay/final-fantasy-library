@@ -2,7 +2,6 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 
-// Load trips (with per-child budgets → people) and stores for the dropdowns.
 const trips = await sanity.fetch(`
   *[_type == "tripSettings"] | order(_createdAt asc) {
     _id, label, childBudgets[]{ person }
@@ -102,15 +101,17 @@ const today = new Date().toISOString().split('T')[0]
     const reader = document.querySelector('#f-reader')
     const scanMsg = document.querySelector('#f-scan-msg')
 
-    // Populate trips.
+    // Prefill barcode from ?barcode=... when arriving from /scan
+    const params = new URLSearchParams(window.location.search)
+    const preBarcode = params.get('barcode')
+    if (preBarcode) barcodeInput.value = preBarcode
+
     tripSel.innerHTML = '<option value="">Select trip…</option>' +
       trips.map((t) => `<option value="${t._id}">${t.label || 'Trip'}</option>`).join('')
 
-    // Populate stores.
     storeSel.innerHTML = '<option value="">No store</option>' +
       stores.map((s) => `<option value="${s._id}">${s.shopName}${s.area ? ' (' + s.area + ')' : ''}</option>`).join('')
 
-    // People depend on the selected trip's childBudgets.
     function refreshPeople() {
       const trip = trips.find((t) => t._id === tripSel.value)
       const people = trip ? (trip.childBudgets || []).map((c) => c.person).filter(Boolean) : []
@@ -126,7 +127,6 @@ const today = new Date().toISOString().split('T')[0]
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
     }
 
-    // --- Barcode scanner ---
     let scanner = null
     let running = false
 
@@ -203,7 +203,6 @@ const today = new Date().toISOString().split('T')[0]
         }
         showMsg('Saved ✓ — ready for the next one.', true)
 
-        // Keep trip + store (same shop), reset the rest for the next item.
         nameInput.value = ''
         yenInput.value = ''
         nokInput.value = ''

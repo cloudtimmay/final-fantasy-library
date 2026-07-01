@@ -56,7 +56,9 @@ if (q) {
     <div id="scan-reader" class="scan-reader" hidden></div>
     <p id="scan-msg" class="scan-msg" hidden></p>
 
-    <a href="/add" class="scan-fam-btn" style="display:block;text-align:center;text-decoration:none;">🛍️ Register as family purchase</a>
+    <button id="family-register" class="scan-fam-btn" type="button">
+      🛍️ Register as family purchase
+    </button>
 
     {q && (
       <div class="scan-results">
@@ -150,10 +152,9 @@ if (q) {
 
     .scan-fam-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border);
-      padding: 0.8rem; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-bottom: 0.5rem;
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-bottom: 1rem;
     }
     .scan-fam-btn:hover { border-color: var(--accent); }
-    .family-msg { font-size: 0.85rem; color: #2ecc71; margin-bottom: 1rem; }
 
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
     .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
@@ -212,13 +213,12 @@ if (q) {
             { facingMode: 'environment' },
             { fps: 10, qrbox: { width: 250, height: 150 } },
             (decodedText) => {
-              // Barcode read -> fill in and search
               input.value = decodedText.replace(/[^0-9Xx]/g, '')
               stopScan().then(() => {
                 input.form.submit()
               })
             },
-            () => {} // ignore "no code in frame" errors
+            () => {}
           )
           running = true
           toggle.textContent = '✕ Close scanner'
@@ -242,27 +242,12 @@ if (q) {
         else startScan()
       })
 
-      // ---- Register as family purchase: copy code, open Studio ----
+      // Register as family purchase: carry the scanned/typed code to /add.
       const famBtn = document.getElementById('family-register')
-      const famMsg = document.getElementById('family-msg')
       if (famBtn) {
-        famBtn.addEventListener('click', async () => {
+        famBtn.addEventListener('click', () => {
           const code = (input.value || '').trim()
-          const studio = famBtn.dataset.studio
-          const url = studio + '/intent/create/type=familyPurchase;template=familyPurchase/'
-
-          if (code) {
-            try {
-              await navigator.clipboard.writeText(code)
-              famMsg.hidden = false
-              famMsg.textContent = `Copied “${code}” — paste it into Name/Barcode in Studio.`
-            } catch (e) {
-              famMsg.hidden = false
-              famMsg.style.color = 'var(--muted)'
-              famMsg.textContent = `Could not copy automatically. Code: ${code}`
-            }
-          }
-          window.open(url, '_blank', 'noopener')
+          window.location.href = code ? `/add?barcode=${encodeURIComponent(code)}` : '/add'
         })
       }
     })()

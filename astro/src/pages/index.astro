@@ -3,10 +3,10 @@ import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
 const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
-  sanity.fetch<number>(`count(*[_type == "album" && !(_id in path("drafts.**"))])`),
-  sanity.fetch<number>(`count(*[_type == "game" && !(_id in path("drafts.**"))])`),
-  sanity.fetch<number>(`count(*[_type == "figure" && !(_id in path("drafts.**"))])`),
-  sanity.fetch<number>(`count(*[_type == "book" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "album" && status != "wishlist" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "game" && status != "wishlist" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "figure" && status != "wishlist" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "book" && status != "wishlist" && !(_id in path("drafts.**"))])`),
 ])
 
 const recentlyAdded = await sanity.fetch(`

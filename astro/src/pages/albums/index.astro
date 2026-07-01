@@ -25,7 +25,7 @@ function isNew(acquiredDate: string | undefined): boolean {
 <Base title="Albums">
   <div class="page-header">
     <h1>Albums</h1>
-    <span class="count">{albums.length} items</span>
+    <span class="count" id="album-count">{albums.length} items</span>
   </div>
 
   <div class="vgmdb-lookup">
@@ -120,6 +120,7 @@ function isNew(acquiredDate: string | undefined): boolean {
     const statusSelect = document.querySelector('#album-status')
     const seriesSelect = document.querySelector('#album-series')
     const list = document.querySelector('.album-list')
+    const countEl = document.querySelector('#album-count')
 
     function updateAlbums() {
       const search = searchInput.value.toLowerCase()
@@ -128,6 +129,7 @@ function isNew(acquiredDate: string | undefined): boolean {
       const series = seriesSelect.value
       const rows = Array.from(document.querySelectorAll('.album-row-wrap'))
 
+      let visible = 0
       rows.forEach((wrap) => {
         const row = wrap.querySelector('.album-row')
         const matchesSearch =
@@ -137,8 +139,13 @@ function isNew(acquiredDate: string | undefined): boolean {
           row.dataset.catalog.includes(search)
         const matchesStatus = !status || row.dataset.status === status
         const matchesSeries = !series || row.dataset.series === series
-        wrap.style.display = matchesSearch && matchesStatus && matchesSeries ? '' : 'none'
+        const show = matchesSearch && matchesStatus && matchesSeries
+        wrap.style.display = show ? '' : 'none'
+        if (show) visible++
       })
+
+      // Update the counter to reflect the current filter.
+      if (countEl) countEl.textContent = `${visible} item${visible === 1 ? '' : 's'}`
 
       rows
         .sort((a, b) => {
@@ -161,6 +168,9 @@ function isNew(acquiredDate: string | undefined): boolean {
     sortSelect.addEventListener('change', updateAlbums)
     statusSelect.addEventListener('change', updateAlbums)
     seriesSelect.addEventListener('change', updateAlbums)
+
+    // Run once on load so the counter reflects any default filter.
+    updateAlbums()
 
     initGotIt()
   </script>

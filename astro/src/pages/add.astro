@@ -69,7 +69,12 @@ const today = new Date().toISOString().split('T')[0]
 
     <div class="field">
       <label>Barcode</label>
-      <input id="f-barcode" type="text" placeholder="Scanned code (optional)" />
+      <div class="barcode-row">
+        <input id="f-barcode" type="text" placeholder="Scanned code (optional)" />
+        <button id="f-scan" type="button" class="scan-btn">📷 Scan</button>
+      </div>
+      <div id="f-reader" class="scan-reader" hidden></div>
+      <p id="f-scan-msg" class="scan-msg" hidden></p>
     </div>
 
     <button id="f-save" type="button" class="save-btn">Save purchase</button>
@@ -77,6 +82,8 @@ const today = new Date().toISOString().split('T')[0]
 
     <a href="/scan" class="back-link">← Back to scan</a>
   </div>
+
+  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script define:vars={{ trips, stores }}>
     const tripSel = document.querySelector('#f-trip')
@@ -90,6 +97,10 @@ const today = new Date().toISOString().split('T')[0]
     const barcodeInput = document.querySelector('#f-barcode')
     const saveBtn = document.querySelector('#f-save')
     const msg = document.querySelector('#f-msg')
+
+    const scanBtn = document.querySelector('#f-scan')
+    const reader = document.querySelector('#f-reader')
+    const scanMsg = document.querySelector('#f-scan-msg')
 
     // Populate trips.
     tripSel.innerHTML = '<option value="">Select trip…</option>' +
@@ -114,6 +125,52 @@ const today = new Date().toISOString().split('T')[0]
       msg.textContent = text
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
     }
+
+    // --- Barcode scanner ---
+    let scanner = null
+    let running = false
+
+    async function startScan() {
+      if (typeof Html5Qrcode === 'undefined') {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Scanner could not be loaded. Check your connection.'
+        return
+      }
+      reader.hidden = false
+      scanMsg.hidden = true
+      scanner = new Html5Qrcode('f-reader')
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          (decodedText) => {
+            barcodeInput.value = decodedText.replace(/[^0-9Xx]/g, '')
+            stopScan()
+          },
+          () => {}
+        )
+        running = true
+        scanBtn.textContent = '✕ Close'
+      } catch (err) {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Could not access camera. Allow camera and try again.'
+        reader.hidden = true
+      }
+    }
+
+    async function stopScan() {
+      if (scanner && running) {
+        try { await scanner.stop() } catch (e) {}
+        running = false
+      }
+      reader.hidden = true
+      scanBtn.textContent = '📷 Scan'
+    }
+
+    scanBtn.addEventListener('click', () => {
+      if (running) stopScan()
+      else startScan()
+    })
 
     async function save() {
       if (!tripSel.value) return showMsg('Please select a trip.', false)
@@ -175,6 +232,14 @@ const today = new Date().toISOString().split('T')[0]
       width: 100%; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
     }
+    .barcode-row { display: flex; gap: 0.5rem; }
+    .barcode-row input { flex: 1; min-width: 0; }
+    .scan-btn {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
+    }
+    .scan-reader { width: 100%; max-width: 400px; margin: 0.75rem auto 0; border-radius: 8px; overflow: hidden; }
+    .scan-msg { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0; }
     .save-btn {
       width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
       padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;

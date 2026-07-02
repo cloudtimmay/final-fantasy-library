@@ -148,7 +148,7 @@ defineField({
   preview: {
   select: {
     title: 'title',
-    subtitle: 'artist',
+    subtitle: 'composer',
     externalImageUrl: 'externalImageUrl',
   },
   prepare({ title, subtitle, externalImageUrl }) {

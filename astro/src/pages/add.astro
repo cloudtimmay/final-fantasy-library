@@ -75,6 +75,7 @@ const today = new Date().toISOString().split('T')[0]
       </div>
       <div id="f-reader" class="scan-reader" hidden></div>
       <p id="f-scan-msg" class="scan-msg" hidden></p>
+      <div id="f-dup" class="dup-warn" hidden></div>
     </div>
 
     <button id="f-save" type="button" class="save-btn">Save purchase</button>
@@ -101,6 +102,7 @@ const today = new Date().toISOString().split('T')[0]
     const scanBtn = document.querySelector('#f-scan')
     const reader = document.querySelector('#f-reader')
     const scanMsg = document.querySelector('#f-scan-msg')
+    const dupWarn = document.querySelector('#f-dup')
 
     // Prefill barcode from ?barcode=... when arriving from /scan
     const params = new URLSearchParams(window.location.search)
@@ -128,6 +130,29 @@ const today = new Date().toISOString().split('T')[0]
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
     }
 
+    // --- Duplicate check against your own collection ---
+    async function checkDuplicate(code) {
+      dupWarn.hidden = true
+      dupWarn.innerHTML = ''
+      const c = (code || '').trim()
+      if (!c) return
+      try {
+        const res = await fetch('/api/check-duplicate?barcode=' + encodeURIComponent(c))
+        const data = await res.json()
+        if (res.ok && data.count > 0) {
+          const m = data.matches[0]
+          dupWarn.hidden = false
+          dupWarn.innerHTML = `⚠️ <strong>Already in your collection:</strong> “${m.title}” (${m.status || m._type}).`
+        }
+      } catch {
+        // Silent — duplicate check is a nice-to-have, not a blocker.
+      }
+    }
+
+    // Check when barcode changes (typed, pasted, or prefilled).
+    barcodeInput.addEventListener('change', () => checkDuplicate(barcodeInput.value))
+    if (preBarcode) checkDuplicate(preBarcode)
+
     let scanner = null
     let running = false
 
@@ -145,8 +170,10 @@ const today = new Date().toISOString().split('T')[0]
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 250, height: 150 } },
           (decodedText) => {
-            barcodeInput.value = decodedText.replace(/[^0-9Xx]/g, '')
+            const code = decodedText.replace(/[^0-9Xx]/g, '')
+            barcodeInput.value = code
             stopScan()
+            checkDuplicate(code)
           },
           () => {}
         )
@@ -209,6 +236,8 @@ const today = new Date().toISOString().split('T')[0]
         nokInput.value = ''
         barcodeInput.value = ''
         statusSel.value = 'planned'
+        dupWarn.hidden = true
+        dupWarn.innerHTML = ''
         nameInput.focus()
       } catch (e) {
         showMsg('Network error.', false)
@@ -232,6 +261,8 @@ const today = new Date().toISOString().split('T')[0]
       width: 100%; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
     }
+    .add-store-link { display: inline-block; margin-top: 0.4rem; font-size: 0.85rem; color: var(--accent); text-decoration: none; }
+    .add-store-link:hover { text-decoration: underline; }
     .barcode-row { display: flex; gap: 0.5rem; }
     .barcode-row input { flex: 1; min-width: 0; }
     .scan-btn {
@@ -240,6 +271,11 @@ const today = new Date().toISOString().split('T')[0]
     }
     .scan-reader { width: 100%; max-width: 400px; margin: 0.75rem auto 0; border-radius: 8px; overflow: hidden; }
     .scan-msg { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0; }
+    .dup-warn {
+      background: #4a0f1c; border: 1px solid #e74c3c; color: #ffd9d9;
+      padding: 0.7rem 0.85rem; border-radius: 8px; margin-top: 0.6rem; font-size: 0.9rem;
+    }
+    .dup-warn strong { color: #fff; }
     .save-btn {
       width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
       padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
@@ -248,7 +284,5 @@ const today = new Date().toISOString().split('T')[0]
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
-    .add-store-link { display: inline-block; margin-top: 0.4rem; font-size: 0.85rem; color: var(--accent); text-decoration: none; }
-    .add-store-link:hover { text-decoration: underline; }
   </style>
 </Base>

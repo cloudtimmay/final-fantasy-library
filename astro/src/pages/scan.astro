@@ -34,11 +34,20 @@ if (q) {
     { term }
   )
 }
+
+// Is any match already owned? Used for the prominent warning banner.
+const ownedMatch = results.find((r: any) => r.status === 'owned')
 ---
 <Base title="Scan">
   <div class="scan-wrap">
     <h1>Scan</h1>
     <p class="hint">Search by title, catalog number, barcode or ISBN — or scan the barcode.</p>
+
+    {ownedMatch && (
+      <div class="dup-banner">
+        ⚠️ <strong>Already in your collection:</strong> “{ownedMatch.title}” is marked as owned.
+      </div>
+    )}
 
     <form class="scan-form" method="get" action="/scan">
       <input
@@ -132,6 +141,12 @@ if (q) {
   <style>
     .scan-wrap { max-width: 640px; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+
+    .dup-banner {
+      background: #4a0f1c; border: 1px solid #e74c3c; color: #ffd9d9;
+      padding: 0.85rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.95rem;
+    }
+    .dup-banner strong { color: #fff; }
 
     .scan-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .scan-form input {
@@ -240,7 +255,6 @@ if (q) {
         else startScan()
       })
 
-      // Register as family purchase: carry the scanned/typed code to /add.
       const famBtn = document.getElementById('family-register')
       if (famBtn) {
         famBtn.addEventListener('click', () => {
@@ -249,7 +263,6 @@ if (q) {
         })
       }
 
-      // Auto-open the scanner when arriving with ?scan=1 (from the top-nav camera button).
       const params = new URLSearchParams(window.location.search)
       if (params.get('scan') === '1') {
         startScan()

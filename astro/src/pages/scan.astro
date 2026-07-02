@@ -139,7 +139,7 @@ if (q) {
       border: 1px solid var(--border); padding: 0.9rem 1rem; border-radius: 8px; font-size: 1.1rem;
     }
     .scan-form button {
-      background: var(--accent, #4a9); color: var(--bg); border: none;
+      background: var(--accent); color: var(--bg); border: none;
       padding: 0.9rem 1.4rem; border-radius: 8px; font-size: 1.1rem; cursor: pointer; font-weight: 600;
     }
 
@@ -214,9 +214,7 @@ if (q) {
             { fps: 10, qrbox: { width: 250, height: 150 } },
             (decodedText) => {
               input.value = decodedText.replace(/[^0-9Xx]/g, '')
-              stopScan().then(() => {
-                input.form.submit()
-              })
+              stopScan().then(() => { input.form.submit() })
             },
             () => {}
           )
@@ -249,6 +247,12 @@ if (q) {
           const code = (input.value || '').trim()
           window.location.href = code ? `/add?barcode=${encodeURIComponent(code)}` : '/add'
         })
+      }
+
+      // Auto-open the scanner when arriving with ?scan=1 (from the top-nav camera button).
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('scan') === '1') {
+        startScan()
       }
     })()
   </script>

@@ -1,0 +1,351 @@
+---
+import Base from '../layouts/Base.astro'
+
+const today = new Date().toISOString().split('T')[0]
+---
+<Base title="Add figure">
+  <div class="add-wrap">
+    <h1>Add figure</h1>
+    <p class="hint">Register a figure you already own. Scan the barcode, look it up, snap a photo, and save.</p>
+
+    <div class="field">
+      <label>Barcode</label>
+      <div class="barcode-row">
+        <input id="f-barcode" type="text" placeholder="Scanned code (optional)" />
+        <button id="f-scan" type="button" class="scan-btn">📷 Scan</button>
+      </div>
+      <div id="f-reader" class="scan-reader" hidden></div>
+      <p id="f-scan-msg" class="scan-msg" hidden></p>
+      <div id="f-dup" class="dup-warn" hidden></div>
+    </div>
+
+    <div class="lookup-row">
+      <span class="lookup-label">Look up:</span>
+      <button type="button" class="lk-btn" data-src="mfc">MyFigureCollection</button>
+      <button type="button" class="lk-btn" data-src="google">Google</button>
+      <button type="button" class="lk-btn" data-src="googleimg">Google Images</button>
+    </div>
+
+    <div class="field">
+      <label>Title *</label>
+      <input id="f-title" type="text" placeholder="Figure name" />
+    </div>
+
+    <div class="field">
+      <label>Series / Franchise</label>
+      <input id="f-series" type="text" placeholder="e.g. Final Fantasy VII" />
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Manufacturer</label>
+        <input id="f-manufacturer" type="text" placeholder="e.g. Square Enix" />
+      </div>
+      <div class="field">
+        <label>Year</label>
+        <input id="f-year" type="number" inputmode="numeric" placeholder="2008" />
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Scale</label>
+        <input id="f-scale" type="text" placeholder="e.g. 1/7" />
+      </div>
+      <div class="field">
+        <label>Condition</label>
+        <input id="f-condition" type="text" placeholder="e.g. New in box" />
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Price (JPY)</label>
+        <input id="f-yen" type="number" inputmode="numeric" placeholder="¥" />
+      </div>
+      <div class="field">
+        <label>Price (NOK)</label>
+        <input id="f-nok" type="number" inputmode="numeric" placeholder="kr" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Acquired date</label>
+      <input id="f-date" type="date" value={today} />
+    </div>
+
+    <div class="field">
+      <label>Photo</label>
+      <label class="upload-btn">
+        📷 Take / choose photo
+        <input id="f-photo" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <span id="f-photo-name" class="photo-name" hidden></span>
+      <img id="f-preview" class="photo-preview" hidden alt="Preview" />
+    </div>
+
+    <div class="field">
+      <label>Notes</label>
+      <textarea id="f-notes" rows="2" placeholder="Anything worth noting…"></textarea>
+    </div>
+
+    <button id="f-save" type="button" class="save-btn">Save figure</button>
+    <p id="f-msg" class="save-msg" hidden></p>
+
+    <a href="/figures" class="back-link">← Back to figures</a>
+  </div>
+
+  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <script>
+    const barcodeInput = document.querySelector('#f-barcode')
+    const titleInput = document.querySelector('#f-title')
+    const seriesInput = document.querySelector('#f-series')
+    const manufacturerInput = document.querySelector('#f-manufacturer')
+    const yearInput = document.querySelector('#f-year')
+    const scaleInput = document.querySelector('#f-scale')
+    const conditionInput = document.querySelector('#f-condition')
+    const yenInput = document.querySelector('#f-yen')
+    const nokInput = document.querySelector('#f-nok')
+    const dateInput = document.querySelector('#f-date')
+    const notesInput = document.querySelector('#f-notes')
+    const saveBtn = document.querySelector('#f-save')
+    const msg = document.querySelector('#f-msg')
+
+    const scanBtn = document.querySelector('#f-scan')
+    const reader = document.querySelector('#f-reader')
+    const scanMsg = document.querySelector('#f-scan-msg')
+    const dupWarn = document.querySelector('#f-dup')
+
+    const photoInput = document.querySelector('#f-photo')
+    const photoName = document.querySelector('#f-photo-name')
+    const preview = document.querySelector('#f-preview')
+    let selectedPhoto = null
+
+    // Prefill barcode from ?barcode=... when arriving from /scan
+    const params = new URLSearchParams(window.location.search)
+    const preBarcode = params.get('barcode')
+    if (preBarcode) barcodeInput.value = preBarcode
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    // --- Duplicate check ---
+    async function checkDuplicate(code) {
+      dupWarn.hidden = true
+      dupWarn.innerHTML = ''
+      const c = (code || '').trim()
+      if (!c) return
+      try {
+        const res = await fetch('/api/check-duplicate?barcode=' + encodeURIComponent(c))
+        const data = await res.json()
+        if (res.ok && data.count > 0) {
+          const m = data.matches[0]
+          dupWarn.hidden = false
+          dupWarn.innerHTML = `⚠️ <strong>Already in your collection:</strong> “${m.title}” (${m.status || m._type}).`
+        }
+      } catch {}
+    }
+    barcodeInput.addEventListener('change', () => checkDuplicate(barcodeInput.value))
+    if (preBarcode) checkDuplicate(preBarcode)
+
+    // --- External lookup buttons ---
+    document.querySelectorAll('.lk-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const term = (barcodeInput.value.trim() || titleInput.value.trim())
+        if (!term) { showMsg('Enter a barcode or title first to look up.', false); return }
+        const enc = encodeURIComponent(term)
+        let url = ''
+        switch (btn.dataset.src) {
+          case 'mfc': url = `https://myfigurecollection.net/?_tb=item&keywords=${enc}`; break
+          case 'google': url = `https://www.google.com/search?q=${enc}+figure`; break
+          case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+figure`; break
+        }
+        if (url) window.open(url, '_blank', 'noopener')
+      })
+    })
+
+    // --- Photo select + preview ---
+    photoInput.addEventListener('change', () => {
+      const file = photoInput.files && photoInput.files[0]
+      if (!file) return
+      selectedPhoto = file
+      photoName.hidden = false
+      photoName.textContent = file.name
+      preview.hidden = false
+      preview.src = URL.createObjectURL(file)
+    })
+
+    // --- Barcode scanner ---
+    let scanner = null
+    let running = false
+
+    async function startScan() {
+      if (typeof Html5Qrcode === 'undefined') {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Scanner could not be loaded. Check your connection.'
+        return
+      }
+      reader.hidden = false
+      scanMsg.hidden = true
+      scanner = new Html5Qrcode('f-reader')
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          (decodedText) => {
+            const code = decodedText.replace(/[^0-9Xx]/g, '')
+            barcodeInput.value = code
+            stopScan()
+            checkDuplicate(code)
+          },
+          () => {}
+        )
+        running = true
+        scanBtn.textContent = '✕ Close'
+      } catch (err) {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Could not access camera. Allow camera and try again.'
+        reader.hidden = true
+      }
+    }
+
+    async function stopScan() {
+      if (scanner && running) {
+        try { await scanner.stop() } catch (e) {}
+        running = false
+      }
+      reader.hidden = true
+      scanBtn.textContent = '📷 Scan'
+    }
+
+    scanBtn.addEventListener('click', () => {
+      if (running) stopScan()
+      else startScan()
+    })
+
+    // --- Save: create the figure, then upload the photo if chosen ---
+    async function save() {
+      if (!titleInput.value.trim()) return showMsg('Please enter a title.', false)
+
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+
+      try {
+        const res = await fetch('/api/figure-create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: titleInput.value.trim(),
+            series: seriesInput.value,
+            manufacturer: manufacturerInput.value,
+            year: yearInput.value,
+            scale: scaleInput.value,
+            condition: conditionInput.value,
+            barcode: barcodeInput.value,
+            purchasePriceYen: yenInput.value,
+            purchasePrice: nokInput.value,
+            acquiredDate: dateInput.value,
+            notes: notesInput.value,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
+
+        // Upload photo if one was selected.
+        if (selectedPhoto && data.id) {
+          saveBtn.textContent = 'Uploading photo…'
+          const form = new FormData()
+          form.append('file', selectedPhoto)
+          form.append('docId', data.id)
+          form.append('field', 'image')
+          try {
+            await fetch('/api/upload-image', { method: 'POST', body: form })
+          } catch {}
+        }
+
+        showMsg('Saved ✓ — ready for the next figure.', true)
+
+        // Reset for the next figure.
+        titleInput.value = ''
+        seriesInput.value = ''
+        manufacturerInput.value = ''
+        yearInput.value = ''
+        scaleInput.value = ''
+        conditionInput.value = ''
+        barcodeInput.value = ''
+        yenInput.value = ''
+        nokInput.value = ''
+        notesInput.value = ''
+        selectedPhoto = null
+        photoInput.value = ''
+        photoName.hidden = true
+        preview.hidden = true
+        preview.src = ''
+        dupWarn.hidden = true
+        dupWarn.innerHTML = ''
+        titleInput.focus()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save figure'
+      }
+    }
+
+    saveBtn.addEventListener('click', save)
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field-row { display: flex; gap: 1rem; }
+    .field-row .field { flex: 1; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .barcode-row { display: flex; gap: 0.5rem; }
+    .barcode-row input { flex: 1; min-width: 0; }
+    .scan-btn {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
+    }
+    .scan-reader { width: 100%; max-width: 400px; margin: 0.75rem auto 0; border-radius: 8px; overflow: hidden; }
+    .scan-msg { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0; }
+    .dup-warn {
+      background: #4a0f1c; border: 1px solid #e74c3c; color: #ffd9d9;
+      padding: 0.7rem 0.85rem; border-radius: 8px; margin-top: 0.6rem; font-size: 0.9rem;
+    }
+    .dup-warn strong { color: #fff; }
+    .lookup-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .lookup-label { font-size: 0.8rem; color: var(--muted); }
+    .lk-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.45rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .lk-btn:hover { border-color: var(--accent); }
+    .upload-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem;
+    }
+    .upload-btn:hover { background: #241826; }
+    .photo-name { font-size: 0.85rem; color: var(--muted); margin-left: 0.5rem; }
+    .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

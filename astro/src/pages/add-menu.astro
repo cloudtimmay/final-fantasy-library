@@ -1,0 +1,69 @@
+---
+import Base from '../layouts/Base.astro'
+---
+<Base title="Add">
+  <div class="menu-wrap">
+    <h1>Add to collection</h1>
+    <p class="hint">Choose what you want to register.</p>
+
+    <div class="menu-grid">
+      <a href="/add-figure" class="menu-card">
+        <span class="menu-icon">🗿</span>
+        <span class="menu-title">Figure</span>
+        <span class="menu-sub">Scan, look up, photo — add to your collection</span>
+      </a>
+
+      <a href="/add" class="menu-card">
+        <span class="menu-icon">🛍️</span>
+        <span class="menu-title">Family purchase</span>
+        <span class="menu-sub">Trip budget shopping for the family</span>
+      </a>
+
+      <a href="/add-store" class="menu-card">
+        <span class="menu-icon">📍</span>
+        <span class="menu-title">Shop</span>
+        <span class="menu-sub">Save a shop with pinned location</span>
+      </a>
+
+      <a href="/scan" class="menu-card">
+        <span class="menu-icon">🔍</span>
+        <span class="menu-title">Scan / search</span>
+        <span class="menu-sub">Check if something is already in your collection</span>
+      </a>
+    </div>
+
+    <p class="studio-note">
+      Albums, games and books are still added in <a href="https://fflibrary.sanity.studio" target="_blank" rel="noopener">Studio ↗</a> for now.
+    </p>
+  </div>
+
+  <style>
+    .menu-wrap { max-width: 640px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+
+    .menu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+    .menu-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .menu-card:hover { border-color: var(--accent); background: #241826; }
+    .menu-icon { font-size: 2rem; line-height: 1; }
+    .menu-title { font-size: 1.1rem; font-weight: 700; }
+    .menu-sub { font-size: 0.85rem; color: var(--muted); }
+
+    .studio-note { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); }
+    .studio-note a { color: var(--accent); }
+  </style>
+</Base>

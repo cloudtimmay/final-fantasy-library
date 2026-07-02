@@ -269,7 +269,7 @@ function isActive(href: string) {
   <nav>
     <a href="/" class="nav-brand">Collection</a>
     <a href="/scan" class:list={['nav-link', { active: isActive('/scan') }]}>🔍 Scan</a>
-    <a href="/add" class:list={['nav-link', 'nav-add', { active: isActive('/add') }]}>+ Add</a>
+    <a href="/add-menu" class:list={['nav-link', 'nav-add', { active: isActive('/add-menu') }]}>+ Add</a>
     <a href="/notes" class:list={['nav-link', { active: isActive('/notes') }]}>Notes</a>
     <a href="/spending" class:list={['nav-link', { active: isActive('/spending') }]}>Spending</a>
     <a href="/wishlist" class:list={['nav-link', { active: isActive('/wishlist') }]}>Wishlist</a>
@@ -293,7 +293,7 @@ function isActive(href: string) {
   <nav class="bottom-nav">
     <a href="/" class:list={[{ active: path === '/' }]}><span class="bn-icon">🏠</span>Home</a>
     <a href="/scan" class:list={[{ active: isActive('/scan') }]}><span class="bn-icon">🔍</span>Scan</a>
-    <a href="/add" class:list={[{ active: isActive('/add') }]}><span class="bn-icon">➕</span>Add</a>
+    <a href="/add-menu" class:list={[{ active: isActive('/add-menu') }]}><span class="bn-icon">➕</span>Add</a>
     <a href="/spending" class:list={[{ active: isActive('/spending') }]}><span class="bn-icon">💴</span>Spending</a>
     <a href="/wishlist" class:list={[{ active: isActive('/wishlist') }]}><span class="bn-icon">⭐</span>Wishlist</a>
   </nav>

@@ -59,9 +59,6 @@ function isActive(href: string) {
       flex-wrap: wrap;
       min-height: 56px;
       background: #100a14;
-      position: sticky;
-      top: 0;
-      z-index: 10;
     }
     .nav-brand {
       font-family: 'IBM Plex Mono', monospace;
@@ -227,7 +224,6 @@ function isActive(href: string) {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
       }
-      /* Hide links that are NOT category links (they live in the bottom nav) */
       .nav-link:not(.nav-cat) { display: none; }
       .nav-brand { font-size: 12px; }
       .nav-cat { font-size: 12px; }

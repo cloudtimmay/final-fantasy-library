@@ -8,7 +8,6 @@ const items = await sanity.fetch(`
   }
 `)
 
-// Fetch ALL trip settings, oldest first, so we can offer a switcher when there is more than one.
 const allTrips = await sanity.fetch(`
   *[_type == "tripSettings"] | order(_createdAt asc) {
     _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate,
@@ -16,7 +15,6 @@ const allTrips = await sanity.fetch(`
   }
 `)
 
-// Fetch all family purchases (shopping list). Store name is pulled via the reference.
 const familyPurchases = await sanity.fetch(`
   *[_type == "familyPurchase" && !(_id in path("drafts.**"))] {
     _id, name, person, status, priceNok, priceYen, purchaseDate,
@@ -26,11 +24,9 @@ const familyPurchases = await sanity.fetch(`
   }
 `)
 
-// Pick the active trip: from ?trip=<id> if valid, otherwise the first (oldest) one.
 const requestedId = Astro.url.searchParams.get('trip')
 const settings = allTrips.find((t) => t._id === requestedId) ?? allTrips[0] ?? null
 
-// Build a readable label for each switcher button.
 function tripLabel(trip, index) {
   if (trip.label) return trip.label
   if (trip._createdAt) return new Date(trip._createdAt).toLocaleDateString('en-GB')
@@ -43,10 +39,8 @@ const budgetNok = settings?.budgetNok ?? null
 const budgetYen = settings?.budgetYen ?? null
 const childBudgets = settings?.childBudgets ?? []
 
-// Family purchases for the active trip only.
 const tripPurchases = familyPurchases.filter((p) => p.tripId === activeTripId)
 
-// People shown in the family section = those with a trip budget, plus anyone with a purchase on this trip.
 const tripPeople = childBudgets.map((c) => c.person).filter(Boolean)
 const purchasePeople = [...new Set(tripPurchases.map((p) => p.person).filter(Boolean))]
 const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
@@ -62,7 +56,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     <nav class="trip-switcher">
       <span class="trip-switcher-label">Trip:</span>
       {allTrips.map((trip, index) => (
-        <a
+        
           href={`/spending?trip=${trip._id}`}
           class:list={['trip-btn', { active: trip._id === activeTripId }]}
         >{tripLabel(trip, index)}</a>
@@ -190,7 +184,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       return true
     }
 
-    // Resolve a budget (given in NOK and/or JPY) into both currencies using the rate.
     function budgetBoth(bNok, bYen, rate) {
       let nok = null, yen = null, nokExplicit = false, yenExplicit = false
       if (bNok) { nok = Number(bNok); yen = rate > 0 ? nok / rate : null; nokExplicit = true }
@@ -203,7 +196,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       return entry ? { nok: entry.budgetNok ?? null, yen: entry.budgetYen ?? null } : { nok: null, yen: null }
     }
 
-    // ---- FF collection section (unchanged behaviour) ----
     function updateCollection() {
       const from = fromInput.value
       const to = toInput.value
@@ -265,7 +257,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       }).join('')
     }
 
-    // ---- Family section (this trip only; bought vs planned; respects selectedPerson) ----
     function updateFamily() {
       if (!childSummary) return
       const rate = Number(rateInput.value) || 0
@@ -288,8 +279,14 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
         const hasBudget = r.b.nok && r.b.nok > 0
         let bar = ''
         let over = false
-        let meta = `${fmtNok(r.boughtNok)} spent`
-        if (r.plannedNok > 0) meta += ` · +${fmtNok(r.plannedNok)} planned`
+        // Helper: show a NOK amount with its yen equivalent in parentheses.
+        const withYen = (nokAmount) => {
+          const y = rate > 0 ? nokAmount / rate : 0
+          return `${fmtNok(nokAmount)} (${fmtYen(y)})`
+        }
+
+        let meta = `${withYen(r.boughtNok)} spent`
+        if (r.plannedNok > 0) meta += ` · +${withYen(r.plannedNok)} planned`
         meta += ` · ${r.count} item${r.count === 1 ? '' : 's'}`
 
         if (hasBudget) {
@@ -297,9 +294,13 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
           over = r.boughtNok > r.b.nok
           const remaining = r.b.nok - r.boughtNok
           bar = `<div class="cs-bar"><div class="cs-fill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div></div>`
-          const budLabel = fmtNok(r.b.nok) + (r.b.nokExplicit ? '' : ' est.')
-          const remPart = remaining >= 0 ? `${fmtNok(remaining)} left` : `${fmtNok(-remaining)} over`
-          const planPart = r.plannedNok > 0 ? ` · +${fmtNok(r.plannedNok)} planned` : ''
+          // Budget shown in both currencies.
+          const budYen = r.b.yen ? fmtYen(r.b.yen) + (r.b.yenExplicit ? '' : ' est.') : ''
+          const budLabel = fmtNok(r.b.nok) + (r.b.nokExplicit ? '' : ' est.') + (budYen ? ` (${budYen})` : '')
+          const remPart = remaining >= 0
+            ? `${withYen(remaining)} left`
+            : `${withYen(-remaining)} over`
+          const planPart = r.plannedNok > 0 ? ` · +${withYen(r.plannedNok)} planned` : ''
           meta = `${fmtNok(r.boughtNok)} / ${budLabel} · ${remPart}${planPart}`
         }
 
@@ -312,7 +313,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
         </div>`
       }).join('')
 
-      // Family purchase list, filtered by selected person. Always shows both currencies.
       if (familyList) {
         const visible = selectedPerson
           ? (tripPurchases || []).filter((p) => p.person === selectedPerson)
@@ -322,7 +322,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
           const hasYen = p.priceYen != null && p.priceYen !== ''
           const hasNok = p.priceNok != null && p.priceNok !== ''
 
-          // Show yen and NOK side by side, deriving whichever is missing from the rate.
           let yenStr = ''
           let nokStr = ''
           if (hasYen) {
@@ -349,7 +348,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
           </div>`
         }).join('')
 
-        // Wire up the "Mark bought / Planned" buttons.
         familyList.querySelectorAll('.mark-btn').forEach((btn) => {
           btn.addEventListener('click', async (e) => {
             e.preventDefault()
@@ -377,7 +375,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       }
     }
 
-    // ---- Tax-free tracker, grouped by store + day (all people, this trip) ----
     function updateStores() {
       if (!storeWrap) return
       const groups = {}

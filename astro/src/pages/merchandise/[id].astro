@@ -4,7 +4,7 @@ import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 export async function getStaticPaths() {
   const merchandise = await sanity.fetch(`
-    *[_type == "merch" && !(_id in path("drafts.**"))]{ _id }
+    *[_type == "figure" && !(_id in path("drafts.**"))]{ _id }
   `)
 
   return merchandise.map((merch: any) => ({
@@ -12,9 +12,16 @@ export async function getStaticPaths() {
   }))
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  figure: 'Figure',
+  plushie: 'Plushie',
+  wearable: 'Wearable',
+  other: 'Other',
+}
+
 const { id } = Astro.params
 const f = await sanity.fetch(
-  `*[_type == "merch" && _id == $id][0] { title, series, manufacturer, year, scale, condition, location, needsInfo, externalImageUrl, ${SHARED_FIELDS} }`,
+  `*[_type == "figure" && _id == $id][0] { _id, title, category, series, manufacturer, year, scale, condition, location, needsInfo, externalImageUrl, image, ${SHARED_FIELDS} }`,
   { id }
 )
 if (!f) return Astro.redirect('/merchandise')
@@ -24,7 +31,7 @@ if (!f) return Astro.redirect('/merchandise')
     <a href="/merchandise" style="font-size:13px;color:var(--muted)">← merchandise</a>
     <br /><br />
     <h1>{f.title}</h1>
-    <div class="detail-sub">{f.series}</div>
+    <div class="detail-sub">{[CATEGORY_LABELS[f.category] || f.category, f.series].filter(Boolean).join(' · ')}</div>
 
     {f.needsInfo && (
       <div class="needsinfo-banner">
@@ -36,10 +43,19 @@ if (!f) return Astro.redirect('/merchandise')
       ? <img class="detail-photo" src={urlFor(f.image).width(900).url()} alt={f.title} />
       : f.externalImageUrl
       ? <img class="detail-photo" src={f.externalImageUrl} alt={f.title} />
-      : <div class="detail-photo-placeholder">🗿</div>
+      : <div class="detail-photo-placeholder">🧸</div>
     }
 
+    <div class="upload-row">
+      <label class="upload-btn">
+        📷 Upload / replace photo
+        <input id="img-input" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <span id="upload-msg" class="upload-msg" hidden></span>
+    </div>
+
     <table class="meta-table">
+      {f.category     && <tr><td>Type</td><td>{CATEGORY_LABELS[f.category] || f.category}</td></tr>}
       {f.manufacturer && <tr><td>Manufacturer</td><td>{f.manufacturer}</td></tr>}
       {f.year         && <tr><td>Year</td><td>{f.year}</td></tr>}
       {f.scale        && <tr><td>Scale</td><td>{f.scale}</td></tr>}
@@ -60,9 +76,62 @@ if (!f) return Astro.redirect('/merchandise')
     {f.notes && <div class="notes-block">{f.notes}</div>}
   </div>
 
+  <script>
+    const input = document.querySelector('#img-input')
+    const uploadMsg = document.querySelector('#upload-msg')
+    const photo = document.querySelector('.detail-photo, .detail-photo-placeholder')
+
+    if (input) {
+      input.addEventListener('change', async () => {
+        const file = input.files && input.files[0]
+        if (!file) return
+
+        uploadMsg.hidden = false
+        uploadMsg.style.color = 'var(--muted)'
+        uploadMsg.textContent = 'Uploading…'
+
+        const form = new FormData()
+        form.append('file', file)
+        form.append('docId', window.location.pathname.split('/').pop())
+        form.append('field', 'image')
+
+        try {
+          const res = await fetch('/api/upload-image', { method: 'POST', body: form })
+          const data = await res.json()
+          if (!res.ok) {
+            uploadMsg.style.color = '#e74c3c'
+            uploadMsg.textContent = data.error || 'Upload failed.'
+            return
+          }
+          uploadMsg.style.color = '#2ecc71'
+          uploadMsg.textContent = 'Uploaded ✓'
+          if (photo && data.url) {
+            const fresh = data.url + '?t=' + Date.now()
+            if (photo.tagName === 'IMG') {
+              photo.src = fresh
+            } else {
+              const img = document.createElement('img')
+              img.className = 'detail-photo'
+              img.src = fresh
+              img.alt = document.querySelector('h1')?.textContent || ''
+              photo.replaceWith(img)
+            }
+          }
+        } catch {
+          uploadMsg.style.color = '#e74c3c'
+          uploadMsg.textContent = 'Network error.'
+        }
+      })
+    }
+  </script>
+
   <style>
     .detail-photo { max-width: 280px; width: 100%; border-radius: 6px; margin: 1rem 0; display: block; }
     .detail-photo-placeholder { width: 200px; height: 280px; border-radius: 6px; margin: 1rem 0; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 3rem; }
     .needsinfo-banner { background: var(--surface); border: 1px solid var(--accent); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+    .upload-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+    .upload-btn:hover { background: #241826; }
+    .upload-msg { font-size: 0.85rem; }
   </style>
 </Base>

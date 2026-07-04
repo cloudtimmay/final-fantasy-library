@@ -1,6 +1,6 @@
 import { album } from './album'
 import { game } from './game'
-import { merch } from './merch'
+import { figure } from './figure'
 import { book } from './book'
 import { shopNote } from './shopNote'
 import { tripSettings } from './tripSettings'

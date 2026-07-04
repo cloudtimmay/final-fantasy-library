@@ -5,23 +5,33 @@ import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 const [albumCount, gameCount, merchCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album" && status != "wishlist" && !(_id in path("drafts.**"))])`),
   sanity.fetch<number>(`count(*[_type == "game" && status != "wishlist" && !(_id in path("drafts.**"))])`),
-  sanity.fetch<number>(`count(*[_type == "merch" && status != "wishlist" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "figure" && status != "wishlist" && !(_id in path("drafts.**"))])`),
   sanity.fetch<number>(`count(*[_type == "book" && status != "wishlist" && !(_id in path("drafts.**"))])`),
 ])
 
 const recentlyAdded = await sanity.fetch(`
-  *[_type in ["album","game","merch","book"] && !(_id in path("drafts.**"))]
+  *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))]
     | order(coalesce(acquiredDate, _createdAt) desc, _id) [0..19] {
     _id, _type, title, externalImageUrl, catalogNumber, acquiredDate,
     "sub": select(
       _type == "album" => artist,
       _type == "game"  => platform,
-      _type == "merch"=> series,
+      _type == "figure"=> series,
       _type == "book"  => author
     ),
     status, rating, image
   }
 `)
+
+// Map an item's _type to its URL path (figure lives under /merchandise/).
+function itemPath(type: string, id: string): string {
+  const seg = type === 'figure' ? 'merchandise'
+    : type === 'album' ? 'albums'
+    : type === 'game' ? 'games'
+    : type === 'book' ? 'books'
+    : `${type}s`
+  return `/${seg}/${id}`
+}
 
 // "NY" hvis kjøpt siste 30 dager
 const now = Date.now()
@@ -49,7 +59,7 @@ function isNew(acquiredDate: string | undefined): boolean {
     </a>
     <a href="/merchandise" class="stat-card">
       <div class="num">{merchCount}</div>
-      <div class="label">🗿 merchandise</div>
+      <div class="label">🧸 Merchandise</div>
     </a>
     <a href="/books" class="stat-card">
       <div class="num">{bookCount}</div>
@@ -67,7 +77,7 @@ function isNew(acquiredDate: string | undefined): boolean {
 
   <div class="recent-list">
     {recentlyAdded.map((item: any) => (
-      <a class="recent-row" href={`/${item._type}s/${item._id}`}>
+      <a class="recent-row" href={itemPath(item._type, item._id)}>
         {item.externalImageUrl ? (
           <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
         ) : item.image ? (
@@ -76,7 +86,7 @@ function isNew(acquiredDate: string | undefined): boolean {
           <div class="recent-thumb placeholder">
             {item._type === 'album' && '🎵'}
             {item._type === 'game' && '🎮'}
-            {item._type === 'merch' && '🗿'}
+            {item._type === 'figure' && '🧸'}
             {item._type === 'book' && '📚'}
           </div>
         )}

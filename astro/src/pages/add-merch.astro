@@ -1,12 +1,20 @@
 ---
 import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
 
 const today = new Date().toISOString().split('T')[0]
+
+// Pull the distinct series already used across the collection, so the dropdown
+// stays in sync without importing from the sanity/ folder.
+const seriesRaw = await sanity.fetch(`
+  array::unique(*[_type in ["album","game","book","figure"] && defined(series)].series)
+`)
+const seriesList = (seriesRaw || []).filter(Boolean).sort()
 ---
 <Base title="Add merch">
   <div class="add-wrap">
     <h1>Add merch</h1>
-    <p class="hint">Register a merch you already own. Scan the barcode, look it up, snap a photo, and save.</p>
+    <p class="hint">Register merch you already own. Scan the barcode, look it up, snap a photo, and save.</p>
 
     <div class="field">
       <label>Barcode</label>
@@ -21,19 +29,35 @@ const today = new Date().toISOString().split('T')[0]
 
     <div class="lookup-row">
       <span class="lookup-label">Look up:</span>
-      <button type="button" class="lk-btn" data-src="mfc">MymerchCollection</button>
+      <button type="button" class="lk-btn" data-src="mfc">MyFigureCollection</button>
       <button type="button" class="lk-btn" data-src="google">Google</button>
       <button type="button" class="lk-btn" data-src="googleimg">Google Images</button>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Type</label>
+        <select id="f-category">
+          <option value="figure">Figure</option>
+          <option value="plushie">Plushie</option>
+          <option value="wearable">Wearable</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Series / Franchise</label>
+        <select id="f-series">
+          <option value="">Select series…</option>
+          {seriesList.map((s: string) => <option value={s}>{s}</option>)}
+          <option value="__new__">+ New series…</option>
+        </select>
+        <input id="f-series-new" type="text" placeholder="New series name" hidden style="margin-top:0.5rem" />
+      </div>
     </div>
 
     <div class="field">
       <label>Title *</label>
       <input id="f-title" type="text" placeholder="merch name" />
-    </div>
-
-    <div class="field">
-      <label>Series / Franchise</label>
-      <input id="f-series" type="text" placeholder="e.g. Final Fantasy VII" />
     </div>
 
     <div class="field-row">
@@ -50,7 +74,7 @@ const today = new Date().toISOString().split('T')[0]
     <div class="field-row">
       <div class="field">
         <label>Scale</label>
-        <input id="f-scale" type="text" placeholder="e.g. 1/7" />
+        <input id="f-scale" type="text" placeholder="e.g. 1/7 (figures)" />
       </div>
       <div class="field">
         <label>Condition</label>
@@ -99,8 +123,10 @@ const today = new Date().toISOString().split('T')[0]
 
   <script>
     const barcodeInput = document.querySelector('#f-barcode')
+    const categorySelect = document.querySelector('#f-category')
+    const seriesSelect = document.querySelector('#f-series')
+    const seriesNewInput = document.querySelector('#f-series-new')
     const titleInput = document.querySelector('#f-title')
-    const seriesInput = document.querySelector('#f-series')
     const manufacturerInput = document.querySelector('#f-manufacturer')
     const yearInput = document.querySelector('#f-year')
     const scaleInput = document.querySelector('#f-scale')
@@ -122,7 +148,21 @@ const today = new Date().toISOString().split('T')[0]
     const preview = document.querySelector('#f-preview')
     let selectedPhoto = null
 
-    // Prefill barcode from ?barcode=... when arriving from /scan
+    // Show a free-text field when "+ New series…" is chosen.
+    seriesSelect.addEventListener('change', () => {
+      if (seriesSelect.value === '__new__') {
+        seriesNewInput.hidden = false
+        seriesNewInput.focus()
+      } else {
+        seriesNewInput.hidden = true
+        seriesNewInput.value = ''
+      }
+    })
+    function chosenSeries() {
+      if (seriesSelect.value === '__new__') return seriesNewInput.value.trim()
+      return seriesSelect.value
+    }
+
     const params = new URLSearchParams(window.location.search)
     const preBarcode = params.get('barcode')
     if (preBarcode) barcodeInput.value = preBarcode
@@ -133,7 +173,6 @@ const today = new Date().toISOString().split('T')[0]
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
     }
 
-    // --- Duplicate check ---
     async function checkDuplicate(code) {
       dupWarn.hidden = true
       dupWarn.innerHTML = ''
@@ -152,7 +191,6 @@ const today = new Date().toISOString().split('T')[0]
     barcodeInput.addEventListener('change', () => checkDuplicate(barcodeInput.value))
     if (preBarcode) checkDuplicate(preBarcode)
 
-    // --- External lookup buttons ---
     document.querySelectorAll('.lk-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const term = (barcodeInput.value.trim() || titleInput.value.trim())
@@ -160,7 +198,7 @@ const today = new Date().toISOString().split('T')[0]
         const enc = encodeURIComponent(term)
         let url = ''
         switch (btn.dataset.src) {
-          case 'mfc': url = `https://mymerchcollection.net/?_tb=item&keywords=${enc}`; break
+          case 'mfc': url = `https://myfigurecollection.net/?_tb=item&keywords=${enc}`; break
           case 'google': url = `https://www.google.com/search?q=${enc}+merch`; break
           case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+merch`; break
         }
@@ -168,7 +206,6 @@ const today = new Date().toISOString().split('T')[0]
       })
     })
 
-    // --- Photo select + preview ---
     photoInput.addEventListener('change', () => {
       const file = photoInput.files && photoInput.files[0]
       if (!file) return
@@ -179,7 +216,6 @@ const today = new Date().toISOString().split('T')[0]
       preview.src = URL.createObjectURL(file)
     })
 
-    // --- Barcode scanner ---
     let scanner = null
     let running = false
 
@@ -227,7 +263,6 @@ const today = new Date().toISOString().split('T')[0]
       else startScan()
     })
 
-    // --- Save: create the merch, then upload the photo if chosen ---
     async function save() {
       if (!titleInput.value.trim()) return showMsg('Please enter a title.', false)
 
@@ -240,7 +275,8 @@ const today = new Date().toISOString().split('T')[0]
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: titleInput.value.trim(),
-            series: seriesInput.value,
+            category: categorySelect.value,
+            series: chosenSeries(),
             manufacturer: manufacturerInput.value,
             year: yearInput.value,
             scale: scaleInput.value,
@@ -255,7 +291,6 @@ const today = new Date().toISOString().split('T')[0]
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
 
-        // Upload photo if one was selected.
         if (selectedPhoto && data.id) {
           saveBtn.textContent = 'Uploading photo…'
           const form = new FormData()
@@ -267,11 +302,12 @@ const today = new Date().toISOString().split('T')[0]
           } catch {}
         }
 
-        showMsg('Saved ✓ — ready for the next merch.', true)
+        showMsg('Saved ✓ — ready for the next one.', true)
 
-        // Reset for the next merch.
         titleInput.value = ''
-        seriesInput.value = ''
+        seriesSelect.value = ''
+        seriesNewInput.value = ''
+        seriesNewInput.hidden = true
         manufacturerInput.value = ''
         yearInput.value = ''
         scaleInput.value = ''
@@ -280,6 +316,7 @@ const today = new Date().toISOString().split('T')[0]
         yenInput.value = ''
         nokInput.value = ''
         notesInput.value = ''
+        categorySelect.value = 'figure'
         selectedPhoto = null
         photoInput.value = ''
         photoName.hidden = true

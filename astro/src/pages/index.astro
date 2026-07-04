@@ -98,12 +98,11 @@ function isNew(acquiredDate: string | undefined): boolean {
           <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
         ) : item.image ? (
           <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
-        ) : item._type === 'figure' ? (
-          <img class="recent-thumb placeholder" src="/placeholder-figure.svg" alt="Figure placeholder" loading="lazy" />
         ) : (
           <div class="recent-thumb placeholder">
             {item._type === 'album' && '🎵'}
             {item._type === 'game' && '🎮'}
+            {item._type === 'figure' && '🧸'}
             {item._type === 'book' && '📚'}
           </div>
         )}

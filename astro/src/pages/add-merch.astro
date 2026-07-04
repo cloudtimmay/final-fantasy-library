@@ -98,10 +98,16 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
 
     <div class="field">
       <label>Photo</label>
-      <label class="upload-btn">
-        📷 Take photo or choose from gallery
-        <input id="f-photo" type="file" accept="image/*" hidden />
-      </label>
+      <div class="photo-buttons">
+        <label class="upload-btn">
+          📷 Take photo
+          <input id="f-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn">
+          🖼️ Choose from gallery
+          <input id="f-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
       <span id="f-photo-name" class="photo-name" hidden></span>
       <img id="f-preview" class="photo-preview" hidden alt="Preview" />
     </div>
@@ -141,10 +147,23 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const scanMsg = document.querySelector('#f-scan-msg')
     const dupWarn = document.querySelector('#f-dup')
 
-    const photoInput = document.querySelector('#f-photo')
+    const photoCamera = document.querySelector('#f-photo-camera')
+    const photoGallery = document.querySelector('#f-photo-gallery')
     const photoName = document.querySelector('#f-photo-name')
     const preview = document.querySelector('#f-preview')
     let selectedPhoto = null
+
+    function handlePhoto(fileInput) {
+      const file = fileInput.files && fileInput.files[0]
+      if (!file) return
+      selectedPhoto = file
+      photoName.hidden = false
+      photoName.textContent = file.name
+      preview.hidden = false
+      preview.src = URL.createObjectURL(file)
+    }
+    photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
+    photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
 
     seriesSelect.addEventListener('change', () => {
       if (seriesSelect.value === '__new__') {
@@ -201,16 +220,6 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         }
         if (url) window.open(url, '_blank', 'noopener')
       })
-    })
-
-    photoInput.addEventListener('change', () => {
-      const file = photoInput.files && photoInput.files[0]
-      if (!file) return
-      selectedPhoto = file
-      photoName.hidden = false
-      photoName.textContent = file.name
-      preview.hidden = false
-      preview.src = URL.createObjectURL(file)
     })
 
     let scanner = null
@@ -315,7 +324,8 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         notesInput.value = ''
         categorySelect.value = 'figure'
         selectedPhoto = null
-        photoInput.value = ''
+        photoCamera.value = ''
+        photoGallery.value = ''
         photoName.hidden = true
         preview.hidden = true
         preview.src = ''
@@ -339,47 +349,4 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     .field { margin-bottom: 1rem; }
     .field-row { display: flex; gap: 1rem; }
     .field-row .field { flex: 1; }
-    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
-    .field input, .field select, .field textarea {
-      width: 100%; background: var(--surface); color: var(--text);
-      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
-      font-family: inherit; box-sizing: border-box;
-    }
-    .barcode-row { display: flex; gap: 0.5rem; }
-    .barcode-row input { flex: 1; min-width: 0; }
-    .scan-btn {
-      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
-      padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
-    }
-    .scan-reader { width: 100%; max-width: 400px; margin: 0.75rem auto 0; border-radius: 8px; overflow: hidden; }
-    .scan-msg { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0; }
-    .dup-warn {
-      background: #4a0f1c; border: 1px solid #e74c3c; color: #ffd9d9;
-      padding: 0.7rem 0.85rem; border-radius: 8px; margin-top: 0.6rem; font-size: 0.9rem;
-    }
-    .dup-warn strong { color: #fff; }
-    .lookup-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
-    .lookup-label { font-size: 0.8rem; color: var(--muted); }
-    .lk-btn {
-      background: var(--surface); color: var(--text); border: 1px solid var(--border);
-      padding: 0.45rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
-    }
-    .lk-btn:hover { border-color: var(--accent); }
-    .upload-btn {
-      display: inline-block; background: var(--surface); color: var(--text);
-      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
-      cursor: pointer; font-size: 0.9rem;
-    }
-    .upload-btn:hover { background: #241826; }
-    .photo-name { font-size: 0.85rem; color: var(--muted); margin-left: 0.5rem; }
-    .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
-    .save-btn {
-      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
-      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
-    }
-    .save-btn:disabled { opacity: 0.6; cursor: default; }
-    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
-    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
-    .back-link:hover { color: var(--accent); }
-  </style>
-</Base>
+    .field label { display: block; font-size: 0.8rem; color: var(--muted);

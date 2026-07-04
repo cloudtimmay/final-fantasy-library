@@ -50,14 +50,18 @@ export const figure = defineType({
       title: 'title',
       subtitle: 'series',
       category: 'category',
+      image: 'image',
       externalImageUrl: 'externalImageUrl',
     },
-    prepare({ title, subtitle, category, externalImageUrl }) {
+    prepare({ title, subtitle, category, image, externalImageUrl }) {
       const catLabel = category ? category.charAt(0).toUpperCase() + category.slice(1) : ''
       return {
         title,
         subtitle: [catLabel, subtitle].filter(Boolean).join(' · '),
-        media: () => ExternalImagePreview({ title, subtitle, externalImageUrl }),
+        // Prefer the uploaded Sanity image; fall back to the external URL preview.
+        media: image
+          ? image
+          : () => ExternalImagePreview({ title, subtitle, externalImageUrl }),
       }
     },
   },

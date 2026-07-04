@@ -2,16 +2,6 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
-export async function getStaticPaths() {
-  const merchandise = await sanity.fetch(`
-    *[_type == "figure" && !(_id in path("drafts.**"))]{ _id }
-  `)
-
-  return merchandise.map((merch: any) => ({
-    params: { id: merch._id },
-  }))
-}
-
 const CATEGORY_LABELS: Record<string, string> = {
   figure: 'Figure',
   plushie: 'Plushie',
@@ -48,8 +38,8 @@ if (!f) return Astro.redirect('/merchandise')
 
     <div class="upload-row">
       <label class="upload-btn">
-        📷 Upload / replace photo
-        <input id="img-input" type="file" accept="image/*" capture="environment" hidden />
+        📷 Upload / replace photo (camera or gallery)
+        <input id="img-input" type="file" accept="image/*" hidden />
       </label>
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>

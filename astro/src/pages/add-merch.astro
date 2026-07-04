@@ -4,8 +4,6 @@ import { sanity } from '../lib/sanity'
 
 const today = new Date().toISOString().split('T')[0]
 
-// Pull the distinct series already used across the collection, so the dropdown
-// stays in sync without importing from the sanity/ folder.
 const seriesRaw = await sanity.fetch(`
   array::unique(*[_type in ["album","game","book","figure"] && defined(series)].series)
 `)
@@ -14,7 +12,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
 <Base title="Add merch">
   <div class="add-wrap">
     <h1>Add merch</h1>
-    <p class="hint">Register merch you already own. Scan the barcode, look it up, snap a photo, and save.</p>
+    <p class="hint">Register merch you already own. Scan the barcode, look it up, add a photo, and save.</p>
 
     <div class="field">
       <label>Barcode</label>
@@ -101,8 +99,8 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     <div class="field">
       <label>Photo</label>
       <label class="upload-btn">
-        📷 Take / choose photo
-        <input id="f-photo" type="file" accept="image/*" capture="environment" hidden />
+        📷 Take photo or choose from gallery
+        <input id="f-photo" type="file" accept="image/*" hidden />
       </label>
       <span id="f-photo-name" class="photo-name" hidden></span>
       <img id="f-preview" class="photo-preview" hidden alt="Preview" />
@@ -148,7 +146,6 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const preview = document.querySelector('#f-preview')
     let selectedPhoto = null
 
-    // Show a free-text field when "+ New series…" is chosen.
     seriesSelect.addEventListener('change', () => {
       if (seriesSelect.value === '__new__') {
         seriesNewInput.hidden = false

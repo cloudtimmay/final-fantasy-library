@@ -23,9 +23,9 @@ function isNew(acquiredDate: string | undefined): boolean {
 }
 ---
 <Base title="Albums">
-  <div class="page-header">
-    <h1>Albums</h1>
-    <span class="count" id="album-count">{albums.length} items</span>
+  <div class="hud-section-head">
+    <span class="hud-slashes">//</span> ALBUMS
+    <span class="hud-count" id="album-count">{albums.length} ENTRIES</span>
   </div>
 
   <div class="vgmdb-lookup">
@@ -57,6 +57,8 @@ function isNew(acquiredDate: string | undefined): boolean {
   <div class="album-list">
     {albums.map((a: any) => (
       <div class="album-row-wrap" data-wishlist={a.status === 'wishlist' ? 'yes' : 'no'}>
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
         <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
           {a.externalImageUrl
             ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
@@ -66,8 +68,8 @@ function isNew(acquiredDate: string | undefined): boolean {
             <div class="card-title">{a.title}</div>
             <div class="card-sub">{a.composer || a.artist}</div>
             <div class="card-meta">
-              {isNew(a.acquiredDate) && <span class="tag new-tag">NY</span>}
-              {a.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
+              {isNew(a.acquiredDate) && <span class="tag new-tag">NEW</span>}
+              {a.status === 'wishlist' && <span class="tag wishlist-tag">WISHLIST</span>}
               {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
               {a.year && <span class="tag">{a.year}</span>}
               {a.format && <span class="tag">{a.format}</span>}
@@ -83,23 +85,86 @@ function isNew(acquiredDate: string | undefined): boolean {
   </div>
 
   <style>
-    .vgmdb-lookup { display: flex; gap: 0.75rem; margin: 1rem 0 0.5rem; flex-wrap: wrap; }
+    /* HUD section head (matches dashboard) */
+    .hud-section-head {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      color: var(--text);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(176,30,52,0.3);
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      text-shadow: 0 0 10px rgba(176,30,52,0.4);
+    }
+    .hud-slashes { color: var(--accent-2); }
+    .hud-count {
+      margin-left: auto;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-shadow: none;
+    }
+
+    .vgmdb-lookup { display: flex; gap: 0.75rem; margin: 1rem 0 0.75rem; flex-wrap: wrap; }
     .vgmdb-lookup input { flex: 1; min-width: 200px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .vgmdb-lookup input:focus { outline: none; border-color: var(--accent); }
     .vgmdb-lookup button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
-    .album-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-    .album-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .vgmdb-lookup button:hover { box-shadow: 0 0 12px rgba(244,162,76,0.35); }
+
+    .album-tools { display: flex; gap: 0.75rem; margin: 0 0 1.5rem; flex-wrap: wrap; }
+    .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .album-tools input:focus, .album-tools select:focus { outline: none; border-color: var(--accent); }
+
+    /* HUD card rows */
+    .album-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .album-row-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0 0.75rem;
+      border: 1px solid rgba(176,30,52,0.18);
+      border-radius: 4px;
+      background: rgba(26,12,18,0.4);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .album-row-wrap:hover {
+      border-color: rgba(176,30,52,0.5);
+      background: rgba(36,16,22,0.6);
+      box-shadow: 0 0 14px rgba(120,16,26,0.25);
+    }
     .album-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
-    .album-row:hover { background: rgba(255,255,255,0.03); }
-    .album-thumb { width: 56px; height: 56px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+    .album-thumb { width: 56px; height: 56px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
     .album-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
     .album-info { min-width: 0; }
+    .card-meta .tag { font-family: 'IBM Plex Mono', monospace; }
     .wishlist-tag { background: var(--wishlist); color: var(--bg); }
     .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
     .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .got-btn:disabled { opacity: 0.6; cursor: default; }
-    .album-tools { display: flex; gap: 0.75rem; margin: 0.5rem 0 1.5rem; flex-wrap: wrap; }
-    .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .album-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
+
+    /* Corner brackets */
+    .hud-corner {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-color: var(--accent-2);
+      border-style: solid;
+      border-width: 0;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .album-row-wrap:hover .hud-corner { opacity: 0.8; }
+    .hud-corner.tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+    .hud-corner.tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; }
+    .hud-corner.bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; }
+    .hud-corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
   </style>
 
   <script>
@@ -144,8 +209,7 @@ function isNew(acquiredDate: string | undefined): boolean {
         if (show) visible++
       })
 
-      // Update the counter to reflect the current filter.
-      if (countEl) countEl.textContent = `${visible} item${visible === 1 ? '' : 's'}`
+      if (countEl) countEl.textContent = `${visible} ENTR${visible === 1 ? 'Y' : 'IES'}`
 
       rows
         .sort((a, b) => {
@@ -169,7 +233,6 @@ function isNew(acquiredDate: string | undefined): boolean {
     statusSelect.addEventListener('change', updateAlbums)
     seriesSelect.addEventListener('change', updateAlbums)
 
-    // Run once on load so the counter reflects any default filter.
     updateAlbums()
 
     initGotIt()

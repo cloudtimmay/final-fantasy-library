@@ -64,11 +64,11 @@ function isActive(href: string) {
     .nav-brand {
       font-family: 'IBM Plex Mono', monospace;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 16px;
       color: var(--accent);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+      letter-spacing: 0.08em;
       margin-right: auto;
+      text-shadow: 0 0 10px rgba(244,162,76,0.35);
     }
     nav a {
       font-size: 13px;
@@ -226,7 +226,7 @@ function isActive(href: string) {
         -webkit-overflow-scrolling: touch;
       }
       .nav-link:not(.nav-cat) { display: none; }
-      .nav-brand { font-size: 12px; }
+      .nav-brand { font-size: 15px; }
       .nav-cat { font-size: 12px; }
       .nav-search { flex-shrink: 0; }
       .nav-search input { width: 90px; }
@@ -268,7 +268,7 @@ function isActive(href: string) {
 </head>
 <body>
   <nav>
-    <a href="/" class="nav-brand">Collection</a>
+    <a href="/" class="nav-brand">FF</a>
     <a href="/scan" class:list={['nav-link', { active: isActive('/scan') }]}>🔍 Scan</a>
     <a href="/add-menu" class:list={['nav-link', 'nav-add', { active: isActive('/add-menu') }]}>+ Add</a>
     <a href="/notes" class:list={['nav-link', { active: isActive('/notes') }]}>Notes</a>
@@ -277,7 +277,7 @@ function isActive(href: string) {
     <a href="/series" class:list={['nav-link', { active: isActive('/series') }]}>Series</a>
     <a href="/albums" class:list={['nav-link', 'nav-cat', { active: isActive('/albums') }]}>Albums</a>
     <a href="/games" class:list={['nav-link', 'nav-cat', { active: isActive('/games') }]}>Games</a>
-    <a href="/merchandise" class:list={['nav-link', 'nav-cat', { active: isActive('/merchandise') }]}>merchandise</a>
+    <a href="/merchandise" class:list={['nav-link', 'nav-cat', { active: isActive('/merchandise') }]}>Merchandise</a>
     <a href="/books" class:list={['nav-link', 'nav-cat', { active: isActive('/books') }]}>Books</a>
     <a href="/vgmdb" class:list={['nav-link', { active: isActive('/vgmdb') }]}>VGMdb</a>
     <a href="/export" class:list={['nav-link', { active: isActive('/export') }]}>Export</a>

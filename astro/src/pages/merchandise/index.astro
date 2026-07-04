@@ -27,9 +27,9 @@ function isNew(acquiredDate: string | undefined): boolean {
 }
 ---
 <Base title="Merchandise">
-  <div class="page-header">
-    <h1>Merchandise</h1>
-    <span class="count" id="merch-count">{merchandise.length} items</span>
+  <div class="hud-section-head">
+    <span class="hud-slashes">//</span> MERCHANDISE
+    <span class="hud-count" id="merch-count">{merchandise.length} ENTRIES</span>
   </div>
 
   <details class="lookup-box" id="lookup-box">
@@ -76,6 +76,8 @@ function isNew(acquiredDate: string | undefined): boolean {
            data-category={f.category || ''}
            data-needsinfo={f.needsInfo ? 'yes' : 'no'}
            data-acquired={f.acquiredDate || ''}>
+        <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+        <span class="hud-corner bl"></span><span class="hud-corner br"></span>
         <a class="merch-row" href={`/merchandise/${f._id}`}>
           {f.image
             ? <img class="merch-thumb" src={urlFor(f.image).height(120).url()} alt={f.title} loading="lazy" />
@@ -88,9 +90,9 @@ function isNew(acquiredDate: string | undefined): boolean {
             <div class="card-sub">{f.series}{f.manufacturer ? ` · ${f.manufacturer}` : ''}</div>
             <div class="card-meta">
               {isNew(f.acquiredDate) && <span class="tag new-tag">NEW</span>}
-              {f.status === 'wishlist' && <span class="tag wishlist-tag">Wishlist</span>}
+              {f.status === 'wishlist' && <span class="tag wishlist-tag">WISHLIST</span>}
               {f.category && <span class="tag cat-tag">{CATEGORY_LABELS[f.category] || f.category}</span>}
-              {f.needsInfo && <span class="tag needsinfo-tag">Missing info</span>}
+              {f.needsInfo && <span class="tag needsinfo-tag">MISSING INFO</span>}
               {f.scale && <span class="tag">{f.scale}</span>}
               {f.year && <span class="tag">{f.year}</span>}
               {f.rating && <span class="rating">{f.rating}/10</span>}
@@ -107,25 +109,67 @@ function isNew(acquiredDate: string | undefined): boolean {
   </div>
 
   <style>
-    .lookup-box { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1.5rem; background: var(--surface); }
-    .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); }
+    /* HUD section head (matches dashboard) */
+    .hud-section-head {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      color: var(--text);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(176,30,52,0.3);
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      text-shadow: 0 0 10px rgba(176,30,52,0.4);
+    }
+    .hud-slashes { color: var(--accent-2); }
+    .hud-count {
+      margin-left: auto;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-shadow: none;
+    }
+
+    .lookup-box { border: 1px solid rgba(176,30,52,0.25); border-radius: 6px; margin-bottom: 1.5rem; background: rgba(26,12,18,0.4); }
+    .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.04em; }
     .lookup-inner { padding: 0 1rem 1rem; }
     .lookup-inner input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 0.75rem; }
+    .lookup-inner input:focus { outline: none; border-color: var(--accent); }
     .source-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .source-buttons button { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
-    .source-buttons button:hover { border-color: var(--accent); }
+    .source-buttons button:hover { border-color: var(--accent); box-shadow: 0 0 10px rgba(244,162,76,0.3); }
 
     .merch-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .merch-tools input, .merch-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
     .merch-tools input { flex: 1; min-width: 200px; }
+    .merch-tools input:focus, .merch-tools select:focus { outline: none; border-color: var(--accent); }
 
-    .merch-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-    .merch-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    /* HUD card rows */
+    .merch-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .merch-row-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0 0.75rem;
+      border: 1px solid rgba(176,30,52,0.18);
+      border-radius: 4px;
+      background: rgba(26,12,18,0.4);
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    }
+    .merch-row-wrap:hover {
+      border-color: rgba(176,30,52,0.5);
+      background: rgba(36,16,22,0.6);
+      box-shadow: 0 0 14px rgba(120,16,26,0.25);
+    }
     .merch-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
-    .merch-row:hover { background: rgba(255,255,255,0.03); }
     .merch-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
     .merch-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
     .merch-info { min-width: 0; }
+    .card-meta .tag { font-family: 'IBM Plex Mono', monospace; }
     .cat-tag { background: var(--accent); color: var(--bg); font-weight: 600; }
     .needsinfo-tag { background: var(--accent-2, #c0392b); color: #fff; }
     .wishlist-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
@@ -134,6 +178,24 @@ function isNew(acquiredDate: string | undefined): boolean {
     .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .got-btn:disabled { opacity: 0.6; cursor: default; }
     .merch-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
+
+    /* Corner brackets */
+    .hud-corner {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-color: var(--accent-2);
+      border-style: solid;
+      border-width: 0;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .merch-row-wrap:hover .hud-corner { opacity: 0.8; }
+    .hud-corner.tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+    .hud-corner.tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; }
+    .hud-corner.bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; }
+    .hud-corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
   </style>
 
   <script>
@@ -196,7 +258,7 @@ function isNew(acquiredDate: string | undefined): boolean {
         if (show) visible++
       })
 
-      if (countEl) countEl.textContent = `${visible} item${visible === 1 ? '' : 's'}`
+      if (countEl) countEl.textContent = `${visible} ENTR${visible === 1 ? 'Y' : 'IES'}`
 
       rows
         .sort((a, b) => {

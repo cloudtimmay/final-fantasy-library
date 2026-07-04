@@ -20,17 +20,17 @@ export function MfcImport(props: StringInputProps) {
             text="Search MFC"
             mode="ghost"
             icon={SearchIcon}
-            onClick={open(`https://myfigurecollection.net/?_tb=item&keywords=${encodeURIComponent(term)}`)}
+            onClick={open(`https://mymerchcollection.net/?_tb=item&keywords=${encodeURIComponent(term)}`)}
           />
           <Button
             text="Google"
             mode="ghost"
-            onClick={open(`https://www.google.com/search?q=${encodeURIComponent(term + ' figure')}`)}
+            onClick={open(`https://www.google.com/search?q=${encodeURIComponent(term + ' merch')}`)}
           />
           <Button
             text="Google Images"
             mode="ghost"
-            onClick={open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(term + ' figure')}`)}
+            onClick={open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(term + ' merch')}`)}
           />
         </Flex>
       )}

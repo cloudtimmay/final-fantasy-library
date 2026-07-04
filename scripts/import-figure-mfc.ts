@@ -9,7 +9,7 @@ const client = createClient({
   useCdn: false,
 })
 
-// Paste figure barcodes (JAN) here, one per line.
+// Paste merch barcodes (JAN) here, one per line.
 const BARCODES = [
   "4988601310307",
   "4988601311861",
@@ -30,8 +30,8 @@ async function main() {
     return
   }
 
-  // Skip barcodes we already have a figure for.
-  const existing: string[] = await client.fetch(`*[_type == "figure" && defined(barcode)].barcode`)
+  // Skip barcodes we already have a merch for.
+  const existing: string[] = await client.fetch(`*[_type == "merch" && defined(barcode)].barcode`)
   const existingSet = new Set(existing.filter(Boolean))
 
   const browser = await puppeteer.launch({
@@ -56,10 +56,10 @@ async function main() {
   })
 
   console.log("Browser opened.")
-  console.log("Log in to MyFigureCollection and complete Cloudflare if needed.")
+  console.log("Log in to MymerchCollection and complete Cloudflare if needed.")
   console.log("Open any MFC page so you're past Cloudflare, then come back and press ENTER.")
 
-  await page.goto("https://myfigurecollection.net/", { waitUntil: "domcontentloaded" })
+  await page.goto("https://mymerchcollection.net/", { waitUntil: "domcontentloaded" })
 
   process.stdin.resume()
   await new Promise<void>((resolve) => {
@@ -85,7 +85,7 @@ async function main() {
     // Step 1: search by barcode and see where MFC lands us.
     try {
       await page.goto(
-        `https://myfigurecollection.net/?_tb=item&keywords=${encodeURIComponent(code)}`,
+        `https://mymerchcollection.net/?_tb=item&keywords=${encodeURIComponent(code)}`,
         { waitUntil: "domcontentloaded", timeout: 30000 }
       )
     } catch (e) {
@@ -137,7 +137,7 @@ async function main() {
         function getTitle() {
           const m = document.querySelector('meta[property="og:title"]')
           let t = m ? m.getAttribute('content') : ''
-          return clean((t || '').replace(/\\s*—\\s*MyFigureCollection.*$/i, ''))
+          return clean((t || '').replace(/\\s*—\\s*MymerchCollection.*$/i, ''))
         }
 
         function getImage() {
@@ -205,8 +205,8 @@ async function main() {
     }
 
     const doc: any = {
-      _id: `figure-jan-${code}`,
-      _type: "figure",
+      _id: `merch-jan-${code}`,
+      _type: "merch",
       barcode: code,
       title: data.title,
       needsInfo: false,

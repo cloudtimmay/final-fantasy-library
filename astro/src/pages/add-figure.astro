@@ -3,10 +3,10 @@ import Base from '../layouts/Base.astro'
 
 const today = new Date().toISOString().split('T')[0]
 ---
-<Base title="Add figure">
+<Base title="Add merch">
   <div class="add-wrap">
-    <h1>Add figure</h1>
-    <p class="hint">Register a figure you already own. Scan the barcode, look it up, snap a photo, and save.</p>
+    <h1>Add merch</h1>
+    <p class="hint">Register a merch you already own. Scan the barcode, look it up, snap a photo, and save.</p>
 
     <div class="field">
       <label>Barcode</label>
@@ -21,14 +21,14 @@ const today = new Date().toISOString().split('T')[0]
 
     <div class="lookup-row">
       <span class="lookup-label">Look up:</span>
-      <button type="button" class="lk-btn" data-src="mfc">MyFigureCollection</button>
+      <button type="button" class="lk-btn" data-src="mfc">MymerchCollection</button>
       <button type="button" class="lk-btn" data-src="google">Google</button>
       <button type="button" class="lk-btn" data-src="googleimg">Google Images</button>
     </div>
 
     <div class="field">
       <label>Title *</label>
-      <input id="f-title" type="text" placeholder="Figure name" />
+      <input id="f-title" type="text" placeholder="merch name" />
     </div>
 
     <div class="field">
@@ -89,10 +89,10 @@ const today = new Date().toISOString().split('T')[0]
       <textarea id="f-notes" rows="2" placeholder="Anything worth noting…"></textarea>
     </div>
 
-    <button id="f-save" type="button" class="save-btn">Save figure</button>
+    <button id="f-save" type="button" class="save-btn">Save merch</button>
     <p id="f-msg" class="save-msg" hidden></p>
 
-    <a href="/figures" class="back-link">← Back to figures</a>
+    <a href="/merchandise" class="back-link">← Back to merchandise</a>
   </div>
 
   <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -160,9 +160,9 @@ const today = new Date().toISOString().split('T')[0]
         const enc = encodeURIComponent(term)
         let url = ''
         switch (btn.dataset.src) {
-          case 'mfc': url = `https://myfigurecollection.net/?_tb=item&keywords=${enc}`; break
-          case 'google': url = `https://www.google.com/search?q=${enc}+figure`; break
-          case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+figure`; break
+          case 'mfc': url = `https://mymerchcollection.net/?_tb=item&keywords=${enc}`; break
+          case 'google': url = `https://www.google.com/search?q=${enc}+merch`; break
+          case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+merch`; break
         }
         if (url) window.open(url, '_blank', 'noopener')
       })
@@ -227,7 +227,7 @@ const today = new Date().toISOString().split('T')[0]
       else startScan()
     })
 
-    // --- Save: create the figure, then upload the photo if chosen ---
+    // --- Save: create the merch, then upload the photo if chosen ---
     async function save() {
       if (!titleInput.value.trim()) return showMsg('Please enter a title.', false)
 
@@ -235,7 +235,7 @@ const today = new Date().toISOString().split('T')[0]
       saveBtn.textContent = 'Saving…'
 
       try {
-        const res = await fetch('/api/figure-create', {
+        const res = await fetch('/api/merch-create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -267,9 +267,9 @@ const today = new Date().toISOString().split('T')[0]
           } catch {}
         }
 
-        showMsg('Saved ✓ — ready for the next figure.', true)
+        showMsg('Saved ✓ — ready for the next merch.', true)
 
-        // Reset for the next figure.
+        // Reset for the next merch.
         titleInput.value = ''
         seriesInput.value = ''
         manufacturerInput.value = ''
@@ -292,7 +292,7 @@ const today = new Date().toISOString().split('T')[0]
         showMsg('Network error.', false)
       } finally {
         saveBtn.disabled = false
-        saveBtn.textContent = 'Save figure'
+        saveBtn.textContent = 'Save merch'
       }
     }
 

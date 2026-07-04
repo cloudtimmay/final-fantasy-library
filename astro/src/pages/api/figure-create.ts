@@ -21,7 +21,7 @@ export const POST: APIRoute = async ({ request }) => {
   const str = (v: any) => (v == null ? undefined : String(v).trim() || undefined)
 
   const doc: any = {
-    _type: 'figure',
+    _type: 'merch',
     title,
     status: 'owned',
     needsInfo: false,

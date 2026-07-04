@@ -20,7 +20,7 @@ export default defineConfig({
           .items([
             S.listItem().title('Albums').schemaType('album').child(S.documentTypeList('album')),
             S.listItem().title('Games').schemaType('game').child(S.documentTypeList('game')),
-            S.listItem().title('Figures').schemaType('figure').child(S.documentTypeList('figure')),
+            S.listItem().title('merchandise').schemaType('merch').child(S.documentTypeList('merch')),
             S.listItem().title('Books').schemaType('book').child(S.documentTypeList('book')),
             S.listItem().title('Shop Notes').schemaType('shopNote').child(S.documentTypeList('shopNote')),
             S.listItem().title('Trip Settings').schemaType('tripSettings').child(S.documentTypeList('tripSettings')),

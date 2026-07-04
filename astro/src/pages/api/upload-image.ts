@@ -6,7 +6,7 @@ export const prerender = false
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
-const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase']
+const ALLOWED_TYPES = ['album', 'game', 'book', 'merch', 'familyPurchase']
 
 export const POST: APIRoute = async ({ request }) => {
   let form: FormData

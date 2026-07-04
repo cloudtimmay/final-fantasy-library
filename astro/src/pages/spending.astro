@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 
 const items = await sanity.fetch(`
-  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**")) && (defined(purchasePrice) || defined(purchasePriceYen))] {
+  *[_type in ["album","game","book","merch"] && !(_id in path("drafts.**")) && (defined(purchasePrice) || defined(purchasePriceYen))] {
     _id, _type, title, acquiredDate, purchasePrice, purchasePriceYen, status
   }
 `)

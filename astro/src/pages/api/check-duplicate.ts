@@ -12,7 +12,7 @@ export const GET: APIRoute = async ({ url }) => {
 
   try {
     const matches = await sanity.fetch(
-      `*[_type in ["album","game","book","figure"] && barcode == $barcode && !(_id in path("drafts.**"))]{
+      `*[_type in ["album","game","book","merch"] && barcode == $barcode && !(_id in path("drafts.**"))]{
         _id, _type, title, status
       }`,
       { barcode }

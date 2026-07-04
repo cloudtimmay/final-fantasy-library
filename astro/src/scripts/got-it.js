@@ -1,5 +1,5 @@
 // Shared "Got it" handler: flips a wishlist item to owned and swaps the badge.
-// Used on albums, games, books and figures list pages.
+// Used on albums, games, books and merchandise list pages.
 export function initGotIt() {
   document.querySelectorAll('.got-btn').forEach((btn) => {
     btn.addEventListener('click', async (e) => {

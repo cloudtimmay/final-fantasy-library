@@ -2,21 +2,21 @@
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
-const [albumCount, gameCount, figureCount, bookCount] = await Promise.all([
+const [albumCount, gameCount, merchCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album" && status != "wishlist" && !(_id in path("drafts.**"))])`),
   sanity.fetch<number>(`count(*[_type == "game" && status != "wishlist" && !(_id in path("drafts.**"))])`),
-  sanity.fetch<number>(`count(*[_type == "figure" && status != "wishlist" && !(_id in path("drafts.**"))])`),
+  sanity.fetch<number>(`count(*[_type == "merch" && status != "wishlist" && !(_id in path("drafts.**"))])`),
   sanity.fetch<number>(`count(*[_type == "book" && status != "wishlist" && !(_id in path("drafts.**"))])`),
 ])
 
 const recentlyAdded = await sanity.fetch(`
-  *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))]
+  *[_type in ["album","game","merch","book"] && !(_id in path("drafts.**"))]
     | order(coalesce(acquiredDate, _createdAt) desc, _id) [0..19] {
     _id, _type, title, externalImageUrl, catalogNumber, acquiredDate,
     "sub": select(
       _type == "album" => artist,
       _type == "game"  => platform,
-      _type == "figure"=> series,
+      _type == "merch"=> series,
       _type == "book"  => author
     ),
     status, rating, image
@@ -47,16 +47,16 @@ function isNew(acquiredDate: string | undefined): boolean {
       <div class="num">{gameCount}</div>
       <div class="label">🎮 Games</div>
     </a>
-    <a href="/figures" class="stat-card">
-      <div class="num">{figureCount}</div>
-      <div class="label">🗿 Figures</div>
+    <a href="/merchandise" class="stat-card">
+      <div class="num">{merchCount}</div>
+      <div class="label">🗿 merchandise</div>
     </a>
     <a href="/books" class="stat-card">
       <div class="num">{bookCount}</div>
       <div class="label">📚 Books</div>
     </a>
     <div class="stat-card">
-      <div class="num">{albumCount + gameCount + figureCount + bookCount}</div>
+      <div class="num">{albumCount + gameCount + merchCount + bookCount}</div>
       <div class="label">Total items</div>
     </div>
   </div>
@@ -76,7 +76,7 @@ function isNew(acquiredDate: string | undefined): boolean {
           <div class="recent-thumb placeholder">
             {item._type === 'album' && '🎵'}
             {item._type === 'game' && '🎮'}
-            {item._type === 'figure' && '🗿'}
+            {item._type === 'merch' && '🗿'}
             {item._type === 'book' && '📚'}
           </div>
         )}

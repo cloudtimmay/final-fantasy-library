@@ -4,9 +4,9 @@ import { ExternalImagePreview } from '../components/ExternalImagePreview'
 import { MfcImport } from '../components/MfcImport'
 import { seriesList } from './seriesList'
 
-export const figure = defineType({
-  name: 'figure',
-  title: 'Figure',
+export const merch = defineType({
+  name: 'merch',
+  title: 'merch',
   type: 'document',
   icon: () => '🗿',
   fields: [

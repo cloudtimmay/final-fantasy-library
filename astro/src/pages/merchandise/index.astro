@@ -2,13 +2,13 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
-const figures = await sanity.fetch(`
-  *[_type == "figure" && !(_id in path("drafts.**"))] | order(series asc, title asc) {
+const merchandise = await sanity.fetch(`
+  *[_type == "merch" && !(_id in path("drafts.**"))] | order(series asc, title asc) {
     _id, title, series, manufacturer, year, scale, condition, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
 
-const seriesList = [...new Set(figures.map((f: any) => f.series).filter(Boolean))].sort()
+const seriesList = [...new Set(merchandise.map((f: any) => f.series).filter(Boolean))].sort()
 
 const now = Date.now()
 function isNew(acquiredDate: string | undefined): boolean {
@@ -19,56 +19,56 @@ function isNew(acquiredDate: string | undefined): boolean {
   return days >= 0 && days <= 30
 }
 ---
-<Base title="Figures">
+<Base title="merchandise">
   <div class="page-header">
-    <h1>Figures</h1>
-    <span class="count">{figures.length} items</span>
+    <h1>merchandise</h1>
+    <span class="count">{merchandise.length} items</span>
   </div>
 
   <details class="lookup-box" id="lookup-box">
-    <summary>Look up a figure externally (name)</summary>
+    <summary>Look up a merch externally (name)</summary>
     <div class="lookup-inner">
-      <input id="figure-lookup" type="search" placeholder="Figure name..." />
+      <input id="merch-lookup" type="search" placeholder="merch name..." />
       <div class="source-buttons">
-        <button data-src="mfc">MyFigureCollection</button>
+        <button data-src="mmc">MymerchCollection</button>
         <button data-src="google">Google</button>
         <button data-src="googleimg">Google Images</button>
       </div>
     </div>
   </details>
 
-  <div class="figure-tools">
-    <input id="figure-search" type="search" placeholder="Search my figures..." />
-    <select id="figure-sort">
+  <div class="merch-tools">
+    <input id="merch-search" type="search" placeholder="Search my merchandise..." />
+    <select id="merch-sort">
       <option value="title">Sort by name</option>
       <option value="acquired">Sort by date acquired</option>
     </select>
-    <select id="figure-series">
+    <select id="merch-series">
       <option value="">All series</option>
       {seriesList.map((s: any) => <option value={s}>{s}</option>)}
     </select>
-    <select id="figure-info-filter">
-      <option value="">All figures</option>
+    <select id="merch-info-filter">
+      <option value="">All merchandise</option>
       <option value="needsinfo">Missing info</option>
     </select>
   </div>
 
-  <div class="figure-list">
-    {figures.map((f: any) => (
-      <div class="figure-row-wrap"
+  <div class="merch-list">
+    {merchandise.map((f: any) => (
+      <div class="merch-row-wrap"
            data-wishlist={f.status === 'wishlist' ? 'yes' : 'no'}
            data-title={f.title?.toLowerCase() || ''}
            data-series={f.series || ''}
            data-needsinfo={f.needsInfo ? 'yes' : 'no'}
            data-acquired={f.acquiredDate || ''}>
-        <a class="figure-row" href={`/figures/${f._id}`}>
+        <a class="merch-row" href={`/merchandise/${f._id}`}>
           {f.image
-            ? <img class="figure-thumb" src={urlFor(f.image).height(120).url()} alt={f.title} loading="lazy" />
+            ? <img class="merch-thumb" src={urlFor(f.image).height(120).url()} alt={f.title} loading="lazy" />
             : f.externalImageUrl
-            ? <img class="figure-thumb" src={f.externalImageUrl} alt={f.title} loading="lazy" />
-            : <div class="figure-thumb placeholder">🗿</div>
+            ? <img class="merch-thumb" src={f.externalImageUrl} alt={f.title} loading="lazy" />
+            : <div class="merch-thumb placeholder">🗿</div>
           }
-          <div class="figure-info">
+          <div class="merch-info">
             <div class="card-title">{f.title}</div>
             <div class="card-sub">{f.series}{f.manufacturer ? ` · ${f.manufacturer}` : ''}</div>
             <div class="card-meta">
@@ -99,31 +99,31 @@ function isNew(acquiredDate: string | undefined): boolean {
     .source-buttons button { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .source-buttons button:hover { border-color: var(--accent); }
 
-    .figure-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .figure-tools input, .figure-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
-    .figure-tools input { flex: 1; min-width: 200px; }
+    .merch-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .merch-tools input, .merch-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .merch-tools input { flex: 1; min-width: 200px; }
 
-    .figure-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-    .figure-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
-    .figure-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
-    .figure-row:hover { background: rgba(255,255,255,0.03); }
-    .figure-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
-    .figure-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
-    .figure-info { min-width: 0; }
+    .merch-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+    .merch-row-wrap { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); }
+    .merch-row { display: flex; gap: 1rem; padding: 0.75rem 0; text-decoration: none; color: inherit; align-items: center; flex: 1; min-width: 0; }
+    .merch-row:hover { background: rgba(255,255,255,0.03); }
+    .merch-thumb { width: 48px; height: 64px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 3px; }
+    .merch-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .merch-info { min-width: 0; }
     .needsinfo-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
     .wishlist-tag { background: var(--wishlist, #c0392b); color: var(--bg); }
     .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
     .lookup-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.45rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
     .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .got-btn:disabled { opacity: 0.6; cursor: default; }
-    .figure-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
+    .merch-row .card-meta .new-tag { background: #2ecc71 !important; color: #06281a !important; font-weight: 700; }
   </style>
 
   <script>
     import { initGotIt } from '../../scripts/got-it.js'
 
     const lookupBox = document.querySelector('#lookup-box')
-    const lookupInput = document.querySelector('#figure-lookup')
+    const lookupInput = document.querySelector('#merch-lookup')
     function lval() { return lookupInput.value.trim() }
 
     function openSource(src) {
@@ -132,9 +132,9 @@ function isNew(acquiredDate: string | undefined): boolean {
       const enc = encodeURIComponent(q)
       let url = ''
       switch (src) {
-        case 'mfc': url = `https://myfigurecollection.net/?_tb=item&keywords=${enc}`; break
-        case 'google': url = `https://www.google.com/search?q=${enc}+figure`; break
-        case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+figure`; break
+        case 'mfc': url = `https://mymerchcollection.net/?_tb=item&keywords=${enc}`; break
+        case 'google': url = `https://www.google.com/search?q=${enc}+merch`; break
+        case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+merch`; break
       }
       if (url) window.open(url, '_blank', 'noopener')
     }
@@ -152,18 +152,18 @@ function isNew(acquiredDate: string | undefined): boolean {
       })
     })
 
-    const searchInput = document.querySelector('#figure-search')
-    const sortSelect = document.querySelector('#figure-sort')
-    const seriesSelect = document.querySelector('#figure-series')
-    const infoFilter = document.querySelector('#figure-info-filter')
-    const list = document.querySelector('.figure-list')
+    const searchInput = document.querySelector('#merch-search')
+    const sortSelect = document.querySelector('#merch-sort')
+    const seriesSelect = document.querySelector('#merch-series')
+    const infoFilter = document.querySelector('#merch-info-filter')
+    const list = document.querySelector('.merch-list')
 
-    function updateFigures() {
+    function updatemerchandise() {
       const search = searchInput.value.toLowerCase()
       const sort = sortSelect.value
       const series = seriesSelect.value
       const info = infoFilter.value
-      const rows = Array.from(document.querySelectorAll('.figure-row-wrap'))
+      const rows = Array.from(document.querySelectorAll('.merch-row-wrap'))
 
       rows.forEach((row) => {
         const matchesSearch = row.dataset.title.includes(search)
@@ -186,10 +186,10 @@ function isNew(acquiredDate: string | undefined): boolean {
         .forEach((row) => list.appendChild(row))
     }
 
-    searchInput.addEventListener('input', updateFigures)
-    sortSelect.addEventListener('change', updateFigures)
-    seriesSelect.addEventListener('change', updateFigures)
-    infoFilter.addEventListener('change', updateFigures)
+    searchInput.addEventListener('input', updatemerchandise)
+    sortSelect.addEventListener('change', updatemerchandise)
+    seriesSelect.addEventListener('change', updatemerchandise)
+    infoFilter.addEventListener('change', updatemerchandise)
 
     initGotIt()
   </script>

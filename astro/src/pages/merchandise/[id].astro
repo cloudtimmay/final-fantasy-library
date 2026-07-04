@@ -3,32 +3,32 @@ import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 
 export async function getStaticPaths() {
-  const figures = await sanity.fetch(`
-    *[_type == "figure" && !(_id in path("drafts.**"))]{ _id }
+  const merchandise = await sanity.fetch(`
+    *[_type == "merch" && !(_id in path("drafts.**"))]{ _id }
   `)
 
-  return figures.map((figure: any) => ({
-    params: { id: figure._id },
+  return merchandise.map((merch: any) => ({
+    params: { id: merch._id },
   }))
 }
 
 const { id } = Astro.params
 const f = await sanity.fetch(
-  `*[_type == "figure" && _id == $id][0] { title, series, manufacturer, year, scale, condition, location, needsInfo, externalImageUrl, ${SHARED_FIELDS} }`,
+  `*[_type == "merch" && _id == $id][0] { title, series, manufacturer, year, scale, condition, location, needsInfo, externalImageUrl, ${SHARED_FIELDS} }`,
   { id }
 )
-if (!f) return Astro.redirect('/figures')
+if (!f) return Astro.redirect('/merchandise')
 ---
 <Base title={f.title}>
   <div class="detail">
-    <a href="/figures" style="font-size:13px;color:var(--muted)">← Figures</a>
+    <a href="/merchandise" style="font-size:13px;color:var(--muted)">← merchandise</a>
     <br /><br />
     <h1>{f.title}</h1>
     <div class="detail-sub">{f.series}</div>
 
     {f.needsInfo && (
       <div class="needsinfo-banner">
-        This figure is missing information. Check the details and fill them in via Studio.
+        This merch is missing information. Check the details and fill them in via Studio.
       </div>
     )}
 

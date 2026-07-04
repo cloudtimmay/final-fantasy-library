@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../lib/sanity'
 
 const items = await sanity.fetch(`
-  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**"))] {
+  *[_type in ["album","game","book","merch"] && !(_id in path("drafts.**"))] {
     _id, _type, title, status, catalogNumber, barcode, isbn, year,
     artist, composer, author, developer, platform, series, publisher,
     purchasePrice, purchasePriceYen, acquiredDate

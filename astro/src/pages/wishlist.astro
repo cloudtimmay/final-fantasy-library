@@ -3,14 +3,14 @@ import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
 const items = await sanity.fetch(`
-  *[_type in ["album","game","book","figure"] && status == "wishlist" && !(_id in path("drafts.**"))]
+  *[_type in ["album","game","book","merch"] && status == "wishlist" && !(_id in path("drafts.**"))]
     | order(_type asc, title asc) {
     _id, _type, title, catalogNumber, barcode, isbn, year, image, externalImageUrl,
     "creator": select(
       _type == "album" => coalesce(composer, artist),
       _type == "game"  => developer,
       _type == "book"  => author,
-      _type == "figure"=> series
+      _type == "merch"=> series
     )
   }
 `)
@@ -30,7 +30,7 @@ const items = await sanity.fetch(`
       <option value="album">Albums</option>
       <option value="game">Games</option>
       <option value="book">Books</option>
-      <option value="figure">Figures</option>
+      <option value="merch">merchandise</option>
     </select>
   </div>
 
@@ -42,7 +42,7 @@ const items = await sanity.fetch(`
       if (i._type === 'album') { lookupUrl = `https://vgmdb.net/search?q=${q}`; lookupLabel = 'VGMdb' }
       else if (i._type === 'book') { lookupUrl = `https://openlibrary.org/search?q=${q}`; lookupLabel = 'Open Library' }
       else if (i._type === 'game') { lookupUrl = `https://www.mobygames.com/search/?q=${q}`; lookupLabel = 'MobyGames' }
-      else { lookupUrl = `https://myfigurecollection.net/?_tb=item&keywords=${q}`; lookupLabel = 'MFC' }
+      else { lookupUrl = `https://mymerchcollection.net/?_tb=item&keywords=${q}`; lookupLabel = 'MFC' }
       const ref = i.catalogNumber || i.barcode || i.isbn || ''
       return (
         <div class="wish-row-wrap"

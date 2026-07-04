@@ -23,7 +23,6 @@ const recentlyAdded = await sanity.fetch(`
   }
 `)
 
-// Map an item's _type to its URL path (figure lives under /merchandise/).
 function itemPath(type: string, id: string): string {
   const seg = type === 'figure' ? 'merchandise'
     : type === 'album' ? 'albums'
@@ -33,7 +32,10 @@ function itemPath(type: string, id: string): string {
   return `/${seg}/${id}`
 }
 
-// "NY" hvis kjøpt siste 30 dager
+const TYPE_LABEL: Record<string, string> = {
+  album: 'ALBUM', game: 'GAME', figure: 'MERCH', book: 'BOOK',
+}
+
 const now = Date.now()
 function isNew(acquiredDate: string | undefined): boolean {
   if (!acquiredDate) return false
@@ -44,35 +46,49 @@ function isNew(acquiredDate: string | undefined): boolean {
 }
 ---
 <Base title="Dashboard">
-  <div class="page-header">
-    <h1>My Collection</h1>
+  <div class="hud-header">
+    <div class="hud-title">
+      <span class="hud-slashes">//</span> COLLECTION REGISTRY
+    </div>
+    <div class="hud-sub">&gt; SYSTEM ONLINE · {albumCount + gameCount + merchCount + bookCount} UNITS CATALOGUED</div>
   </div>
 
   <div class="stats-grid">
-    <a href="/albums" class="stat-card">
+    <a href="/albums" class="stat-card hud">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{albumCount}</div>
-      <div class="label">🎵 Albums</div>
+      <div class="label">🎵 ALBUMS</div>
     </a>
-    <a href="/games" class="stat-card">
+    <a href="/games" class="stat-card hud">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{gameCount}</div>
-      <div class="label">🎮 Games</div>
+      <div class="label">🎮 GAMES</div>
     </a>
-    <a href="/merchandise" class="stat-card">
+    <a href="/merchandise" class="stat-card hud">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{merchCount}</div>
-      <div class="label">🧸 Merchandise</div>
+      <div class="label">🧸 MERCHANDISE</div>
     </a>
-    <a href="/books" class="stat-card">
+    <a href="/books" class="stat-card hud">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{bookCount}</div>
-      <div class="label">📚 Books</div>
+      <div class="label">📚 BOOKS</div>
     </a>
-    <div class="stat-card">
+    <div class="stat-card hud total">
+      <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+      <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{albumCount + gameCount + merchCount + bookCount}</div>
-      <div class="label">Total items</div>
+      <div class="label">TOTAL UNITS</div>
     </div>
   </div>
 
-  <div class="page-header">
-    <h2 style="font-size:1rem;font-weight:600">Recently added</h2>
+  <div class="hud-section-head">
+    <span class="hud-slashes">//</span> RECENTLY CATALOGUED
+    <span class="hud-count">DISPLAYING {recentlyAdded.length} ENTRIES</span>
   </div>
 
   <div class="recent-list">
@@ -82,21 +98,25 @@ function isNew(acquiredDate: string | undefined): boolean {
           <img class="recent-thumb" src={item.externalImageUrl} alt={item.title} loading="lazy" />
         ) : item.image ? (
           <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
+        ) : item._type === 'figure' ? (
+          <img class="recent-thumb placeholder" src="/placeholder-figure.svg" alt="Figure placeholder" loading="lazy" />
         ) : (
           <div class="recent-thumb placeholder">
             {item._type === 'album' && '🎵'}
             {item._type === 'game' && '🎮'}
-            {item._type === 'figure' && '🧸'}
             {item._type === 'book' && '📚'}
           </div>
         )}
 
         <div class="recent-info">
           <div class="card-title">{item.title}</div>
-          {item.sub && <div class="card-sub">{Array.isArray(item.sub) ? item.sub.join(', ') : item.sub}</div>}
+          <div class="card-sub-line">
+            <span class="type-tag">{TYPE_LABEL[item._type] || item._type}</span>
+            {item.sub && <span class="card-sub">{Array.isArray(item.sub) ? item.sub.join(', ') : item.sub}</span>}
+          </div>
           <div class="card-meta">
-            {isNew(item.acquiredDate) && <span class="tag new-tag">NY</span>}
-            {item.acquiredDate && <span class="tag">Kjøpt {item.acquiredDate}</span>}
+            {isNew(item.acquiredDate) && <span class="tag new-tag">NEW</span>}
+            {item.acquiredDate && <span class="tag">ACQ {item.acquiredDate}</span>}
             {item.catalogNumber && <span class="tag">{item.catalogNumber}</span>}
             {item.rating && <span class="rating">{item.rating}/10</span>}
             {item.status && <span class={`status-dot ${item.status}`}></span>}
@@ -107,49 +127,158 @@ function isNew(acquiredDate: string | undefined): boolean {
   </div>
 
   <style>
-    .recent-list {
-      display: flex;
-      flex-direction: column;
-      border-top: 1px solid var(--border);
+    /* ===== HUD header ===== */
+    .hud-header { margin-bottom: 2rem; }
+    .hud-title {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: var(--text);
+      text-shadow: 0 0 12px rgba(176,30,52,0.5);
+    }
+    .hud-slashes { color: var(--accent-2); }
+    .hud-sub {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+      margin-top: 0.35rem;
+      opacity: 0.85;
     }
 
+    /* ===== Stat cards with HUD glow + corner brackets ===== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      background: transparent;
+      margin-bottom: 2.5rem;
+    }
+    .stat-card.hud {
+      position: relative;
+      background: linear-gradient(160deg, #1a0c12 0%, #12080d 100%);
+      border: 1px solid rgba(176,30,52,0.35);
+      border-radius: 4px;
+      padding: 1.5rem;
+      box-shadow: 0 0 0 1px rgba(176,30,52,0.05), 0 0 18px rgba(120,16,26,0.25) inset;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+      text-decoration: none;
+      color: inherit;
+      overflow: visible;
+    }
+    a.stat-card.hud:hover {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 20px rgba(176,30,52,0.45), 0 0 18px rgba(120,16,26,0.3) inset;
+      transform: translateY(-2px);
+    }
+    .stat-card.hud.total {
+      background: linear-gradient(160deg, #241016 0%, #17090e 100%);
+      border-color: rgba(244,162,76,0.4);
+    }
+    .stat-card.hud .num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 2.5rem;
+      font-weight: 600;
+      color: var(--accent);
+      line-height: 1;
+      text-shadow: 0 0 14px rgba(244,162,76,0.4);
+    }
+    .stat-card.hud .label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 0.4rem;
+      letter-spacing: 0.12em;
+    }
+
+    /* Corner brackets */
+    .hud-corner {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-color: var(--accent-2);
+      border-style: solid;
+      border-width: 0;
+      opacity: 0.8;
+    }
+    .hud-corner.tl { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+    .hud-corner.tr { top: -1px; right: -1px; border-top-width: 2px; border-right-width: 2px; }
+    .hud-corner.bl { bottom: -1px; left: -1px; border-bottom-width: 2px; border-left-width: 2px; }
+    .hud-corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
+    .stat-card.hud.total .hud-corner { border-color: var(--accent); }
+
+    /* ===== Section head ===== */
+    .hud-section-head {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.9rem;
+      letter-spacing: 0.1em;
+      color: var(--text);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(176,30,52,0.3);
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    .hud-count {
+      margin-left: auto;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    /* ===== Recent list ===== */
+    .recent-list { display: flex; flex-direction: column; gap: 0.5rem; }
     .recent-row {
       display: flex;
       gap: 1rem;
-      padding: 0.75rem 0;
-      border-bottom: 1px solid var(--border);
+      padding: 0.75rem;
+      border: 1px solid rgba(176,30,52,0.18);
+      border-radius: 4px;
+      background: rgba(26,12,18,0.4);
       text-decoration: none;
       color: inherit;
       align-items: center;
+      transition: border-color 0.15s, background 0.15s;
     }
-
     .recent-row:hover {
-      background: rgba(255,255,255,0.03);
+      border-color: rgba(176,30,52,0.5);
+      background: rgba(36,16,22,0.6);
     }
-
     .recent-thumb {
       width: 56px;
       height: 56px;
       object-fit: cover;
       background: var(--border);
       flex-shrink: 0;
+      border-radius: 3px;
     }
-
     .recent-thumb.placeholder {
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 1.5rem;
     }
-
-    .recent-info {
-      min-width: 0;
+    .recent-info { min-width: 0; flex: 1; }
+    .card-sub-line { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .type-tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      border: 1px solid rgba(244,162,76,0.4);
+      padding: 1px 5px;
+      border-radius: 2px;
     }
-
+    .recent-row .card-meta { margin-top: 0.35rem; }
     .recent-row .card-meta .new-tag {
       background: #2ecc71 !important;
       color: #06281a !important;
       font-weight: 700;
+    }
+    .recent-row .tag {
+      font-family: 'IBM Plex Mono', monospace;
     }
   </style>
 </Base>

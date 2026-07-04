@@ -33,7 +33,7 @@ if (!f) return Astro.redirect('/merchandise')
       ? <img class="detail-photo" src={urlFor(f.image).width(900).url()} alt={f.title} />
       : f.externalImageUrl
       ? <img class="detail-photo" src={f.externalImageUrl} alt={f.title} />
-      : <div class="detail-photo-placeholder">🧸</div>
+      : <img class="detail-photo-placeholder" src="/placeholder-figure.svg" alt="Figure placeholder" />
     }
 
     <div class="upload-row">

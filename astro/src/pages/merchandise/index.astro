@@ -81,7 +81,7 @@ function isNew(acquiredDate: string | undefined): boolean {
             ? <img class="merch-thumb" src={urlFor(f.image).height(120).url()} alt={f.title} loading="lazy" />
             : f.externalImageUrl
             ? <img class="merch-thumb" src={f.externalImageUrl} alt={f.title} loading="lazy" />
-            : <div class="merch-thumb placeholder">🧸</div>
+            : <img class="merch-thumb placeholder" src="/placeholder-figure.svg" alt="Merchandise placeholder" loading="lazy" />
           }
           <div class="merch-info">
             <div class="card-title">{f.title}</div>

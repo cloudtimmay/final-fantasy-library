@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" role="img" aria-labelledby="title desc">
+  <title>Placeholder figure</title>
+  <desc>Stylized merchandise placeholder graphic.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd966" />
+      <stop offset="100%" stop-color="#f4b183" />
+    </linearGradient>
+  </defs>
+  <rect width="120" height="160" rx="16" fill="url(#bg)" />
+  <ellipse cx="60" cy="40" rx="28" ry="18" fill="#fff" opacity="0.8" />
+  <ellipse cx="60" cy="42" rx="20" ry="12" fill="#ffd966" />
+  <path d="M40 60 C40 80, 80 80, 80 60" fill="#fff" opacity="0.8" />
+  <path d="M44 60 Q60 82, 76 60" fill="#fff" />
+  <path d="M52 72 C52 90, 44 116, 60 124 C76 116, 68 90, 68 72" fill="#fff" />
+  <circle cx="48" cy="36" r="4" fill="#000" />
+  <circle cx="72" cy="36" r="4" fill="#000" />
+  <path d="M52 46 Q60 52, 68 46" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round" />
+  <path d="M36 56 C24 58, 18 80, 34 96 L44 92" fill="#f1c40f" opacity="0.9" />
+  <path d="M84 56 C96 58, 102 80, 86 96 L76 92" fill="#f1c40f" opacity="0.9" />
+  <path d="M42 108 C38 116, 44 130, 54 132 C64 130, 68 116, 64 108" fill="#fff" opacity="0.9" />
+</svg>

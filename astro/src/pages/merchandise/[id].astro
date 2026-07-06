@@ -38,8 +38,12 @@ if (!f) return Astro.redirect('/merchandise')
 
     <div class="upload-row">
       <label class="upload-btn">
-        📷 Upload / replace photo (camera or gallery)
-        <input id="img-input" type="file" accept="image/*" hidden />
+        📷 Take photo
+        <input id="img-camera" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="upload-btn">
+        🖼️ Choose from gallery
+        <input id="img-gallery" type="file" accept="image/*" hidden />
       </label>
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>
@@ -67,61 +71,63 @@ if (!f) return Astro.redirect('/merchandise')
   </div>
 
   <script>
-    const input = document.querySelector('#img-input')
+    const camera = document.querySelector('#img-camera')
+    const gallery = document.querySelector('#img-gallery')
     const uploadMsg = document.querySelector('#upload-msg')
     const photo = document.querySelector('.detail-photo, .detail-photo-placeholder')
 
-    if (input) {
-      input.addEventListener('change', async () => {
-        const file = input.files && input.files[0]
-        if (!file) return
+    async function handleUpload(fileInput) {
+      const file = fileInput.files && fileInput.files[0]
+      if (!file) return
 
-        uploadMsg.hidden = false
-        uploadMsg.style.color = 'var(--muted)'
-        uploadMsg.textContent = 'Uploading…'
+      uploadMsg.hidden = false
+      uploadMsg.style.color = 'var(--muted)'
+      uploadMsg.textContent = 'Uploading…'
 
-        const form = new FormData()
-        form.append('file', file)
-        form.append('docId', window.location.pathname.split('/').pop())
-        form.append('field', 'image')
+      const form = new FormData()
+      form.append('file', file)
+      form.append('docId', window.location.pathname.split('/').pop())
+      form.append('field', 'image')
 
-        try {
-          const res = await fetch('/api/upload-image', { method: 'POST', body: form })
-          const data = await res.json()
-          if (!res.ok) {
-            uploadMsg.style.color = '#e74c3c'
-            uploadMsg.textContent = data.error || 'Upload failed.'
-            return
-          }
-          uploadMsg.style.color = '#2ecc71'
-          uploadMsg.textContent = 'Uploaded ✓'
-          if (photo && data.url) {
-            const fresh = data.url + '?t=' + Date.now()
-            if (photo.tagName === 'IMG') {
-              photo.src = fresh
-            } else {
-              const img = document.createElement('img')
-              img.className = 'detail-photo'
-              img.src = fresh
-              img.alt = document.querySelector('h1')?.textContent || ''
-              photo.replaceWith(img)
-            }
-          }
-        } catch {
+      try {
+        const res = await fetch('/api/upload-image', { method: 'POST', body: form })
+        const data = await res.json()
+        if (!res.ok) {
           uploadMsg.style.color = '#e74c3c'
-          uploadMsg.textContent = 'Network error.'
+          uploadMsg.textContent = data.error || 'Upload failed.'
+          return
         }
-      })
+        uploadMsg.style.color = '#2ecc71'
+        uploadMsg.textContent = 'Uploaded ✓'
+        if (photo && data.url) {
+          const fresh = data.url + '?t=' + Date.now()
+          if (photo.tagName === 'IMG') {
+            photo.src = fresh
+          } else {
+            const img = document.createElement('img')
+            img.className = 'detail-photo'
+            img.src = fresh
+            img.alt = document.querySelector('h1')?.textContent || ''
+            photo.replaceWith(img)
+          }
+        }
+      } catch {
+        uploadMsg.style.color = '#e74c3c'
+        uploadMsg.textContent = 'Network error.'
+      }
     }
+
+    if (camera) camera.addEventListener('change', () => handleUpload(camera))
+    if (gallery) gallery.addEventListener('change', () => handleUpload(gallery))
   </script>
 
   <style>
     .detail-photo { max-width: 280px; width: 100%; border-radius: 6px; margin: 1rem 0; display: block; }
     .detail-photo-placeholder { width: 200px; height: 280px; border-radius: 6px; margin: 1rem 0; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 3rem; }
     .needsinfo-banner { background: var(--surface); border: 1px solid var(--accent); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
-    .upload-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .upload-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
-    .upload-msg { font-size: 0.85rem; }
+    .upload-msg { font-size: 0.85rem; width: 100%; }
   </style>
 </Base>

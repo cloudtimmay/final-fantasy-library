@@ -64,8 +64,12 @@ const multiDisc = discNumbers.length > 1
 
     <div class="upload-row">
       <label class="upload-btn">
-        📷 Upload / replace photo
-        <input id="img-input" type="file" accept="image/*" capture="environment" hidden />
+        📷 Take photo
+        <input id="img-camera" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="upload-btn">
+        🖼️ Choose from gallery
+        <input id="img-gallery" type="file" accept="image/*" hidden />
       </label>
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>
@@ -139,10 +143,10 @@ const multiDisc = discNumbers.length > 1
 
   <style>
     .detail-photo.placeholder { display: flex; align-items: center; justify-content: center; font-size: 4rem; height: 280px; background: var(--surface); }
-    .upload-row { display: flex; align-items: center; gap: 0.75rem; margin: 1rem 0 1.5rem; flex-wrap: wrap; }
+    .upload-row { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0 1.5rem; flex-wrap: wrap; }
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
-    .upload-msg { font-size: 0.85rem; }
+    .upload-msg { font-size: 0.85rem; width: 100%; }
 
     .tracklist { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
     .tracklist h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 0.75rem; }
@@ -208,52 +212,54 @@ const multiDisc = discNumbers.length > 1
       player.hidden = true
     })
 
-    // --- Image upload ---
-    const imgInput = document.querySelector('#img-input')
+    // --- Image upload (camera or gallery) ---
+    const camera = document.querySelector('#img-camera')
+    const gallery = document.querySelector('#img-gallery')
     const uploadMsg = document.querySelector('#upload-msg')
     const detailPhoto = document.querySelector('.detail-photo')
 
-    if (imgInput) {
-      imgInput.addEventListener('change', async () => {
-        const file = imgInput.files && imgInput.files[0]
-        if (!file) return
+    async function handleUpload(fileInput) {
+      const file = fileInput.files && fileInput.files[0]
+      if (!file) return
 
-        uploadMsg.hidden = false
-        uploadMsg.style.color = 'var(--muted)'
-        uploadMsg.textContent = 'Uploading…'
+      uploadMsg.hidden = false
+      uploadMsg.style.color = 'var(--muted)'
+      uploadMsg.textContent = 'Uploading…'
 
-        const form = new FormData()
-        form.append('file', file)
-        form.append('docId', window.location.pathname.split('/').pop())
-        form.append('field', 'image')
+      const form = new FormData()
+      form.append('file', file)
+      form.append('docId', window.location.pathname.split('/').pop())
+      form.append('field', 'image')
 
-        try {
-          const res = await fetch('/api/upload-image', { method: 'POST', body: form })
-          const data = await res.json()
-          if (!res.ok) {
-            uploadMsg.style.color = '#e74c3c'
-            uploadMsg.textContent = data.error || 'Upload failed.'
-            return
-          }
-          uploadMsg.style.color = '#2ecc71'
-          uploadMsg.textContent = 'Uploaded ✓'
-          if (detailPhoto && data.url) {
-            const fresh = data.url + '?t=' + Date.now()
-            if (detailPhoto.tagName === 'IMG') {
-              detailPhoto.src = fresh
-            } else {
-              const img = document.createElement('img')
-              img.className = 'detail-photo'
-              img.src = fresh
-              img.alt = document.querySelector('h1')?.textContent || ''
-              detailPhoto.replaceWith(img)
-            }
-          }
-        } catch {
+      try {
+        const res = await fetch('/api/upload-image', { method: 'POST', body: form })
+        const data = await res.json()
+        if (!res.ok) {
           uploadMsg.style.color = '#e74c3c'
-          uploadMsg.textContent = 'Network error.'
+          uploadMsg.textContent = data.error || 'Upload failed.'
+          return
         }
-      })
+        uploadMsg.style.color = '#2ecc71'
+        uploadMsg.textContent = 'Uploaded ✓'
+        if (detailPhoto && data.url) {
+          const fresh = data.url + '?t=' + Date.now()
+          if (detailPhoto.tagName === 'IMG') {
+            detailPhoto.src = fresh
+          } else {
+            const img = document.createElement('img')
+            img.className = 'detail-photo'
+            img.src = fresh
+            img.alt = document.querySelector('h1')?.textContent || ''
+            detailPhoto.replaceWith(img)
+          }
+        }
+      } catch {
+        uploadMsg.style.color = '#e74c3c'
+        uploadMsg.textContent = 'Network error.'
+      }
     }
+
+    if (camera) camera.addEventListener('change', () => handleUpload(camera))
+    if (gallery) gallery.addEventListener('change', () => handleUpload(gallery))
   </script>
 </Base>

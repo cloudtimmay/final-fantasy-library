@@ -2,8 +2,6 @@
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../lib/sanity'
 
-// Fetch everything needed for offline search. Runs server-side when the page
-// is loaded with a connection; the client then caches it into localStorage.
 const items = await sanity.fetch(`
   *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**"))]
     | order(title asc) {
@@ -33,7 +31,7 @@ const generatedAt = new Date().toISOString()
 
   <p class="hint">
     Load your collection into this device while you have a connection. Then you can search
-    it later without internet — perfect for checking “do I already own this?” in a shop.
+    and scan barcodes later without internet — for checking “do I already own this?” in a shop.
   </p>
 
   <div class="offline-status" id="status-box">
@@ -43,6 +41,10 @@ const generatedAt = new Date().toISOString()
     </div>
     <button id="refresh-btn" class="refresh-btn">↻ Update offline copy now</button>
   </div>
+
+  <button id="scan-toggle" class="scan-cam-btn" type="button">📷 Scan barcode (offline)</button>
+  <div id="scan-reader" class="scan-reader" hidden></div>
+  <p id="scan-msg" class="scan-msg" hidden></p>
 
   <div class="offline-tools">
     <input id="offline-search" type="search" placeholder="Search offline (title, series, barcode, catalog…)" autocomplete="off" />
@@ -60,11 +62,15 @@ const generatedAt = new Date().toISOString()
     </select>
   </div>
 
+  <div id="dup-banner" class="dup-banner" hidden></div>
+
   <div id="offline-results" class="offline-results"></div>
   <p id="offline-empty" class="offline-empty" hidden>No matches in your offline copy.</p>
 
-  <!-- Fresh data from the server, embedded so the client can cache it on load. -->
   <script type="application/json" id="fresh-data" set:html={JSON.stringify({ items, generatedAt })}></script>
+
+  <!-- Local scanner library so scanning works without a connection. -->
+  <script is:inline src="/html5-qrcode.min.js"></script>
 
   <script>
     const CACHE_KEY = 'ff-offline-collection-v1'
@@ -77,11 +83,15 @@ const generatedAt = new Date().toISOString()
     const resultsBox = document.querySelector('#offline-results')
     const emptyMsg = document.querySelector('#offline-empty')
     const countEl = document.querySelector('#offline-count')
+    const dupBanner = document.querySelector('#dup-banner')
+
+    const scanToggle = document.querySelector('#scan-toggle')
+    const scanReader = document.querySelector('#scan-reader')
+    const scanMsg = document.querySelector('#scan-msg')
 
     const TYPE_LABEL = { album: 'ALBUM', game: 'GAME', book: 'BOOK', figure: 'MERCH' }
     const TYPE_PATH = { album: 'albums', game: 'games', book: 'books', figure: 'merchandise' }
 
-    // Try to read fresh server data embedded on this page (present when online).
     let freshData = null
     try {
       const raw = document.querySelector('#fresh-data')?.textContent
@@ -89,23 +99,11 @@ const generatedAt = new Date().toISOString()
     } catch {}
 
     function saveCache(data) {
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(data))
-        return true
-      } catch {
-        return false
-      }
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); return true } catch { return false }
     }
-
     function loadCache() {
-      try {
-        const raw = localStorage.getItem(CACHE_KEY)
-        return raw ? JSON.parse(raw) : null
-      } catch {
-        return null
-      }
+      try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null } catch { return null }
     }
-
     function fmtDate(iso) {
       if (!iso) return 'unknown'
       const d = new Date(iso)
@@ -113,8 +111,6 @@ const generatedAt = new Date().toISOString()
       return d.toLocaleString()
     }
 
-    // Decide which data to use: prefer the just-loaded fresh data (online),
-    // and cache it. Fall back to whatever was cached before (offline).
     let active = null
 
     if (freshData && freshData.items) {
@@ -136,11 +132,33 @@ const generatedAt = new Date().toISOString()
 
     if (active && countEl) countEl.textContent = `${active.items.length} ENTRIES`
 
-    // Manual refresh: reload the page to re-fetch fresh server data.
     refreshBtn.addEventListener('click', () => {
       cacheStatus.textContent = 'refreshing…'
       window.location.reload()
     })
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+    }
+
+    // Show a prominent banner when a scanned barcode is already owned.
+    function checkDuplicateLocal(code) {
+      dupBanner.hidden = true
+      dupBanner.innerHTML = ''
+      if (!active || !active.items || !code) return
+      const c = code.trim()
+      const match = active.items.find((it) => (it.barcode || '') === c)
+      if (match) {
+        dupBanner.hidden = false
+        const owned = match.status === 'owned'
+        dupBanner.className = 'dup-banner ' + (owned ? 'owned' : 'other')
+        dupBanner.innerHTML = owned
+          ? `⚠️ <strong>Already owned:</strong> “${escapeHtml(match.title)}”.`
+          : `ℹ️ <strong>In your list:</strong> “${escapeHtml(match.title)}” (${escapeHtml(match.status || match._type)}).`
+      }
+    }
 
     function render() {
       if (!active || !active.items) {
@@ -195,16 +213,59 @@ const generatedAt = new Date().toISOString()
       }).join('')
     }
 
-    function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#039;')
-    }
-
-    searchInput.addEventListener('input', render)
+    searchInput.addEventListener('input', () => { dupBanner.hidden = true; render() })
     filterSel.addEventListener('change', render)
     typeSel.addEventListener('change', render)
     render()
+
+    // --- Offline barcode scanning (uses the local library) ---
+    let scanner = null
+    let running = false
+
+    async function startScan() {
+      if (typeof Html5Qrcode === 'undefined') {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Scanner not available. The local scanner file may be missing.'
+        return
+      }
+      scanReader.hidden = false
+      scanMsg.hidden = true
+      scanner = new Html5Qrcode('scan-reader')
+      try {
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          (decodedText) => {
+            const code = decodedText.replace(/[^0-9Xx]/g, '')
+            searchInput.value = code
+            stopScan()
+            render()
+            checkDuplicateLocal(code)
+          },
+          () => {}
+        )
+        running = true
+        scanToggle.textContent = '✕ Close scanner'
+      } catch (err) {
+        scanMsg.hidden = false
+        scanMsg.textContent = 'Could not access camera. Allow camera and try again.'
+        scanReader.hidden = true
+      }
+    }
+
+    async function stopScan() {
+      if (scanner && running) {
+        try { await scanner.stop() } catch (e) {}
+        running = false
+      }
+      scanReader.hidden = true
+      scanToggle.textContent = '📷 Scan barcode (offline)'
+    }
+
+    scanToggle.addEventListener('click', () => {
+      if (running) stopScan()
+      else startScan()
+    })
   </script>
 
   <style>
@@ -238,7 +299,7 @@ const generatedAt = new Date().toISOString()
       border: 1px solid rgba(176,30,52,0.25);
       border-radius: 8px;
       padding: 1rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -254,13 +315,27 @@ const generatedAt = new Date().toISOString()
     }
     .refresh-btn:hover { box-shadow: 0 0 12px rgba(244,162,76,0.35); }
 
-    .offline-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .scan-cam-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-bottom: 1rem;
+    }
+    .scan-reader { width: 100%; max-width: 400px; margin: 0 auto 1rem; border-radius: 8px; overflow: hidden; }
+    .scan-msg { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem; }
+
+    .offline-tools { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
     .offline-tools input, .offline-tools select {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
       padding: 0.7rem 0.75rem; border-radius: 6px; font-size: 1rem;
     }
     .offline-tools input { flex: 1; min-width: 200px; }
     .offline-tools input:focus, .offline-tools select:focus { outline: none; border-color: var(--accent); }
+
+    .dup-banner {
+      padding: 0.85rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.95rem;
+    }
+    .dup-banner.owned { background: #4a0f1c; border: 1px solid #e74c3c; color: #ffd9d9; }
+    .dup-banner.other { background: rgba(26,12,18,0.6); border: 1px solid var(--accent); color: var(--text); }
+    .dup-banner strong { color: #fff; }
 
     .offline-results { display: flex; flex-direction: column; gap: 0.5rem; }
     .ob-row {

@@ -36,8 +36,12 @@ const generatedAt = new Date().toISOString()
 
   <div class="offline-status" id="status-box">
     <div class="status-line">
-      <span class="status-label">Cached copy:</span>
+      <span class="status-label">Data copy:</span>
       <span id="cache-status">checking…</span>
+    </div>
+    <div class="status-line">
+      <span class="status-label">Offline page:</span>
+      <span id="sw-status">checking…</span>
     </div>
     <button id="refresh-btn" class="refresh-btn">↻ Update offline copy now</button>
   </div>
@@ -69,13 +73,13 @@ const generatedAt = new Date().toISOString()
 
   <script type="application/json" id="fresh-data" set:html={JSON.stringify({ items, generatedAt })}></script>
 
-  <!-- Local scanner library so scanning works without a connection. -->
   <script is:inline src="/html5-qrcode.min.js"></script>
 
   <script>
     const CACHE_KEY = 'ff-offline-collection-v1'
 
     const cacheStatus = document.querySelector('#cache-status')
+    const swStatus = document.querySelector('#sw-status')
     const refreshBtn = document.querySelector('#refresh-btn')
     const searchInput = document.querySelector('#offline-search')
     const filterSel = document.querySelector('#offline-filter')
@@ -91,6 +95,27 @@ const generatedAt = new Date().toISOString()
 
     const TYPE_LABEL = { album: 'ALBUM', game: 'GAME', book: 'BOOK', figure: 'MERCH' }
     const TYPE_PATH = { album: 'albums', game: 'games', book: 'books', figure: 'merchandise' }
+
+    // --- Register the service worker so the page itself works offline ---
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          swStatus.textContent = 'cached — will load offline'
+          swStatus.style.color = '#2ecc71'
+          // If there's an update waiting, note it.
+          reg.addEventListener('updatefound', () => {
+            swStatus.textContent = 'updating cache…'
+            swStatus.style.color = 'var(--accent)'
+          })
+        })
+        .catch(() => {
+          swStatus.textContent = 'could not cache page — offline may not work'
+          swStatus.style.color = '#e74c3c'
+        })
+    } else {
+      swStatus.textContent = 'not supported in this browser'
+      swStatus.style.color = '#e74c3c'
+    }
 
     let freshData = null
     try {
@@ -143,7 +168,6 @@ const generatedAt = new Date().toISOString()
         .replace(/"/g, '&quot;').replace(/'/g, '&#039;')
     }
 
-    // Show a prominent banner when a scanned barcode is already owned.
     function checkDuplicateLocal(code) {
       dupBanner.hidden = true
       dupBanner.innerHTML = ''
@@ -218,7 +242,7 @@ const generatedAt = new Date().toISOString()
     typeSel.addEventListener('change', render)
     render()
 
-    // --- Offline barcode scanning (uses the local library) ---
+    // --- Offline barcode scanning ---
     let scanner = null
     let running = false
 
@@ -302,14 +326,14 @@ const generatedAt = new Date().toISOString()
       margin-bottom: 1.25rem;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
+      gap: 1.5rem;
       flex-wrap: wrap;
     }
     .status-line { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
     .status-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.08em; }
-    #cache-status { font-size: 0.9rem; }
+    #cache-status, #sw-status { font-size: 0.9rem; }
     .refresh-btn {
+      margin-left: auto;
       background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
     }

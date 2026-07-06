@@ -1,0 +1,289 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity, SHARED_FIELDS } from '../lib/sanity'
+
+// Fetch everything needed for offline search. Runs server-side when the page
+// is loaded with a connection; the client then caches it into localStorage.
+const items = await sanity.fetch(`
+  *[_type in ["album","game","book","figure"] && !(_id in path("drafts.**"))]
+    | order(title asc) {
+    _id, _type, title, status, barcode, series, acquiredDate,
+    "sub": select(
+      _type == "album" => coalesce(composer, artist),
+      _type == "game"  => platform,
+      _type == "book"  => author,
+      _type == "figure"=> series
+    ),
+    "catalog": select(
+      _type == "album" => catalogNumber,
+      _type == "book"  => isbn,
+      _type == "game"  => barcode,
+      _type == "figure"=> barcode
+    )
+  }
+`)
+
+const generatedAt = new Date().toISOString()
+---
+<Base title="Offline">
+  <div class="hud-section-head">
+    <span class="hud-slashes">//</span> OFFLINE MODE
+    <span class="hud-count" id="offline-count">{items.length} ENTRIES</span>
+  </div>
+
+  <p class="hint">
+    Load your collection into this device while you have a connection. Then you can search
+    it later without internet — perfect for checking “do I already own this?” in a shop.
+  </p>
+
+  <div class="offline-status" id="status-box">
+    <div class="status-line">
+      <span class="status-label">Cached copy:</span>
+      <span id="cache-status">checking…</span>
+    </div>
+    <button id="refresh-btn" class="refresh-btn">↻ Update offline copy now</button>
+  </div>
+
+  <div class="offline-tools">
+    <input id="offline-search" type="search" placeholder="Search offline (title, series, barcode, catalog…)" autocomplete="off" />
+    <select id="offline-filter">
+      <option value="">All statuses</option>
+      <option value="owned">Owned</option>
+      <option value="wishlist">Wishlist</option>
+    </select>
+    <select id="offline-type">
+      <option value="">All types</option>
+      <option value="album">Albums</option>
+      <option value="game">Games</option>
+      <option value="book">Books</option>
+      <option value="figure">Merchandise</option>
+    </select>
+  </div>
+
+  <div id="offline-results" class="offline-results"></div>
+  <p id="offline-empty" class="offline-empty" hidden>No matches in your offline copy.</p>
+
+  <!-- Fresh data from the server, embedded so the client can cache it on load. -->
+  <script type="application/json" id="fresh-data" set:html={JSON.stringify({ items, generatedAt })}></script>
+
+  <script>
+    const CACHE_KEY = 'ff-offline-collection-v1'
+
+    const cacheStatus = document.querySelector('#cache-status')
+    const refreshBtn = document.querySelector('#refresh-btn')
+    const searchInput = document.querySelector('#offline-search')
+    const filterSel = document.querySelector('#offline-filter')
+    const typeSel = document.querySelector('#offline-type')
+    const resultsBox = document.querySelector('#offline-results')
+    const emptyMsg = document.querySelector('#offline-empty')
+    const countEl = document.querySelector('#offline-count')
+
+    const TYPE_LABEL = { album: 'ALBUM', game: 'GAME', book: 'BOOK', figure: 'MERCH' }
+    const TYPE_PATH = { album: 'albums', game: 'games', book: 'books', figure: 'merchandise' }
+
+    // Try to read fresh server data embedded on this page (present when online).
+    let freshData = null
+    try {
+      const raw = document.querySelector('#fresh-data')?.textContent
+      if (raw) freshData = JSON.parse(raw)
+    } catch {}
+
+    function saveCache(data) {
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data))
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function loadCache() {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY)
+        return raw ? JSON.parse(raw) : null
+      } catch {
+        return null
+      }
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return 'unknown'
+      const d = new Date(iso)
+      if (isNaN(d.getTime())) return 'unknown'
+      return d.toLocaleString()
+    }
+
+    // Decide which data to use: prefer the just-loaded fresh data (online),
+    // and cache it. Fall back to whatever was cached before (offline).
+    let active = null
+
+    if (freshData && freshData.items) {
+      saveCache(freshData)
+      active = freshData
+      cacheStatus.textContent = `updated just now (${freshData.items.length} items)`
+      cacheStatus.style.color = '#2ecc71'
+    } else {
+      const cached = loadCache()
+      if (cached && cached.items) {
+        active = cached
+        cacheStatus.textContent = `from ${fmtDate(cached.generatedAt)} (${cached.items.length} items) — offline`
+        cacheStatus.style.color = 'var(--accent)'
+      } else {
+        cacheStatus.textContent = 'none yet — connect and load this page once'
+        cacheStatus.style.color = '#e74c3c'
+      }
+    }
+
+    if (active && countEl) countEl.textContent = `${active.items.length} ENTRIES`
+
+    // Manual refresh: reload the page to re-fetch fresh server data.
+    refreshBtn.addEventListener('click', () => {
+      cacheStatus.textContent = 'refreshing…'
+      window.location.reload()
+    })
+
+    function render() {
+      if (!active || !active.items) {
+        resultsBox.innerHTML = ''
+        emptyMsg.hidden = false
+        emptyMsg.textContent = 'No offline copy yet. Connect to the internet and open this page once.'
+        return
+      }
+
+      const q = searchInput.value.trim().toLowerCase()
+      const status = filterSel.value
+      const type = typeSel.value
+
+      const matches = active.items.filter((it) => {
+        const hay = [it.title, it.sub, it.series, it.barcode, it.catalog]
+          .filter(Boolean).join(' ').toLowerCase()
+        const matchesSearch = !q || hay.includes(q)
+        const matchesStatus = !status || it.status === status
+        const matchesType = !type || it._type === type
+        return matchesSearch && matchesStatus && matchesType
+      })
+
+      if (matches.length === 0) {
+        resultsBox.innerHTML = ''
+        emptyMsg.hidden = false
+        emptyMsg.textContent = 'No matches in your offline copy.'
+        return
+      }
+      emptyMsg.hidden = true
+
+      resultsBox.innerHTML = matches.slice(0, 300).map((it) => {
+        const owned = it.status === 'owned'
+        const wish = it.status === 'wishlist'
+        const badge = owned
+          ? '<span class="ob-badge owned">OWNED</span>'
+          : wish
+          ? '<span class="ob-badge wishlist">WISHLIST</span>'
+          : ''
+        const sub = [it.sub, it.catalog].filter(Boolean).join(' · ')
+        const path = TYPE_PATH[it._type] || it._type + 's'
+        return `
+          <a class="ob-row" href="/${path}/${it._id}">
+            <div class="ob-info">
+              <div class="ob-title">${escapeHtml(it.title || 'Untitled')}</div>
+              <div class="ob-sub">
+                <span class="ob-type">${TYPE_LABEL[it._type] || it._type}</span>
+                ${sub ? escapeHtml(sub) : ''}
+              </div>
+            </div>
+            ${badge}
+          </a>`
+      }).join('')
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+    }
+
+    searchInput.addEventListener('input', render)
+    filterSel.addEventListener('change', render)
+    typeSel.addEventListener('change', render)
+    render()
+  </script>
+
+  <style>
+    .hud-section-head {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      color: var(--text);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(176,30,52,0.3);
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      text-shadow: 0 0 10px rgba(176,30,52,0.4);
+    }
+    .hud-slashes { color: var(--accent-2); }
+    .hud-count {
+      margin-left: auto;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-shadow: none;
+    }
+
+    .hint { font-size: 0.9rem; color: var(--muted); margin-bottom: 1.25rem; max-width: 560px; }
+
+    .offline-status {
+      background: rgba(26,12,18,0.5);
+      border: 1px solid rgba(176,30,52,0.25);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .status-line { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
+    .status-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.08em; }
+    #cache-status { font-size: 0.9rem; }
+    .refresh-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
+    }
+    .refresh-btn:hover { box-shadow: 0 0 12px rgba(244,162,76,0.35); }
+
+    .offline-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .offline-tools input, .offline-tools select {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.7rem 0.75rem; border-radius: 6px; font-size: 1rem;
+    }
+    .offline-tools input { flex: 1; min-width: 200px; }
+    .offline-tools input:focus, .offline-tools select:focus { outline: none; border-color: var(--accent); }
+
+    .offline-results { display: flex; flex-direction: column; gap: 0.5rem; }
+    .ob-row {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.75rem;
+      border: 1px solid rgba(176,30,52,0.18);
+      border-radius: 4px;
+      background: rgba(26,12,18,0.4);
+      text-decoration: none; color: inherit;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .ob-row:hover { border-color: rgba(176,30,52,0.5); background: rgba(36,16,22,0.6); }
+    .ob-info { flex: 1; min-width: 0; }
+    .ob-title { font-weight: 600; font-size: 14px; }
+    .ob-sub { display: flex; align-items: center; gap: 0.5rem; font-size: 12px; color: var(--muted); margin-top: 0.15rem; flex-wrap: wrap; }
+    .ob-type {
+      font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.1em;
+      color: var(--accent); border: 1px solid rgba(244,162,76,0.4);
+      padding: 1px 5px; border-radius: 2px;
+    }
+    .ob-badge { flex-shrink: 0; font-size: 0.7rem; font-weight: 700; padding: 0.3rem 0.55rem; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; }
+    .ob-badge.owned { background: #2ecc71; color: #06281a; }
+    .ob-badge.wishlist { background: var(--wishlist); color: #04263d; }
+    .offline-empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+  </style>
+</Base>

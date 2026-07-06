@@ -37,6 +37,9 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
       const mapHref = hasCoords
         ? `https://www.google.com/maps?q=${n.latitude},${n.longitude}`
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([n.shopName, n.area, n.address].filter(Boolean).join(' '))}`
+      const embedSrc = hasCoords
+        ? `https://maps.google.com/maps?q=${n.latitude},${n.longitude}&z=16&output=embed`
+        : ''
       return (
         <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''}>
           <div class="note-head">
@@ -48,6 +51,18 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
           {n.area && <div class="note-area">📍 {n.area}</div>}
           {n.note && <div class="note-body">{n.note}</div>}
           {n.address && <div class="note-address">{n.address}</div>}
+
+          {hasCoords && (
+            <div class="note-map">
+              <iframe
+                src={embedSrc}
+                loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade"
+                title={`Map of ${n.shopName}`}
+              ></iframe>
+            </div>
+          )}
+
          <div class="note-actions">
             <a class="map-btn" href={mapHref} target="_blank" rel="noopener">
               🗺️ Open in Maps{hasCoords && <span class="pinned"> · pinned</span>}
@@ -76,6 +91,21 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
     .tag.must { background: #e74c3c; color: #fff; }
     .tag.maybe { background: #f39c12; color: #2a1a04; }
     .tag.visited { background: #2ecc71; color: #06281a; }
+
+    .note-map {
+      margin: 0.5rem 0 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .note-map iframe {
+      display: block;
+      width: 100%;
+      height: 200px;
+      border: 0;
+    }
+
     .map-btn {
       display: inline-block; background: var(--bg); color: var(--text);
       border: 1px solid var(--accent); padding: 0.45rem 0.8rem; border-radius: 6px;

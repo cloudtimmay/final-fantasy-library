@@ -35,6 +35,9 @@ function itemPath(type: string, id: string): string {
 const TYPE_LABEL: Record<string, string> = {
   album: 'ALBUM', game: 'GAME', figure: 'MERCH', book: 'BOOK',
 }
+const TYPE_ICON: Record<string, string> = {
+  album: '/icons/album.png', game: '/icons/game.png', figure: '/icons/merch.png', book: '/icons/book.png',
+}
 
 const now = Date.now()
 function isNew(acquiredDate: string | undefined): boolean {
@@ -58,25 +61,25 @@ function isNew(acquiredDate: string | undefined): boolean {
       <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
       <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{albumCount}</div>
-      <div class="label">🎵 ALBUMS</div>
+      <div class="label"><img class="label-icon" src="/icons/album.png" alt="" /> ALBUMS</div>
     </a>
     <a href="/games" class="stat-card hud">
       <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
       <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{gameCount}</div>
-      <div class="label">🎮 GAMES</div>
+      <div class="label"><img class="label-icon" src="/icons/game.png" alt="" /> GAMES</div>
     </a>
     <a href="/merchandise" class="stat-card hud">
       <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
       <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{merchCount}</div>
-      <div class="label">🧸 MERCHANDISE</div>
+      <div class="label"><img class="label-icon" src="/icons/merch.png" alt="" /> MERCHANDISE</div>
     </a>
     <a href="/books" class="stat-card hud">
       <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
       <span class="hud-corner bl"></span><span class="hud-corner br"></span>
       <div class="num">{bookCount}</div>
-      <div class="label">📚 BOOKS</div>
+      <div class="label"><img class="label-icon" src="/icons/book.png" alt="" /> BOOKS</div>
     </a>
     <div class="stat-card hud total">
       <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
@@ -100,10 +103,7 @@ function isNew(acquiredDate: string | undefined): boolean {
           <img class="recent-thumb" src={urlFor(item.image).height(80).url()} alt={item.title} loading="lazy" />
         ) : (
           <div class="recent-thumb placeholder">
-            {item._type === 'album' && '🎵'}
-            {item._type === 'game' && '🎮'}
-            {item._type === 'figure' && '🧸'}
-            {item._type === 'book' && '📚'}
+            <img class="placeholder-icon" src={TYPE_ICON[item._type] || '/icons/merch.png'} alt="" />
           </div>
         )}
 
@@ -126,7 +126,6 @@ function isNew(acquiredDate: string | undefined): boolean {
   </div>
 
   <style>
-    /* ===== HUD header ===== */
     .hud-header { margin-bottom: 2rem; }
     .hud-title {
       font-family: 'IBM Plex Mono', monospace;
@@ -146,7 +145,6 @@ function isNew(acquiredDate: string | undefined): boolean {
       opacity: 0.85;
     }
 
-    /* ===== Stat cards with HUD glow + corner brackets ===== */
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -189,9 +187,12 @@ function isNew(acquiredDate: string | undefined): boolean {
       color: var(--muted);
       margin-top: 0.4rem;
       letter-spacing: 0.12em;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
     }
+    .label-icon { width: 32px; height: 32px; object-fit: contain; }
 
-    /* Corner brackets */
     .hud-corner {
       position: absolute;
       width: 10px;
@@ -207,7 +208,6 @@ function isNew(acquiredDate: string | undefined): boolean {
     .hud-corner.br { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
     .stat-card.hud.total .hud-corner { border-color: var(--accent); }
 
-    /* ===== Section head ===== */
     .hud-section-head {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 0.9rem;
@@ -227,7 +227,6 @@ function isNew(acquiredDate: string | undefined): boolean {
       letter-spacing: 0.08em;
     }
 
-    /* ===== Recent list ===== */
     .recent-list { display: flex; flex-direction: column; gap: 0.5rem; }
     .recent-row {
       display: flex;
@@ -257,8 +256,8 @@ function isNew(acquiredDate: string | undefined): boolean {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.5rem;
     }
+    .placeholder-icon { width: 48px; height: 48px; object-fit: contain; }
     .recent-info { min-width: 0; flex: 1; }
     .card-sub-line { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .type-tag {

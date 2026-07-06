@@ -34,12 +34,21 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
   <div class="notes-list">
     {notes.map((n: any) => {
       const hasCoords = typeof n.latitude === 'number' && typeof n.longitude === 'number'
+      // Build a search string from name + area + address for the address fallback.
+      const searchQuery = [n.shopName, n.address, n.area, 'Japan'].filter(Boolean).join(' ')
+      const hasQuery = !!(n.shopName || n.address)
+
       const mapHref = hasCoords
         ? `https://www.google.com/maps?q=${n.latitude},${n.longitude}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([n.shopName, n.area, n.address].filter(Boolean).join(' '))}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`
+
+      // Prefer exact coordinates; otherwise search by name/address.
       const embedSrc = hasCoords
         ? `https://maps.google.com/maps?q=${n.latitude},${n.longitude}&z=16&output=embed`
+        : hasQuery
+        ? `https://maps.google.com/maps?q=${encodeURIComponent(searchQuery)}&z=16&output=embed`
         : ''
+
       return (
         <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''}>
           <div class="note-head">
@@ -52,7 +61,7 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
           {n.note && <div class="note-body">{n.note}</div>}
           {n.address && <div class="note-address">{n.address}</div>}
 
-          {hasCoords && (
+          {embedSrc && (
             <div class="note-map">
               <iframe
                 src={embedSrc}
@@ -60,6 +69,7 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
                 referrerpolicy="no-referrer-when-downgrade"
                 title={`Map of ${n.shopName}`}
               ></iframe>
+              {!hasCoords && <div class="map-approx">Approximate — from address</div>}
             </div>
           )}
 
@@ -104,6 +114,14 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
       width: 100%;
       height: 200px;
       border: 0;
+    }
+    .map-approx {
+      font-size: 0.72rem;
+      color: var(--muted);
+      padding: 0.35rem 0.6rem;
+      border-top: 1px solid var(--border);
+      font-family: 'IBM Plex Mono', monospace;
+      letter-spacing: 0.04em;
     }
 
     .map-btn {

@@ -1,0 +1,206 @@
+---
+import Base from '../layouts/Base.astro'
+---
+<Base title="Import places">
+  <div class="import-wrap">
+    <h1>Import places from Google Maps</h1>
+    <p class="hint">
+      Paste the contents of one exported CSV (from Google Takeout → Saved). Pick which
+      area and type they should all get, then import. Run once per list — you can fix
+      individual ones in Studio afterwards.
+    </p>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Type for this batch</label>
+        <select id="i-type">
+          <option value="shop">🛍️ Shop</option>
+          <option value="restaurant">🍜 Restaurant</option>
+          <option value="sight">🗼 Sight to see</option>
+          <option value="other">📌 Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Area (optional)</label>
+        <select id="i-area">
+          <option value="">— none —</option>
+          <option>Akihabara</option>
+          <option>Ikebukuro</option>
+          <option>Nakano</option>
+          <option>Shinjuku</option>
+          <option>Shibuya</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Priority</label>
+        <select id="i-priority">
+          <option value="maybe">Worth a look</option>
+          <option value="must">Must visit</option>
+          <option value="visited">Visited</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Paste CSV contents</label>
+      <textarea id="i-csv" rows="10" placeholder="Title	Note	URL	Tags	Comment&#10;Nintendo Museum		https://..."></textarea>
+    </div>
+
+    <button id="i-preview" type="button" class="secondary-btn">Preview</button>
+
+    <div id="preview-box" class="preview-box" hidden>
+      <div class="preview-head">Found <span id="preview-count">0</span> places:</div>
+      <ul id="preview-list" class="preview-list"></ul>
+      <button id="i-import" type="button" class="save-btn">Import these places</button>
+    </div>
+
+    <p id="i-msg" class="save-msg" hidden></p>
+
+    <a href="/notes" class="back-link">← Back to shop notes</a>
+  </div>
+
+  <script>
+    const typeSel = document.querySelector('#i-type')
+    const areaSel = document.querySelector('#i-area')
+    const prioritySel = document.querySelector('#i-priority')
+    const csvInput = document.querySelector('#i-csv')
+    const previewBtn = document.querySelector('#i-preview')
+    const previewBox = document.querySelector('#preview-box')
+    const previewCount = document.querySelector('#preview-count')
+    const previewList = document.querySelector('#preview-list')
+    const importBtn = document.querySelector('#i-import')
+    const msg = document.querySelector('#i-msg')
+
+    let parsedPlaces = []
+
+    // Parse a tab- or comma-separated CSV with columns: Title, Note, URL, Tags, Comment.
+    function parseCsv(text) {
+      const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
+      if (lines.length === 0) return []
+
+      // Detect delimiter: prefer tab (Google exports are tab-separated when pasted).
+      const first = lines[0]
+      const delim = first.includes('\t') ? '\t' : ','
+
+      // Find header row and column indexes.
+      const header = lines[0].split(delim).map((h) => h.trim().toLowerCase())
+      const titleIdx = header.indexOf('title')
+      const noteIdx = header.indexOf('note')
+      const urlIdx = header.indexOf('url')
+
+      // If no proper header, assume first column is title.
+      const startRow = titleIdx !== -1 ? 1 : 0
+      const tIdx = titleIdx !== -1 ? titleIdx : 0
+      const nIdx = noteIdx
+      const uIdx = urlIdx
+
+      const out = []
+      for (let i = startRow; i < lines.length; i++) {
+        const cols = lines[i].split(delim)
+        const title = (cols[tIdx] || '').trim()
+        if (!title) continue
+        out.push({
+          title,
+          note: nIdx !== -1 ? (cols[nIdx] || '').trim() : '',
+          url: uIdx !== -1 ? (cols[uIdx] || '').trim() : '',
+        })
+      }
+      return out
+    }
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    previewBtn.addEventListener('click', () => {
+      parsedPlaces = parseCsv(csvInput.value)
+      if (parsedPlaces.length === 0) {
+        previewBox.hidden = true
+        showMsg('No places found. Check that you pasted the CSV contents.', false)
+        return
+      }
+      msg.hidden = true
+      previewCount.textContent = parsedPlaces.length
+      previewList.innerHTML = parsedPlaces.slice(0, 50).map((p) =>
+        `<li><strong>${escapeHtml(p.title)}</strong>${p.note ? ' — ' + escapeHtml(p.note) : ''}</li>`
+      ).join('') + (parsedPlaces.length > 50 ? `<li>…and ${parsedPlaces.length - 50} more</li>` : '')
+      previewBox.hidden = false
+    })
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+
+    importBtn.addEventListener('click', async () => {
+      if (parsedPlaces.length === 0) return
+      importBtn.disabled = true
+      importBtn.textContent = 'Importing…'
+
+      try {
+        const res = await fetch('/api/import-places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            places: parsedPlaces,
+            placeType: typeSel.value,
+            area: areaSel.value,
+            priority: prioritySel.value,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          showMsg(data.error || 'Import failed.', false)
+          return
+        }
+        let text = `Imported ${data.created} places ✓`
+        if (data.failed > 0) text += ` (${data.failed} failed)`
+        showMsg(text, true)
+        previewBox.hidden = true
+        csvInput.value = ''
+        parsedPlaces = []
+      } catch {
+        showMsg('Network error.', false)
+      } finally {
+        importBtn.disabled = false
+        importBtn.textContent = 'Import these places'
+      }
+    })
+  </script>
+
+  <style>
+    .import-wrap { max-width: 640px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .field-row .field { flex: 1; min-width: 140px; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 0.95rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .field textarea { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; }
+    .secondary-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+    }
+    .preview-box {
+      margin-top: 1.5rem; padding: 1rem; border: 1px solid rgba(176,30,52,0.3);
+      border-radius: 8px; background: rgba(26,12,18,0.4);
+    }
+    .preview-head { font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: var(--accent); margin-bottom: 0.6rem; }
+    .preview-list { list-style: none; padding: 0; margin: 0 0 1rem; max-height: 300px; overflow-y: auto; font-size: 0.9rem; }
+    .preview-list li { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+    .save-btn {
+      width: 100%; background: var(--accent); color: #fff; border: none;
+      padding: 0.85rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 1rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

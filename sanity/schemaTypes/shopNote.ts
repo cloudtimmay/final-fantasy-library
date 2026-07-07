@@ -8,6 +8,21 @@ export const shopNote = defineType({
   fields: [
     defineField({ name: 'shopName', title: 'Shop / Place', type: 'string', validation: (R) => R.required() }),
     defineField({
+      name: 'placeType',
+      title: 'Type',
+      type: 'string',
+      options: {
+        list: [
+          { title: '🛍️ Shop', value: 'shop' },
+          { title: '🍜 Restaurant', value: 'restaurant' },
+          { title: '🗼 Sight to see', value: 'sight' },
+          { title: '📌 Other', value: 'other' },
+        ],
+        layout: 'radio',
+      },
+      initialValue: 'shop',
+    }),
+    defineField({
       name: 'area',
       title: 'Area',
       type: 'string',
@@ -35,6 +50,14 @@ export const shopNote = defineType({
     defineField({ name: 'longitude', title: 'Longitude', type: 'number' }),
   ],
   preview: {
-    select: { title: 'shopName', subtitle: 'area' },
+    select: { title: 'shopName', subtitle: 'area', placeType: 'placeType' },
+    prepare({ title, subtitle, placeType }) {
+      const icons: Record<string, string> = { shop: '🛍️', restaurant: '🍜', sight: '🗼', other: '📌' }
+      return {
+        title,
+        subtitle: [placeType ? (placeType.charAt(0).toUpperCase() + placeType.slice(1)) : '', subtitle].filter(Boolean).join(' · '),
+        media: () => icons[placeType] || '📍',
+      }
+    },
   },
 })

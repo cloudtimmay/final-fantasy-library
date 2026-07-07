@@ -25,15 +25,28 @@ export const POST: APIRoute = async ({ request }) => {
 
   const num = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
 
-  // Accept any reasonable free-text area (trimmed, capped length) so new
-  // areas can be added from the page, not just the fixed list.
   const areaRaw = String(body.area || '').trim()
   const area = areaRaw ? areaRaw.slice(0, 60) : undefined
+
+  // Build trip references from the chosen trip IDs.
+  const tripIds: string[] = Array.isArray(body.tripIds)
+    ? body.tripIds.filter((x: any) => typeof x === 'string' && x.trim()).slice(0, 30)
+    : []
 
   const set: any = { shopName }
   const unset: string[] = []
 
   if (PLACE_TYPES.includes(body.placeType)) set.placeType = body.placeType
+
+  if (tripIds.length > 0) {
+    set.trips = tripIds.map((tid) => ({
+      _type: 'reference',
+      _ref: tid,
+      _key: tid,
+    }))
+  } else {
+    unset.push('trips')
+  }
 
   if (area) set.area = area
   else unset.push('area')

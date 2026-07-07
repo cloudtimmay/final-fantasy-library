@@ -8,13 +8,18 @@ let shop: any = null
 if (id) {
   shop = await sanity.fetch(
     `*[_type == "shopNote" && _id == $id][0]{
-      _id, shopName, placeType, area, note, priority, address, latitude, longitude
+      _id, shopName, placeType, area, note, priority, address, latitude, longitude,
+      "tripIds": trips[]._ref
     }`,
     { id }
   )
 }
 
-// Gather all areas already in use, so the dropdown offers them + the defaults.
+// All trips, for the checkboxes.
+const trips = await sanity.fetch(
+  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
+)
+
 const usedAreas: string[] = await sanity.fetch(
   `array::unique(*[_type == "shopNote" && defined(area)].area)`
 )
@@ -22,6 +27,8 @@ const DEFAULT_AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya'
 const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(shop?.area ? [shop.area] : [])])]
   .filter(Boolean)
   .sort()
+
+const currentTripIds: string[] = shop?.tripIds || []
 ---
 <Base title="Edit shop">
   <div class="add-wrap">
@@ -51,6 +58,20 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
             <option value="other" selected={shop.placeType === 'other'}>📌 Other</option>
           </select>
         </div>
+
+        {trips.length > 0 && (
+          <div class="field">
+            <label>Trips</label>
+            <div class="trip-checks">
+              {trips.map((t: any) => (
+                <label class="trip-check">
+                  <input type="checkbox" class="s-trip" value={t._id} checked={currentTripIds.includes(t._id)} />
+                  <span>{t.label || 'Trip'}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div class="field">
           <label>Area</label>
@@ -117,7 +138,6 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
       let lat = initLat
       let lng = initLng
 
-      // Show a free-text field when "+ New area…" is chosen.
       areaSel.addEventListener('change', () => {
         if (areaSel.value === '__new__') {
           areaNewInput.hidden = false
@@ -130,6 +150,12 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
       function chosenArea() {
         if (areaSel.value === '__new__') return areaNewInput.value.trim()
         return areaSel.value
+      }
+
+      function chosenTripIds() {
+        return Array.from(document.querySelectorAll('.s-trip'))
+          .filter((c) => c.checked)
+          .map((c) => c.value)
       }
 
       function renderCoords() {
@@ -194,6 +220,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
               id: idInput.value,
               shopName: nameInput.value.trim(),
               placeType: typeSel.value,
+              tripIds: chosenTripIds(),
               area: chosenArea() || undefined,
               note: noteInput.value.trim() || undefined,
               priority: prioritySel.value,
@@ -231,6 +258,10 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
       font-family: inherit; box-sizing: border-box;
     }
+    .trip-checks { display: flex; flex-direction: column; gap: 0.5rem; }
+    .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .trip-check input { width: auto; margin: 0; }
+    .trip-check span { font-size: 0.95rem; }
     .locate-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;

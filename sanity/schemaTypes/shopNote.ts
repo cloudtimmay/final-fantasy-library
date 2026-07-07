@@ -23,6 +23,13 @@ export const shopNote = defineType({
       initialValue: 'shop',
     }),
     defineField({
+      name: 'trips',
+      title: 'Trips',
+      description: 'Which trips is this place part of? A place can belong to several.',
+      type: 'array',
+      of: [{ type: 'reference', to: [{ type: 'tripSettings' }] }],
+    }),
+    defineField({
       name: 'area',
       title: 'Area',
       type: 'string',

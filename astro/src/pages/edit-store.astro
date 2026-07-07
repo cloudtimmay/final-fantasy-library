@@ -13,6 +13,15 @@ if (id) {
     { id }
   )
 }
+
+// Gather all areas already in use, so the dropdown offers them + the defaults.
+const usedAreas: string[] = await sanity.fetch(
+  `array::unique(*[_type == "shopNote" && defined(area)].area)`
+)
+const DEFAULT_AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
+const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(shop?.area ? [shop.area] : [])])]
+  .filter(Boolean)
+  .sort()
 ---
 <Base title="Edit shop">
   <div class="add-wrap">
@@ -47,10 +56,12 @@ if (id) {
           <label>Area</label>
           <select id="s-area">
             <option value="">Select area…</option>
-            {['Akihabara','Ikebukuro','Nakano','Shinjuku','Shibuya','Other'].map((a) => (
+            {areaOptions.map((a) => (
               <option value={a} selected={shop.area === a}>{a}</option>
             ))}
+            <option value="__new__">+ New area…</option>
           </select>
+          <input id="s-area-new" type="text" placeholder="New area name" hidden style="margin-top:0.5rem" />
         </div>
 
         <div class="field">
@@ -93,6 +104,7 @@ if (id) {
       const nameInput = document.querySelector('#s-name')
       const typeSel = document.querySelector('#s-type')
       const areaSel = document.querySelector('#s-area')
+      const areaNewInput = document.querySelector('#s-area-new')
       const noteInput = document.querySelector('#s-note')
       const prioritySel = document.querySelector('#s-priority')
       const addressInput = document.querySelector('#s-address')
@@ -104,6 +116,21 @@ if (id) {
 
       let lat = initLat
       let lng = initLng
+
+      // Show a free-text field when "+ New area…" is chosen.
+      areaSel.addEventListener('change', () => {
+        if (areaSel.value === '__new__') {
+          areaNewInput.hidden = false
+          areaNewInput.focus()
+        } else {
+          areaNewInput.hidden = true
+          areaNewInput.value = ''
+        }
+      })
+      function chosenArea() {
+        if (areaSel.value === '__new__') return areaNewInput.value.trim()
+        return areaSel.value
+      }
 
       function renderCoords() {
         if (typeof lat === 'number' && typeof lng === 'number') {
@@ -167,7 +194,7 @@ if (id) {
               id: idInput.value,
               shopName: nameInput.value.trim(),
               placeType: typeSel.value,
-              area: areaSel.value || undefined,
+              area: chosenArea() || undefined,
               note: noteInput.value.trim() || undefined,
               priority: prioritySel.value,
               address: addressInput.value.trim() || undefined,

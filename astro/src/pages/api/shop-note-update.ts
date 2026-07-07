@@ -6,7 +6,6 @@ export const prerender = false
 const json = (status: number, data: unknown) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
-const AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
 const PRIORITIES = ['must', 'maybe', 'visited']
 const PLACE_TYPES = ['shop', 'restaurant', 'sight', 'other']
 
@@ -26,13 +25,17 @@ export const POST: APIRoute = async ({ request }) => {
 
   const num = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
 
-  // Build the set of fields to write. Unset optional ones that are cleared.
+  // Accept any reasonable free-text area (trimmed, capped length) so new
+  // areas can be added from the page, not just the fixed list.
+  const areaRaw = String(body.area || '').trim()
+  const area = areaRaw ? areaRaw.slice(0, 60) : undefined
+
   const set: any = { shopName }
   const unset: string[] = []
 
   if (PLACE_TYPES.includes(body.placeType)) set.placeType = body.placeType
 
-  if (AREAS.includes(body.area)) set.area = body.area
+  if (area) set.area = area
   else unset.push('area')
 
   if (body.note && String(body.note).trim()) set.note = String(body.note).trim()
@@ -50,7 +53,6 @@ export const POST: APIRoute = async ({ request }) => {
   else unset.push('longitude')
 
   try {
-    // Only allow editing shopNote documents.
     const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type }`, { id })
     if (!existing || existing._type !== 'shopNote') {
       return json(400, { error: 'Not a shop note' })

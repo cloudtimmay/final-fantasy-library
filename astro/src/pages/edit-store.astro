@@ -15,7 +15,7 @@ if (id) {
   )
 }
 
-// All trips, for the checkboxes.
+// Same query the working spending page uses.
 const trips = await sanity.fetch(
   `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
 )
@@ -59,9 +59,9 @@ const currentTripIds: string[] = shop?.tripIds || []
           </select>
         </div>
 
-        {trips.length > 0 && (
-          <div class="field">
-            <label>Trips</label>
+        <div class="field">
+          <label>Trips</label>
+          {trips.length > 0 ? (
             <div class="trip-checks">
               {trips.map((t: any) => (
                 <label class="trip-check">
@@ -70,8 +70,10 @@ const currentTripIds: string[] = shop?.tripIds || []
                 </label>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p class="trip-empty">No trips found (query returned {trips.length}). If you have trips in Studio, the query may not match.</p>
+          )}
+        </div>
 
         <div class="field">
           <label>Area</label>
@@ -262,6 +264,7 @@ const currentTripIds: string[] = shop?.tripIds || []
     .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .trip-check input { width: auto; margin: 0; }
     .trip-check span { font-size: 0.95rem; }
+    .trip-empty { font-size: 0.85rem; color: #e74c3c; }
     .locate-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;

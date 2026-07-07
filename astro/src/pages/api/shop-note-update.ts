@@ -8,6 +8,7 @@ const json = (status: number, data: unknown) =>
 
 const AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
 const PRIORITIES = ['must', 'maybe', 'visited']
+const PLACE_TYPES = ['shop', 'restaurant', 'sight', 'other']
 
 export const POST: APIRoute = async ({ request }) => {
   let body: any
@@ -28,6 +29,8 @@ export const POST: APIRoute = async ({ request }) => {
   // Build the set of fields to write. Unset optional ones that are cleared.
   const set: any = { shopName }
   const unset: string[] = []
+
+  if (PLACE_TYPES.includes(body.placeType)) set.placeType = body.placeType
 
   if (AREAS.includes(body.area)) set.area = body.area
   else unset.push('area')

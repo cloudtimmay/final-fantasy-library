@@ -8,7 +8,7 @@ let shop: any = null
 if (id) {
   shop = await sanity.fetch(
     `*[_type == "shopNote" && _id == $id][0]{
-      _id, shopName, area, note, priority, address, latitude, longitude
+      _id, shopName, placeType, area, note, priority, address, latitude, longitude
     }`,
     { id }
   )
@@ -31,6 +31,16 @@ if (id) {
         <div class="field">
           <label>Shop / Place *</label>
           <input id="s-name" type="text" value={shop.shopName || ''} />
+        </div>
+
+        <div class="field">
+          <label>Type</label>
+          <select id="s-type">
+            <option value="shop" selected={shop.placeType === 'shop'}>🛍️ Shop</option>
+            <option value="restaurant" selected={shop.placeType === 'restaurant'}>🍜 Restaurant</option>
+            <option value="sight" selected={shop.placeType === 'sight'}>🗼 Sight to see</option>
+            <option value="other" selected={shop.placeType === 'other'}>📌 Other</option>
+          </select>
         </div>
 
         <div class="field">
@@ -81,6 +91,7 @@ if (id) {
     <script define:vars={{ initLat: shop.latitude ?? null, initLng: shop.longitude ?? null }}>
       const idInput = document.querySelector('#s-id')
       const nameInput = document.querySelector('#s-name')
+      const typeSel = document.querySelector('#s-type')
       const areaSel = document.querySelector('#s-area')
       const noteInput = document.querySelector('#s-note')
       const prioritySel = document.querySelector('#s-priority')
@@ -155,6 +166,7 @@ if (id) {
             body: JSON.stringify({
               id: idInput.value,
               shopName: nameInput.value.trim(),
+              placeType: typeSel.value,
               area: areaSel.value || undefined,
               note: noteInput.value.trim() || undefined,
               priority: prioritySel.value,

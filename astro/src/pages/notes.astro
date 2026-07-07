@@ -4,9 +4,15 @@ import { sanity } from '../lib/sanity'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
-    _id, shopName, placeType, area, note, priority, address, latitude, longitude
+    _id, shopName, placeType, area, note, priority, address, latitude, longitude,
+    "tripIds": trips[]._ref
   }
 `)
+
+// All trips, for the filter dropdown.
+const trips = await sanity.fetch(
+  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
+)
 
 const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
 
@@ -15,6 +21,10 @@ const TYPE_ICON: Record<string, string> = {
 }
 const TYPE_LABEL: Record<string, string> = {
   shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', other: 'Other',
+}
+
+function isUrl(s: string): boolean {
+  return typeof s === 'string' && /^https?:\/\//i.test(s.trim())
 }
 ---
 <Base title="Shop Notes">
@@ -26,6 +36,12 @@ const TYPE_LABEL: Record<string, string> = {
   <p class="hint">Places to check and notes from the trip. Add via <a href="/add-store">Add shop</a>, edit in Studio.</p>
 
   <div class="notes-tools">
+    {trips.length > 0 && (
+      <select id="trip-filter">
+        <option value="">All trips</option>
+        {trips.map((t: any) => <option value={t._id}>{t.label || 'Trip'}</option>)}
+      </select>
+    )}
     <select id="type-filter">
       <option value="">All types</option>
       <option value="shop">🛍️ Shops</option>
@@ -48,11 +64,14 @@ const TYPE_LABEL: Record<string, string> = {
   <div class="notes-list">
     {notes.map((n: any) => {
       const hasCoords = typeof n.latitude === 'number' && typeof n.longitude === 'number'
-      const searchQuery = [n.shopName, n.address, n.area, 'Japan'].filter(Boolean).join(' ')
-      const hasQuery = !!(n.shopName || n.address)
+      const addressIsUrl = isUrl(n.address)
+      const searchQuery = [n.shopName, addressIsUrl ? '' : n.address, n.area, 'Japan'].filter(Boolean).join(' ')
+      const hasQuery = !!(n.shopName || (!addressIsUrl && n.address))
 
       const mapHref = hasCoords
         ? `https://www.google.com/maps?q=${n.latitude},${n.longitude}`
+        : addressIsUrl
+        ? n.address
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`
 
       const embedSrc = hasCoords
@@ -61,8 +80,10 @@ const TYPE_LABEL: Record<string, string> = {
         ? `https://maps.google.com/maps?q=${encodeURIComponent(searchQuery)}&z=16&output=embed`
         : ''
 
+      const tripAttr = (n.tripIds || []).join(' ')
+
       return (
-        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''}>
+        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr}>
           <div class="note-head">
             {n.placeType && <span class="type-icon" title={TYPE_LABEL[n.placeType] || n.placeType}>{TYPE_ICON[n.placeType] || '📌'}</span>}
             <span class="note-name">{n.shopName}</span>
@@ -72,7 +93,7 @@ const TYPE_LABEL: Record<string, string> = {
           </div>
           {n.area && <div class="note-area">📍 {n.area}</div>}
           {n.note && <div class="note-body">{n.note}</div>}
-          {n.address && <div class="note-address">{n.address}</div>}
+          {n.address && !addressIsUrl && <div class="note-address">{n.address}</div>}
 
           {embedSrc && (
             <div class="note-map">
@@ -82,7 +103,7 @@ const TYPE_LABEL: Record<string, string> = {
                 referrerpolicy="no-referrer-when-downgrade"
                 title={`Map of ${n.shopName}`}
               ></iframe>
-              {!hasCoords && <div class="map-approx">Approximate — from address</div>}
+              {!hasCoords && <div class="map-approx">Approximate — from name</div>}
             </div>
           )}
 
@@ -103,16 +124,22 @@ const TYPE_LABEL: Record<string, string> = {
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
     .hint a { color: var(--accent); }
     .notes-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .notes-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
+    .notes-tools select {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem; border-radius: 6px; max-width: 100%;
+    }
 
-    .notes-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .note-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .notes-list { display: flex; flex-direction: column; gap: 0.75rem; max-width: 100%; }
+    .note-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 1rem; max-width: 100%; box-sizing: border-box; overflow: hidden;
+    }
     .note-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
     .type-icon { font-size: 1.1rem; line-height: 1; }
-    .note-name { font-weight: 700; font-size: 1.05rem; }
+    .note-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
     .note-area { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
-    .note-body { white-space: pre-wrap; font-size: 0.95rem; margin-bottom: 0.5rem; }
-    .note-address { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; }
+    .note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.95rem; margin-bottom: 0.5rem; }
+    .note-address { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; overflow-wrap: anywhere; }
     .tag { padding: 0.25rem 0.55rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
     .tag.must { background: #e74c3c; color: #fff; }
     .tag.maybe { background: #f39c12; color: #2a1a04; }
@@ -124,10 +151,12 @@ const TYPE_LABEL: Record<string, string> = {
       border-radius: 8px;
       overflow: hidden;
       background: var(--bg);
+      max-width: 100%;
     }
     .note-map iframe {
       display: block;
       width: 100%;
+      max-width: 100%;
       height: 200px;
       border: 0;
     }
@@ -158,6 +187,7 @@ const TYPE_LABEL: Record<string, string> = {
   </style>
 
   <script>
+    const tripFilter = document.querySelector('#trip-filter')
     const typeFilter = document.querySelector('#type-filter')
     const areaFilter = document.querySelector('#area-filter')
     const priorityFilter = document.querySelector('#priority-filter')
@@ -165,16 +195,19 @@ const TYPE_LABEL: Record<string, string> = {
     const emptyMsg = document.querySelector('#notes-empty')
 
     function update() {
+      const trip = tripFilter ? tripFilter.value : ''
       const type = typeFilter.value
       const area = areaFilter.value
       const priority = priorityFilter.value
       let visible = 0
 
       document.querySelectorAll('.note-card').forEach((card) => {
+        const cardTrips = (card.dataset.trips || '').split(' ').filter(Boolean)
+        const matchesTrip = !trip || cardTrips.includes(trip)
         const matchesType = !type || card.dataset.type === type
         const matchesArea = !area || card.dataset.area === area
         const matchesPriority = !priority || card.dataset.priority === priority
-        const show = matchesType && matchesArea && matchesPriority
+        const show = matchesTrip && matchesType && matchesArea && matchesPriority
         card.style.display = show ? '' : 'none'
         if (show) visible++
       })
@@ -183,6 +216,7 @@ const TYPE_LABEL: Record<string, string> = {
       if (emptyMsg) emptyMsg.hidden = visible !== 0
     }
 
+    if (tripFilter) tripFilter.addEventListener('change', update)
     typeFilter.addEventListener('change', update)
     areaFilter.addEventListener('change', update)
     priorityFilter.addEventListener('change', update)

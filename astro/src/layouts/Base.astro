@@ -293,7 +293,7 @@ function isActive(href: string) {
   </main>
 
   <nav class="bottom-nav">
-    <a href="/" class:list={[{ active: path === '/' }]}><span class="bn-icon">🏠</span>Home</a>
+    <a href="/notes" class:list={[{ active: isActive('/notes') }]}><span class="bn-icon">🛍️</span>Shops</a>
     <a href="/scan" class:list={[{ active: isActive('/scan') }]}><span class="bn-icon">🔍</span>Scan</a>
     <a href="/add-menu" class:list={[{ active: isActive('/add-menu') }]}><span class="bn-icon">➕</span>Add</a>
     <a href="/spending" class:list={[{ active: isActive('/spending') }]}><span class="bn-icon">💴</span>Spending</a>

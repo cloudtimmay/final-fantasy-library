@@ -4,21 +4,35 @@ import { sanity } from '../lib/sanity'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
-    _id, shopName, area, note, priority, address, latitude, longitude
+    _id, shopName, placeType, area, note, priority, address, latitude, longitude
   }
 `)
 
 const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
+
+const TYPE_ICON: Record<string, string> = {
+  shop: '🛍️', restaurant: '🍜', sight: '🗼', other: '📌',
+}
+const TYPE_LABEL: Record<string, string> = {
+  shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', other: 'Other',
+}
 ---
 <Base title="Shop Notes">
   <div class="page-header">
     <h1>Shop Notes</h1>
-    <span class="count">{notes.length} places</span>
+    <span class="count" id="notes-count">{notes.length} places</span>
   </div>
 
   <p class="hint">Places to check and notes from the trip. Add via <a href="/add-store">Add shop</a>, edit in Studio.</p>
 
   <div class="notes-tools">
+    <select id="type-filter">
+      <option value="">All types</option>
+      <option value="shop">🛍️ Shops</option>
+      <option value="restaurant">🍜 Restaurants</option>
+      <option value="sight">🗼 Sights</option>
+      <option value="other">📌 Other</option>
+    </select>
     <select id="area-filter">
       <option value="">All areas</option>
       {areas.map((a: any) => <option value={a}>{a}</option>)}
@@ -34,7 +48,6 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
   <div class="notes-list">
     {notes.map((n: any) => {
       const hasCoords = typeof n.latitude === 'number' && typeof n.longitude === 'number'
-      // Build a search string from name + area + address for the address fallback.
       const searchQuery = [n.shopName, n.address, n.area, 'Japan'].filter(Boolean).join(' ')
       const hasQuery = !!(n.shopName || n.address)
 
@@ -42,7 +55,6 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
         ? `https://www.google.com/maps?q=${n.latitude},${n.longitude}`
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`
 
-      // Prefer exact coordinates; otherwise search by name/address.
       const embedSrc = hasCoords
         ? `https://maps.google.com/maps?q=${n.latitude},${n.longitude}&z=16&output=embed`
         : hasQuery
@@ -50,8 +62,9 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
         : ''
 
       return (
-        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''}>
+        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''}>
           <div class="note-head">
+            {n.placeType && <span class="type-icon" title={TYPE_LABEL[n.placeType] || n.placeType}>{TYPE_ICON[n.placeType] || '📌'}</span>}
             <span class="note-name">{n.shopName}</span>
             {n.priority === 'must' && <span class="tag must">Must visit</span>}
             {n.priority === 'maybe' && <span class="tag maybe">Worth a look</span>}
@@ -84,6 +97,8 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
     })}
   </div>
 
+  <p id="notes-empty" class="notes-empty" hidden>No places match these filters.</p>
+
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
     .hint a { color: var(--accent); }
@@ -93,6 +108,7 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
     .notes-list { display: flex; flex-direction: column; gap: 0.75rem; }
     .note-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
     .note-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+    .type-icon { font-size: 1.1rem; line-height: 1; }
     .note-name { font-weight: 700; font-size: 1.05rem; }
     .note-area { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
     .note-body { white-space: pre-wrap; font-size: 0.95rem; margin-bottom: 0.5rem; }
@@ -138,21 +154,38 @@ const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
       text-decoration: none; font-size: 0.85rem;
     }
     .edit-btn:hover { border-color: var(--accent); }
+    .notes-empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
   </style>
 
   <script>
+    const typeFilter = document.querySelector('#type-filter')
     const areaFilter = document.querySelector('#area-filter')
     const priorityFilter = document.querySelector('#priority-filter')
+    const countEl = document.querySelector('#notes-count')
+    const emptyMsg = document.querySelector('#notes-empty')
+
     function update() {
+      const type = typeFilter.value
       const area = areaFilter.value
       const priority = priorityFilter.value
+      let visible = 0
+
       document.querySelectorAll('.note-card').forEach((card) => {
+        const matchesType = !type || card.dataset.type === type
         const matchesArea = !area || card.dataset.area === area
         const matchesPriority = !priority || card.dataset.priority === priority
-        card.style.display = matchesArea && matchesPriority ? '' : 'none'
+        const show = matchesType && matchesArea && matchesPriority
+        card.style.display = show ? '' : 'none'
+        if (show) visible++
       })
+
+      if (countEl) countEl.textContent = `${visible} place${visible === 1 ? '' : 's'}`
+      if (emptyMsg) emptyMsg.hidden = visible !== 0
     }
+
+    typeFilter.addEventListener('change', update)
     areaFilter.addEventListener('change', update)
     priorityFilter.addEventListener('change', update)
+    update()
   </script>
 </Base>

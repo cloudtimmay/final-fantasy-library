@@ -15,7 +15,6 @@ if (id) {
   )
 }
 
-// All trips, for the checkboxes.
 const trips = await sanity.fetch(
   `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
 )
@@ -107,6 +106,7 @@ const currentTripIds: string[] = shop?.tripIds || []
         <div class="field">
           <label>Address / how to find</label>
           <input id="s-address" type="text" value={shop.address || ''} />
+          <a id="s-map-link" class="map-open-btn" href="#" target="_blank" rel="noopener">🗺️ Open in Maps</a>
         </div>
 
         <div class="field">
@@ -135,6 +135,7 @@ const currentTripIds: string[] = shop?.tripIds || []
       const noteInput = document.querySelector('#s-note')
       const prioritySel = document.querySelector('#s-priority')
       const addressInput = document.querySelector('#s-address')
+      const mapLink = document.querySelector('#s-map-link')
       const locateBtn = document.querySelector('#s-locate')
       const coords = document.querySelector('#s-coords')
       const locateMsg = document.querySelector('#s-locate-msg')
@@ -144,6 +145,27 @@ const currentTripIds: string[] = shop?.tripIds || []
       let lat = initLat
       let lng = initLng
 
+      const isUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s.trim())
+
+      // Build the best Maps link from current coords, or address/name.
+      function updateMapLink() {
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          mapLink.href = `https://www.google.com/maps?q=${lat},${lng}`
+        } else {
+          const addr = addressInput.value.trim()
+          if (isUrl(addr)) {
+            mapLink.href = addr
+          } else {
+            const q = [nameInput.value.trim(), addr, areaSel.value !== '__new__' ? areaSel.value : '', 'Japan']
+              .filter(Boolean).join(' ')
+            mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`
+          }
+        }
+      }
+      updateMapLink()
+      addressInput.addEventListener('input', updateMapLink)
+      nameInput.addEventListener('input', updateMapLink)
+
       areaSel.addEventListener('change', () => {
         if (areaSel.value === '__new__') {
           areaNewInput.hidden = false
@@ -152,6 +174,7 @@ const currentTripIds: string[] = shop?.tripIds || []
           areaNewInput.hidden = true
           areaNewInput.value = ''
         }
+        updateMapLink()
       })
       function chosenArea() {
         if (areaSel.value === '__new__') return areaNewInput.value.trim()
@@ -196,6 +219,7 @@ const currentTripIds: string[] = shop?.tripIds || []
             lat = pos.coords.latitude
             lng = pos.coords.longitude
             renderCoords()
+            updateMapLink()
             locateBtn.disabled = false
             locateBtn.textContent = '📍 Update location'
           },
@@ -265,6 +289,12 @@ const currentTripIds: string[] = shop?.tripIds || []
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
       font-family: inherit; box-sizing: border-box;
     }
+    .map-open-btn {
+      display: inline-block; margin-top: 0.5rem;
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.45rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
+    }
+    .map-open-btn:hover { background: rgba(255,255,255,0.04); }
     .trip-checks { display: flex; flex-direction: column; gap: 0.5rem; }
     .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .trip-check input { width: auto; margin: 0; }

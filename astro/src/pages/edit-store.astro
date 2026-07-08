@@ -8,14 +8,14 @@ let shop: any = null
 if (id) {
   shop = await sanity.fetch(
     `*[_type == "shopNote" && _id == $id][0]{
-      _id, shopName, placeType, area, note, priority, address, latitude, longitude,
+      _id, shopName, placeType, area, openingHours, note, priority, address, latitude, longitude,
       "tripIds": trips[]._ref
     }`,
     { id }
   )
 }
 
-// Same query the working spending page uses.
+// All trips, for the checkboxes.
 const trips = await sanity.fetch(
   `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
 )
@@ -59,9 +59,9 @@ const currentTripIds: string[] = shop?.tripIds || []
           </select>
         </div>
 
-        <div class="field">
-          <label>Trips</label>
-          {trips.length > 0 ? (
+        {trips.length > 0 && (
+          <div class="field">
+            <label>Trips</label>
             <div class="trip-checks">
               {trips.map((t: any) => (
                 <label class="trip-check">
@@ -70,10 +70,8 @@ const currentTripIds: string[] = shop?.tripIds || []
                 </label>
               ))}
             </div>
-          ) : (
-            <p class="trip-empty">No trips found (query returned {trips.length}). If you have trips in Studio, the query may not match.</p>
-          )}
-        </div>
+          </div>
+        )}
 
         <div class="field">
           <label>Area</label>
@@ -85,6 +83,11 @@ const currentTripIds: string[] = shop?.tripIds || []
             <option value="__new__">+ New area…</option>
           </select>
           <input id="s-area-new" type="text" placeholder="New area name" hidden style="margin-top:0.5rem" />
+        </div>
+
+        <div class="field">
+          <label>Opening hours</label>
+          <input id="s-hours" type="text" value={shop.openingHours || ''} placeholder="e.g. 10:00–20:00, closed Tue (Japan time)" />
         </div>
 
         <div class="field">
@@ -128,6 +131,7 @@ const currentTripIds: string[] = shop?.tripIds || []
       const typeSel = document.querySelector('#s-type')
       const areaSel = document.querySelector('#s-area')
       const areaNewInput = document.querySelector('#s-area-new')
+      const hoursInput = document.querySelector('#s-hours')
       const noteInput = document.querySelector('#s-note')
       const prioritySel = document.querySelector('#s-priority')
       const addressInput = document.querySelector('#s-address')
@@ -224,6 +228,7 @@ const currentTripIds: string[] = shop?.tripIds || []
               placeType: typeSel.value,
               tripIds: chosenTripIds(),
               area: chosenArea() || undefined,
+              openingHours: hoursInput.value.trim() || undefined,
               note: noteInput.value.trim() || undefined,
               priority: prioritySel.value,
               address: addressInput.value.trim() || undefined,
@@ -264,7 +269,6 @@ const currentTripIds: string[] = shop?.tripIds || []
     .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .trip-check input { width: auto; margin: 0; }
     .trip-check span { font-size: 0.95rem; }
-    .trip-empty { font-size: 0.85rem; color: #e74c3c; }
     .locate-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;

@@ -37,6 +37,12 @@ export const shopNote = defineType({
         list: ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other'],
       },
     }),
+    defineField({
+      name: 'openingHours',
+      title: 'Opening hours',
+      description: 'Free text, e.g. "10:00–20:00, closed Tue" (Japan time).',
+      type: 'string',
+    }),
     defineField({ name: 'note', title: 'Note', type: 'text', rows: 4 }),
     defineField({
       name: 'priority',

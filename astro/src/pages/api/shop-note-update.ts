@@ -28,7 +28,6 @@ export const POST: APIRoute = async ({ request }) => {
   const areaRaw = String(body.area || '').trim()
   const area = areaRaw ? areaRaw.slice(0, 60) : undefined
 
-  // Build trip references from the chosen trip IDs.
   const tripIds: string[] = Array.isArray(body.tripIds)
     ? body.tripIds.filter((x: any) => typeof x === 'string' && x.trim()).slice(0, 30)
     : []
@@ -39,17 +38,16 @@ export const POST: APIRoute = async ({ request }) => {
   if (PLACE_TYPES.includes(body.placeType)) set.placeType = body.placeType
 
   if (tripIds.length > 0) {
-    set.trips = tripIds.map((tid) => ({
-      _type: 'reference',
-      _ref: tid,
-      _key: tid,
-    }))
+    set.trips = tripIds.map((tid) => ({ _type: 'reference', _ref: tid, _key: tid }))
   } else {
     unset.push('trips')
   }
 
   if (area) set.area = area
   else unset.push('area')
+
+  if (body.openingHours && String(body.openingHours).trim()) set.openingHours = String(body.openingHours).trim().slice(0, 200)
+  else unset.push('openingHours')
 
   if (body.note && String(body.note).trim()) set.note = String(body.note).trim()
   else unset.push('note')

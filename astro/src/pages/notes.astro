@@ -4,12 +4,11 @@ import { sanity } from '../lib/sanity'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
-    _id, shopName, placeType, area, note, priority, address, latitude, longitude,
+    _id, shopName, placeType, area, openingHours, note, priority, address, latitude, longitude,
     "tripIds": trips[]._ref
   }
 `)
 
-// All trips, for the filter dropdown.
 const trips = await sanity.fetch(
   `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
 )
@@ -92,6 +91,7 @@ function isUrl(s: string): boolean {
             {n.priority === 'visited' && <span class="tag visited">Visited</span>}
           </div>
           {n.area && <div class="note-area">📍 {n.area}</div>}
+          {n.openingHours && <div class="note-hours">🕐 {n.openingHours}</div>}
           {n.note && <div class="note-body">{n.note}</div>}
           {n.address && !addressIsUrl && <div class="note-address">{n.address}</div>}
 
@@ -138,6 +138,7 @@ function isUrl(s: string): boolean {
     .type-icon { font-size: 1.1rem; line-height: 1; }
     .note-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
     .note-area { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .note-hours { font-size: 0.85rem; color: var(--accent); margin-bottom: 0.5rem; overflow-wrap: anywhere; }
     .note-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.95rem; margin-bottom: 0.5rem; }
     .note-address { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; overflow-wrap: anywhere; }
     .tag { padding: 0.25rem 0.55rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }

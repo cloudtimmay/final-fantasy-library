@@ -34,6 +34,11 @@ function isUrl(s: string): boolean {
 
   <p class="hint">Places to check and notes from the trip. Add via <a href="/add-store">Add shop</a>, edit in Studio.</p>
 
+  <div class="notes-search">
+    <input id="search-input" type="search" placeholder="Search shops, notes, areas…" autocomplete="off" />
+    <button id="search-clear" class="search-clear" type="button" hidden>✕</button>
+  </div>
+
   <div class="notes-tools">
     {trips.length > 0 && (
       <select id="trip-filter">
@@ -80,9 +85,12 @@ function isUrl(s: string): boolean {
         : ''
 
       const tripAttr = (n.tripIds || []).join(' ')
+      // Everything searchable, lowercased, in one attribute.
+      const haystack = [n.shopName, n.note, n.area, n.openingHours, addressIsUrl ? '' : n.address]
+        .filter(Boolean).join(' ').toLowerCase()
 
       return (
-        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr}>
+        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr} data-search={haystack}>
           <div class="note-head">
             {n.placeType && <span class="type-icon" title={TYPE_LABEL[n.placeType] || n.placeType}>{TYPE_ICON[n.placeType] || '📌'}</span>}
             <span class="note-name">{n.shopName}</span>
@@ -123,6 +131,21 @@ function isUrl(s: string): boolean {
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
     .hint a { color: var(--accent); }
+
+    .notes-search { position: relative; margin-bottom: 0.75rem; max-width: 100%; }
+    .notes-search input {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.75rem 2.4rem 0.75rem 0.85rem;
+      border-radius: 8px; font-size: 1rem; box-sizing: border-box;
+    }
+    .notes-search input:focus { outline: none; border-color: var(--accent); }
+    .search-clear {
+      position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--muted); font-size: 1rem;
+      cursor: pointer; padding: 0.3rem 0.4rem; line-height: 1;
+    }
+    .search-clear:hover { color: var(--text); }
+
     .notes-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .notes-tools select {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
@@ -188,6 +211,8 @@ function isUrl(s: string): boolean {
   </style>
 
   <script>
+    const searchInput = document.querySelector('#search-input')
+    const searchClear = document.querySelector('#search-clear')
     const tripFilter = document.querySelector('#trip-filter')
     const typeFilter = document.querySelector('#type-filter')
     const areaFilter = document.querySelector('#area-filter')
@@ -196,19 +221,23 @@ function isUrl(s: string): boolean {
     const emptyMsg = document.querySelector('#notes-empty')
 
     function update() {
+      const q = searchInput.value.trim().toLowerCase()
       const trip = tripFilter ? tripFilter.value : ''
       const type = typeFilter.value
       const area = areaFilter.value
       const priority = priorityFilter.value
       let visible = 0
 
+      searchClear.hidden = q === ''
+
       document.querySelectorAll('.note-card').forEach((card) => {
         const cardTrips = (card.dataset.trips || '').split(' ').filter(Boolean)
+        const matchesSearch = !q || (card.dataset.search || '').includes(q)
         const matchesTrip = !trip || cardTrips.includes(trip)
         const matchesType = !type || card.dataset.type === type
         const matchesArea = !area || card.dataset.area === area
         const matchesPriority = !priority || card.dataset.priority === priority
-        const show = matchesTrip && matchesType && matchesArea && matchesPriority
+        const show = matchesSearch && matchesTrip && matchesType && matchesArea && matchesPriority
         card.style.display = show ? '' : 'none'
         if (show) visible++
       })
@@ -217,6 +246,12 @@ function isUrl(s: string): boolean {
       if (emptyMsg) emptyMsg.hidden = visible !== 0
     }
 
+    searchInput.addEventListener('input', update)
+    searchClear.addEventListener('click', () => {
+      searchInput.value = ''
+      searchInput.focus()
+      update()
+    })
     if (tripFilter) tripFilter.addEventListener('change', update)
     typeFilter.addEventListener('change', update)
     areaFilter.addEventListener('change', update)

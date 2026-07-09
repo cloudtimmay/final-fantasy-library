@@ -34,7 +34,7 @@ export const shopNote = defineType({
       title: 'Area',
       type: 'string',
       options: {
-        list: ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other'],
+        list: ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Shinagawa', 'Yokohama', 'Osaka', 'Kyoto', 'Other'],
       },
     }),
     defineField({

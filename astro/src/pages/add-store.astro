@@ -1,5 +1,16 @@
 ---
 import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+const trips = await sanity.fetch(
+  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
+)
+
+const usedAreas: string[] = await sanity.fetch(
+  `array::unique(*[_type == "shopNote" && defined(area)].area)`
+)
+const DEFAULT_AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
+const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filter(Boolean).sort()
 ---
 <Base title="Add shop">
   <div class="add-wrap">
@@ -12,16 +23,42 @@ import Base from '../layouts/Base.astro'
     </div>
 
     <div class="field">
+      <label>Type</label>
+      <select id="s-type">
+        <option value="shop">🛍️ Shop</option>
+        <option value="restaurant">🍜 Restaurant</option>
+        <option value="sight">🗼 Sight to see</option>
+        <option value="other">📌 Other</option>
+      </select>
+    </div>
+
+    {trips.length > 0 && (
+      <div class="field">
+        <label>Trips</label>
+        <div class="trip-checks">
+          {trips.map((t: any) => (
+            <label class="trip-check">
+              <input type="checkbox" class="s-trip" value={t._id} />
+              <span>{t.label || 'Trip'}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    )}
+
+    <div class="field">
       <label>Area</label>
       <select id="s-area">
         <option value="">Select area…</option>
-        <option value="Akihabara">Akihabara</option>
-        <option value="Ikebukuro">Ikebukuro</option>
-        <option value="Nakano">Nakano</option>
-        <option value="Shinjuku">Shinjuku</option>
-        <option value="Shibuya">Shibuya</option>
-        <option value="Other">Other</option>
+        {areaOptions.map((a) => <option value={a}>{a}</option>)}
+        <option value="__new__">+ New area…</option>
       </select>
+      <input id="s-area-new" type="text" placeholder="New area name" hidden style="margin-top:0.5rem" />
+    </div>
+
+    <div class="field">
+      <label>Opening hours</label>
+      <input id="s-hours" type="text" placeholder="e.g. 10:00–20:00, closed Tue (Japan time)" />
     </div>
 
     <div class="field">
@@ -41,6 +78,7 @@ import Base from '../layouts/Base.astro'
     <div class="field">
       <label>Address / how to find</label>
       <input id="s-address" type="text" placeholder="Floor, landmark, directions…" />
+      <a id="s-map-link" class="map-open-btn" href="#" target="_blank" rel="noopener">🗺️ Open in Maps</a>
     </div>
 
     <div class="field">
@@ -53,15 +91,19 @@ import Base from '../layouts/Base.astro'
     <button id="s-save" type="button" class="save-btn">Save shop</button>
     <p id="s-msg" class="save-msg" hidden></p>
 
-    <a href="/add" class="back-link">← Back to add purchase</a>
+    <a href="/notes" class="back-link">← Back to shop notes</a>
   </div>
 
   <script>
     const nameInput = document.querySelector('#s-name')
+    const typeSel = document.querySelector('#s-type')
     const areaSel = document.querySelector('#s-area')
+    const areaNewInput = document.querySelector('#s-area-new')
+    const hoursInput = document.querySelector('#s-hours')
     const noteInput = document.querySelector('#s-note')
     const prioritySel = document.querySelector('#s-priority')
     const addressInput = document.querySelector('#s-address')
+    const mapLink = document.querySelector('#s-map-link')
     const locateBtn = document.querySelector('#s-locate')
     const coords = document.querySelector('#s-coords')
     const locateMsg = document.querySelector('#s-locate-msg')
@@ -70,6 +112,47 @@ import Base from '../layouts/Base.astro'
 
     let lat = null
     let lng = null
+
+    const isUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s.trim())
+
+    function updateMapLink() {
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        mapLink.href = `https://www.google.com/maps?q=${lat},${lng}`
+      } else {
+        const addr = addressInput.value.trim()
+        if (isUrl(addr)) {
+          mapLink.href = addr
+        } else {
+          const q = [nameInput.value.trim(), addr, areaSel.value !== '__new__' ? areaSel.value : areaNewInput.value.trim(), 'Japan']
+            .filter(Boolean).join(' ')
+          mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`
+        }
+      }
+    }
+    updateMapLink()
+    addressInput.addEventListener('input', updateMapLink)
+    nameInput.addEventListener('input', updateMapLink)
+
+    areaSel.addEventListener('change', () => {
+      if (areaSel.value === '__new__') {
+        areaNewInput.hidden = false
+        areaNewInput.focus()
+      } else {
+        areaNewInput.hidden = true
+        areaNewInput.value = ''
+      }
+      updateMapLink()
+    })
+    function chosenArea() {
+      if (areaSel.value === '__new__') return areaNewInput.value.trim()
+      return areaSel.value
+    }
+
+    function chosenTripIds() {
+      return Array.from(document.querySelectorAll('.s-trip'))
+        .filter((c) => c.checked)
+        .map((c) => c.value)
+    }
 
     function showMsg(text, ok) {
       msg.hidden = false
@@ -94,6 +177,7 @@ import Base from '../layouts/Base.astro'
           coords.hidden = false
           coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
             `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
+          updateMapLink()
           locateBtn.disabled = false
           locateBtn.textContent = '📍 Update location'
         },
@@ -122,7 +206,10 @@ import Base from '../layouts/Base.astro'
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             shopName: nameInput.value.trim(),
-            area: areaSel.value || undefined,
+            placeType: typeSel.value,
+            tripIds: chosenTripIds(),
+            area: chosenArea() || undefined,
+            openingHours: hoursInput.value.trim() || undefined,
             note: noteInput.value.trim() || undefined,
             priority: prioritySel.value,
             address: addressInput.value.trim() || undefined,
@@ -137,15 +224,17 @@ import Base from '../layouts/Base.astro'
         }
         showMsg('Saved ✓', true)
 
-        // Reset for the next shop.
         nameInput.value = ''
         noteInput.value = ''
         addressInput.value = ''
+        hoursInput.value = ''
         prioritySel.value = 'maybe'
+        document.querySelectorAll('.s-trip').forEach((c) => { c.checked = false })
         lat = null
         lng = null
         coords.hidden = true
         locateBtn.textContent = '📍 Use my location'
+        updateMapLink()
         nameInput.focus()
       } catch (e) {
         showMsg('Network error.', false)
@@ -168,6 +257,16 @@ import Base from '../layouts/Base.astro'
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
       font-family: inherit; box-sizing: border-box;
     }
+    .map-open-btn {
+      display: inline-block; margin-top: 0.5rem;
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.45rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
+    }
+    .map-open-btn:hover { background: rgba(255,255,255,0.04); }
+    .trip-checks { display: flex; flex-direction: column; gap: 0.5rem; }
+    .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .trip-check input { width: auto; margin: 0; }
+    .trip-check span { font-size: 0.95rem; }
     .locate-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
       padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;

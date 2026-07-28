@@ -1,8 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
 
-// Base: Akihabara. Approximate train times from Akihabara by area (minutes).
-// These are rough public-transit estimates, not live routing.
 const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Akihabara': 0,
   'Shinjuku': 15,
@@ -15,10 +13,9 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Shinagawa': 12,
 }
 
-// The plan, built from your 2026 shops. Each day = one area, ordered sensibly.
 const PLAN = [
   {
-    date: '1. des (man)', area: 'Akihabara',
+    date: '1. des (tue)', area: 'Akihabara',
     stops: [
       { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '' },
       { name: 'Super Potato', hours: '11:00–20:00', tag: 'MUST' },
@@ -26,6 +23,7 @@ const PLAN = [
       { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '' },
       { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '' },
       { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '' },
+      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · 30 sek fra Super Potato · tsukemen', tag: 'mat' },
       { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '' },
       { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '' },
       { name: 'Final Fantasy Eorzea Cafe', hours: '10:45–23:00', tag: 'mat' },
@@ -33,16 +31,18 @@ const PLAN = [
       { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '' },
       { name: '3COINS', hours: '10:00–21:00', tag: '' },
       { name: 'Kamikaze Style Akihabara', hours: '10:00–21:00', tag: '' },
+      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 / middag 17:30–20:30 · stengt helg · 4.9★', tag: 'mat' },
       { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '' },
       { name: 'Darumanome Akihabara', hours: '10:30–22:00', tag: 'mat' },
     ],
   },
   {
-    date: '2. des (tir)', area: 'Shinjuku',
+    date: '2. des (wed)', area: 'Shinjuku',
     stops: [
       { name: 'Yodobashi Shinjuku (Game)', hours: '09:30–22:00', tag: '' },
       { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST' },
       { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST' },
+      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · rett ved ARTNIA · kontant · chicken paitan', tag: 'mat' },
       { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '' },
       { name: 'Bic Camera Shinjuku West', hours: '10:00–22:00', tag: '' },
       { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '' },
@@ -51,15 +51,17 @@ const PLAN = [
       { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '' },
       { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '' },
       { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '' },
+      { name: '🍣 Sushi Hatsume (omakase)', hours: 'middag 17–22 · bestill bord · 4.9★', tag: 'mat' },
       { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '' },
     ],
   },
   {
-    date: '3. des (ons)', area: 'Ikebukuro',
+    date: '3. des (thur)', area: 'Ikebukuro',
     stops: [
       { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '' },
       { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '' },
       { name: 'Donguri (Ghibli) Ikebukuro', hours: '10:00–20:00', tag: '' },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22 · 4.8★ · 2. etg, heis', tag: 'mat' },
       { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '' },
       { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '' },
       { name: 'Sen', hours: '11:00–22:00', tag: 'mat' },
@@ -67,18 +69,19 @@ const PLAN = [
     ],
   },
   {
-    date: '4. des (tor)', area: 'Shibuya + Harajuku',
+    date: '4. des (fri)', area: 'Shibuya + Harajuku',
     stops: [
       { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '' },
       { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '' },
       { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '' },
       { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '' },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00 · billig · rett ved PARCO', tag: 'mat' },
       { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '' },
       { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku' },
     ],
   },
   {
-    date: '5. des (fre)', area: 'Tokyo Station + Shinagawa',
+    date: '5. des (sat)', area: 'Tokyo Station + Shinagawa',
     stops: [
       { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen' },
       { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:00', tag: '' },
@@ -89,13 +92,14 @@ const PLAN = [
     ],
   },
   {
-    date: '6. des (lør)', area: 'Nakano + Shibuya-rest',
+    date: '6. des (sun)', area: 'Nakano + Shibuya-rest',
     stops: [
       { name: 'Nakano Broadway', hours: '10:00–20:00', tag: 'sett av tid' },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00 · velg egne ingredienser · nær Broadway', tag: 'mat' },
     ],
   },
   {
-    date: '7. des (søn)', area: 'Yokohama',
+    date: '7. des (mon)', area: 'Yokohama',
     stops: [
       { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '' },
       { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna' },
@@ -112,6 +116,7 @@ const PLAN = [
   <p class="hint">
     Dra butikkene opp/ned for å endre rekkefølge. Endringene huskes på denne enheten.
     Reisetid er omtrentlig togtid fra Akihabara — grov pekepinn, ikke eksakt rute.
+    Restauranter (🍜🍣) er forslag fra nett — sjekk åpningstider på nytt før turen.
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </p>
 
@@ -120,13 +125,12 @@ const PLAN = [
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB })}></script>
 
   <script>
-    const STORE_KEY = 'ff-itinerary-order-v1'
+    const STORE_KEY = 'ff-itinerary-order-v2'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
-    // Load saved order (array of arrays of stop names) if present.
     function loadOrder() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
     }
@@ -134,13 +138,11 @@ const PLAN = [
       try { localStorage.setItem(STORE_KEY, JSON.stringify(order)) } catch {}
     }
 
-    // Build a working copy, applying any saved order.
     function buildState() {
       const saved = loadOrder()
       return plan.map((day, di) => {
         let stops = day.stops.slice()
         if (saved && saved[di]) {
-          // Reorder stops to match saved name order; append any new ones.
           const byName = new Map(stops.map((s) => [s.name, s]))
           const ordered = []
           saved[di].forEach((nm) => { if (byName.has(nm)) { ordered.push(byName.get(nm)); byName.delete(nm) } })
@@ -154,7 +156,6 @@ const PLAN = [
     let state = buildState()
 
     function travelBadge(area) {
-      // Show approximate minutes from Akihabara for the day's area.
       const key = Object.keys(areaMin).find((k) => area.includes(k))
       const min = key != null ? areaMin[key] : null
       if (min == null) return ''
@@ -175,12 +176,11 @@ const PLAN = [
           <ul class="stop-list" data-day="${di}"></ul>
         `
         const ul = card.querySelector('.stop-list')
-        day.stops.forEach((s, si) => {
+        day.stops.forEach((s) => {
           const li = document.createElement('li')
-          li.className = 'stop'
+          li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           li.draggable = true
           li.dataset.day = di
-          li.dataset.idx = si
           const tagHtml = s.tag
             ? `<span class="stop-tag ${s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'}">${s.tag}</span>`
             : ''
@@ -199,20 +199,11 @@ const PLAN = [
       attachDnd()
     }
 
-    // Drag and drop within a day's list.
     let dragEl = null
     function attachDnd() {
       document.querySelectorAll('.stop').forEach((li) => {
-        li.addEventListener('dragstart', (e) => {
-          dragEl = li
-          li.classList.add('dragging')
-          e.dataTransfer.effectAllowed = 'move'
-        })
-        li.addEventListener('dragend', () => {
-          li.classList.remove('dragging')
-          dragEl = null
-          persist()
-        })
+        li.addEventListener('dragstart', () => { dragEl = li; li.classList.add('dragging') })
+        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; persist() })
       })
       document.querySelectorAll('.stop-list').forEach((ul) => {
         ul.addEventListener('dragover', (e) => {
@@ -234,14 +225,12 @@ const PLAN = [
       }, { offset: -Infinity, element: null }).element
     }
 
-    // Read current DOM order back into state and save.
     function persist() {
       const order = []
       state.forEach((day, di) => {
         const ul = daysEl.querySelector(`.stop-list[data-day="${di}"]`)
         const names = [...ul.querySelectorAll('.stop-name')].map((n) => n.textContent)
         order[di] = names
-        // Reorder state to match.
         const byName = new Map(day.stops.map((s) => [s.name, s]))
         day.stops = names.map((nm) => byName.get(nm)).filter(Boolean)
       })
@@ -288,11 +277,12 @@ const PLAN = [
       background: rgba(26,12,18,0.5); border: 1px solid var(--border);
       border-radius: 8px; padding: 0.6rem 0.7rem; cursor: grab;
     }
+    .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
     .stop.dragging { opacity: 0.5; border-color: var(--accent); }
     .drag-handle { color: var(--muted); font-size: 1.1rem; cursor: grab; flex-shrink: 0; touch-action: none; }
     .stop-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
-    .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+    .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
     .stop-tag {
       flex-shrink: 0; font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.5rem;
       border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;

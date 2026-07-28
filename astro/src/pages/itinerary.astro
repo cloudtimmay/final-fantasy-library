@@ -1,6 +1,9 @@
 ---
 import Base from '../layouts/Base.astro'
 
+// Your accommodation — start and end of every day.
+const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
+
 const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Akihabara': 0, 'Shinjuku': 15, 'Ikebukuro': 15, 'Shibuya': 20,
   'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
@@ -105,18 +108,18 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Bruk <strong>▲▼</strong> for å flytte et stopp · <strong>✕</strong> for å fjerne · <strong>+ Legg til stopp</strong> nederst på hver dag · <strong>🗺️</strong> åpner dagens rute i Google Maps.</span>
+    <span>Hver dag starter og slutter på <strong>🏠 basen</strong>. Bruk <strong>▲▼</strong> for å flytte · <strong>✕</strong> for å fjerne · <strong>+</strong> for å legge til · <strong>🗺️</strong> åpner dagens rute (base → stopp → base) i Google Maps.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE })}></script>
 
   <script>
-    const STORE_KEY = 'ff-itinerary-v5'
+    const STORE_KEY = 'ff-itinerary-v6'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
-    const { plan, areaMin } = JSON.parse(raw)
+    const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
@@ -152,26 +155,34 @@ const PLAN = [
       const min = key != null ? areaMin[key] : null
       if (min == null) return ''
       if (min === 0) return '🏠 base'
-      return `🚃 ~${min} min fra Akihabara`
+      return `🚃 ~${min} min fra base`
     }
-    // Google Maps directions link with all stops of the day as waypoints (free, opens the app).
+    // Route: base → all stops → base, as a Google Maps directions link.
     function dayRouteUrl(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
-      if (pts.length === 0) return ''
-      if (pts.length === 1) return `https://www.google.com/maps/search/?api=1&query=${pts[0]}`
-      const origin = pts[0], destination = pts[pts.length - 1]
-      const waypoints = pts.slice(1, -1).join('|')
+      const baseP = `${base.lat},${base.lng}`
+      const all = [baseP, ...pts, baseP]
+      if (all.length < 2) return ''
+      const origin = all[0], destination = all[all.length - 1]
+      const waypoints = all.slice(1, -1).join('|')
       let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
       if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
       return url
     }
-    // Free embed map centred on the day's stops (single view, no key).
     function dayMapSrc(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
-      if (pts.length === 0) return ''
-      const avgLat = pts.reduce((s, p) => s + p.lat, 0) / pts.length
-      const avgLng = pts.reduce((s, p) => s + p.lng, 0) / pts.length
-      return `https://maps.google.com/maps?q=${avgLat},${avgLng}&z=15&output=embed`
+      const all = [base, ...pts]
+      const avgLat = all.reduce((s, p) => s + p.lat, 0) / all.length
+      const avgLng = all.reduce((s, p) => s + p.lng, 0) / all.length
+      return `https://maps.google.com/maps?q=${avgLat},${avgLng}&z=14&output=embed`
+    }
+
+    function baseRow(label) {
+      return `
+        <li class="stop is-base">
+          <div class="move-col"><span class="base-icon">🏠</span></div>
+          <span class="stop-body"><span class="stop-name">${label}</span></span>
+        </li>`
     }
 
     function render() {
@@ -189,12 +200,10 @@ const PLAN = [
             </div>
             <div class="day-travel">${travelBadge(day.area)}</div>
           </div>
-          ${mapSrc ? `
-            <div class="day-map">
-              <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Kart ${day.area}"></iframe>
-            </div>
-            ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne dagens rute i Google Maps</a>` : ''}
-          ` : ''}
+          <div class="day-map">
+            <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Kart ${day.area}"></iframe>
+          </div>
+          ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne dagens rute (base → stopp → base)</a>` : ''}
           <ul class="stop-list" data-day="${di}"></ul>
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
@@ -207,6 +216,15 @@ const PLAN = [
           </div>
         `
         const ul = card.querySelector('.stop-list')
+
+        // Start at base.
+        ul.insertAdjacentHTML('beforeend', baseRow('Start: base'))
+        const firstStop = day.stops[0]
+        if (firstStop) {
+          const wt = walkText(base, firstStop)
+          if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
+        }
+
         day.stops.forEach((s, si) => {
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
@@ -231,14 +249,18 @@ const PLAN = [
           const next = day.stops[si + 1]
           if (next) {
             const wt = walkText(s, next)
-            if (wt) {
-              const walk = document.createElement('li')
-              walk.className = 'walk-row'
-              walk.innerHTML = `<span class="walk-line">${wt} →</span>`
-              ul.appendChild(walk)
-            }
+            if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
           }
         })
+
+        // Return to base.
+        const lastStop = day.stops[day.stops.length - 1]
+        if (lastStop) {
+          const wt = walkText(lastStop, base)
+          if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
+        }
+        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base'))
+
         daysEl.appendChild(card)
       })
       attachEvents()
@@ -342,6 +364,9 @@ const PLAN = [
       border-radius: 8px; padding: 0.5rem 0.55rem;
     }
     .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
+    .stop.is-base { background: rgba(244,162,76,0.1); border-color: rgba(244,162,76,0.4); }
+    .base-icon { font-size: 1.1rem; width: 26px; text-align: center; }
+    .stop.is-base .stop-name { color: var(--accent); font-weight: 700; }
     .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
     .mv {
       background: var(--surface); color: var(--accent); border: 1px solid var(--border);

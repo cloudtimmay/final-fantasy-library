@@ -1,0 +1,122 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+// All shops with their trip labels, for export.
+const shops = await sanity.fetch(`
+  *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
+    shopName, placeType, area, priority, openingHours, note, address, latitude, longitude,
+    "trips": trips[]->label
+  }
+`)
+
+// All trips, so the page can offer a per-trip download.
+const trips = await sanity.fetch(
+  `*[_type == "tripSettings"] | order(_createdAt asc) { label }`
+)
+const tripLabels = trips.map((t: any) => t.label).filter(Boolean)
+---
+<Base title="Export shops">
+  <div class="exp-wrap">
+    <h1>Export shops</h1>
+    <p class="hint">Download your shop notes as a CSV. Optionally filter by trip first.</p>
+
+    {tripLabels.length > 0 && (
+      <div class="field">
+        <label>Trip</label>
+        <select id="trip-select">
+          <option value="">All trips</option>
+          {tripLabels.map((l: string) => <option value={l}>{l}</option>)}
+        </select>
+      </div>
+    )}
+
+    <button id="dl-btn" type="button" class="dl-btn">⬇ Download CSV</button>
+    <p id="dl-count" class="dl-count"></p>
+
+    <a href="/notes" class="back-link">← Back to shop notes</a>
+  </div>
+
+  <script type="application/json" id="shop-data" set:html={JSON.stringify(shops)}></script>
+
+  <script>
+    const raw = document.querySelector('#shop-data')?.textContent || '[]'
+    const allShops = JSON.parse(raw)
+    const tripSelect = document.querySelector('#trip-select')
+    const dlBtn = document.querySelector('#dl-btn')
+    const dlCount = document.querySelector('#dl-count')
+
+    function csvCell(v) {
+      if (v == null) return ''
+      const s = String(v)
+      // Quote if it contains comma, quote, or newline; escape inner quotes.
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+      return s
+    }
+
+    function currentRows() {
+      const trip = tripSelect ? tripSelect.value : ''
+      return allShops.filter((s) => {
+        if (!trip) return true
+        return Array.isArray(s.trips) && s.trips.includes(trip)
+      })
+    }
+
+    function updateCount() {
+      const n = currentRows().length
+      dlCount.textContent = `${n} shop${n === 1 ? '' : 's'} will be exported.`
+    }
+    updateCount()
+    if (tripSelect) tripSelect.addEventListener('change', updateCount)
+
+    dlBtn.addEventListener('click', () => {
+      const rows = currentRows()
+      const headers = ['shopName','placeType','area','priority','openingHours','note','address','latitude','longitude','trips']
+      const lines = [headers.join(',')]
+      rows.forEach((s) => {
+        lines.push([
+          csvCell(s.shopName),
+          csvCell(s.placeType),
+          csvCell(s.area),
+          csvCell(s.priority),
+          csvCell(s.openingHours),
+          csvCell(s.note),
+          csvCell(s.address),
+          csvCell(s.latitude),
+          csvCell(s.longitude),
+          csvCell(Array.isArray(s.trips) ? s.trips.join(' | ') : ''),
+        ].join(','))
+      })
+      const csv = '\ufeff' + lines.join('\n')  // BOM so Japanese text stays intact
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const trip = tripSelect ? tripSelect.value : ''
+      const today = new Date().toISOString().split('T')[0]
+      a.href = url
+      a.download = `shops${trip ? '-' + trip.replace(/[^a-z0-9]/gi, '_') : ''}-${today}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+  </script>
+
+  <style>
+    .exp-wrap { max-width: 480px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1.25rem; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field select {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+    }
+    .dl-btn {
+      background: var(--accent); color: #fff; border: none;
+      padding: 0.85rem 1.5rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .dl-count { font-size: 0.85rem; color: var(--muted); margin-top: 0.75rem; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

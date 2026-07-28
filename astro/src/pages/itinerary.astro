@@ -74,12 +74,12 @@ const PLAN = [
   {
     date: '5. des (fre)', area: 'Tokyo Station + Shinagawa',
     stops: [
-      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen', lat: null, lng: null },
+      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen', lat: 35.606832, lng: 139.734280 },
       { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.682496, lng: 139.768683 },
       { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', lat: 35.681627, lng: 139.768495 },
       { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', lat: 35.681347, lng: 139.768360 },
       { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.681858, lng: 139.768669 },
-      { name: 'Soranoiro Nippon (ramen)', hours: '09:00–22:30', tag: 'mat', lat: null, lng: null },
+      { name: 'Soranoiro Nippon (ramen)', hours: '09:00–22:30', tag: 'mat', lat: 35.680810, lng: 139.769230 },
     ],
   },
   {
@@ -93,7 +93,7 @@ const PLAN = [
     date: '7. des (søn)', area: 'Yokohama',
     stops: [
       { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', lat: 35.464556, lng: 139.624649 },
-      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna', lat: null, lng: null },
+      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna', lat: 35.417500, lng: 139.660800 },
     ],
   },
 ]
@@ -105,8 +105,8 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>✋ Dra i <strong>⠿</strong>-håndtaket for å endre rekkefølge · trykk <strong>✕</strong> for å fjerne · <strong>+ Legg til stopp</strong> nederst på hver dag.</span>
-    <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill alt</button>
+    <span>Bruk <strong>▲▼</strong> for å flytte et stopp · <strong>✕</strong> for å fjerne · <strong>+ Legg til stopp</strong> nederst på hver dag · <strong>🗺️</strong> åpner dagens rute i Google Maps.</span>
+    <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
   <div id="days"></div>
@@ -114,39 +114,31 @@ const PLAN = [
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB })}></script>
 
   <script>
-    const STORE_KEY = 'ff-itinerary-v4'
+    const STORE_KEY = 'ff-itinerary-v5'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
-    // Saved state: per-day array of full stop objects (reflects order + adds + removes).
-    // A day with no saved entry falls back to the base plan.
     function loadSaved() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
     }
     function saveState() {
-      try {
-        const out = state.map((d) => d.stops)
-        localStorage.setItem(STORE_KEY, JSON.stringify(out))
-      } catch {}
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.map((d) => d.stops))) } catch {}
     }
-
     function buildState() {
       const saved = loadSaved()
-      return plan.map((day, di) => {
-        const stops = (saved && saved[di]) ? saved[di] : day.stops.slice()
-        return { date: day.date, area: day.area, stops }
-      })
+      return plan.map((day, di) => ({
+        date: day.date, area: day.area,
+        stops: (saved && saved[di]) ? saved[di] : day.stops.slice(),
+      }))
     }
-
     let state = buildState()
 
     function distM(a, b) {
       const R = 6371000, toRad = (d) => d * Math.PI / 180
       const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng)
-      const lat1 = toRad(a.lat), lat2 = toRad(b.lat)
-      const x = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2
+      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2
       return 2 * R * Math.asin(Math.sqrt(x))
     }
     function walkText(a, b) {
@@ -159,8 +151,27 @@ const PLAN = [
       const key = Object.keys(areaMin).find((k) => area.includes(k))
       const min = key != null ? areaMin[key] : null
       if (min == null) return ''
-      if (min === 0) return '<span class="travel">🏠 base</span>'
-      return `<span class="travel">🚃 ~${min} min fra Akihabara</span>`
+      if (min === 0) return '🏠 base'
+      return `🚃 ~${min} min fra Akihabara`
+    }
+    // Google Maps directions link with all stops of the day as waypoints (free, opens the app).
+    function dayRouteUrl(day) {
+      const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
+      if (pts.length === 0) return ''
+      if (pts.length === 1) return `https://www.google.com/maps/search/?api=1&query=${pts[0]}`
+      const origin = pts[0], destination = pts[pts.length - 1]
+      const waypoints = pts.slice(1, -1).join('|')
+      let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
+      if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
+      return url
+    }
+    // Free embed map centred on the day's stops (single view, no key).
+    function dayMapSrc(day) {
+      const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
+      if (pts.length === 0) return ''
+      const avgLat = pts.reduce((s, p) => s + p.lat, 0) / pts.length
+      const avgLng = pts.reduce((s, p) => s + p.lng, 0) / pts.length
+      return `https://maps.google.com/maps?q=${avgLat},${avgLng}&z=15&output=embed`
     }
 
     function render() {
@@ -168,11 +179,22 @@ const PLAN = [
       state.forEach((day, di) => {
         const card = document.createElement('div')
         card.className = 'day-card'
+        const routeUrl = dayRouteUrl(day)
+        const mapSrc = dayMapSrc(day)
         card.innerHTML = `
           <div class="day-head">
-            <div class="day-title">${day.date}</div>
-            <div class="day-area">${day.area} ${travelBadge(day.area)}</div>
+            <div>
+              <div class="day-title">${day.date}</div>
+              <div class="day-area">${day.area}</div>
+            </div>
+            <div class="day-travel">${travelBadge(day.area)}</div>
           </div>
+          ${mapSrc ? `
+            <div class="day-map">
+              <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Kart ${day.area}"></iframe>
+            </div>
+            ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne dagens rute i Google Maps</a>` : ''}
+          ` : ''}
           <ul class="stop-list" data-day="${di}"></ul>
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
@@ -188,17 +210,18 @@ const PLAN = [
         day.stops.forEach((s, si) => {
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
-          li.draggable = true
-          li.dataset.day = di
-          li.dataset.idx = si
           const tagHtml = s.tag
             ? `<span class="stop-tag ${s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'}">${s.tag}</span>`
             : ''
+          const gmap = (s.lat != null) ? `https://www.google.com/maps?q=${s.lat},${s.lng}` : ''
           li.innerHTML = `
-            <span class="drag-handle" title="Dra for å flytte">⠿</span>
-            <span class="stop-num">${si + 1}</span>
+            <div class="move-col">
+              <button class="mv up" data-day="${di}" data-idx="${si}" ${si === 0 ? 'disabled' : ''} title="Opp">▲</button>
+              <span class="stop-num">${si + 1}</span>
+              <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
+            </div>
             <span class="stop-body">
-              <span class="stop-name">${s.name}</span>
+              <span class="stop-name">${gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${s.name}</a>` : s.name}</span>
               ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
             </span>
             ${tagHtml}
@@ -221,34 +244,29 @@ const PLAN = [
       attachEvents()
     }
 
-    let dragEl = null
+    function move(di, idx, delta) {
+      const arr = state[di].stops
+      const ni = idx + delta
+      if (ni < 0 || ni >= arr.length) return
+      ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
+      saveState(); render()
+    }
+
     function attachEvents() {
-      document.querySelectorAll('.stop').forEach((li) => {
-        li.addEventListener('dragstart', () => { dragEl = li; li.classList.add('dragging') })
-        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; syncFromDom() })
-      })
-      document.querySelectorAll('.stop-list').forEach((ul) => {
-        ul.addEventListener('dragover', (e) => {
-          e.preventDefault()
-          if (!dragEl || dragEl.dataset.day !== ul.dataset.day) return
-          const after = getAfter(ul, e.clientY)
-          if (after == null) ul.appendChild(dragEl)
-          else ul.insertBefore(dragEl, after)
-        })
-      })
-      document.querySelectorAll('.remove-btn').forEach((btn) => {
+      document.querySelectorAll('.mv.up').forEach((b) =>
+        b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
+      document.querySelectorAll('.mv.down').forEach((b) =>
+        b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
+      document.querySelectorAll('.remove-btn').forEach((btn) =>
         btn.addEventListener('click', () => {
-          const di = +btn.dataset.day, idx = +btn.dataset.idx
-          state[di].stops.splice(idx, 1)
+          state[+btn.dataset.day].stops.splice(+btn.dataset.idx, 1)
           saveState(); render()
-        })
-      })
-      document.querySelectorAll('.add-stop-btn').forEach((btn) => {
+        }))
+      document.querySelectorAll('.add-stop-btn').forEach((btn) =>
         btn.addEventListener('click', () => {
           const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
           if (form) { form.hidden = false; form.querySelector('.af-name').focus() }
-        })
-      })
+        }))
       document.querySelectorAll('.add-form').forEach((form) => {
         const di = +form.dataset.day
         form.querySelector('.af-cancel').addEventListener('click', () => {
@@ -263,27 +281,9 @@ const PLAN = [
         })
       })
     }
-    function getAfter(ul, y) {
-      const els = [...ul.querySelectorAll('.stop:not(.dragging)')]
-      return els.reduce((closest, child) => {
-        const box = child.getBoundingClientRect()
-        const offset = y - box.top - box.height / 2
-        if (offset < 0 && offset > closest.offset) return { offset, element: child }
-        return closest
-      }, { offset: -Infinity, element: null }).element
-    }
-    function syncFromDom() {
-      state.forEach((day, di) => {
-        const ul = daysEl.querySelector(`.stop-list[data-day="${di}"]`)
-        const names = [...ul.querySelectorAll('.stop-name')].map((n) => n.textContent)
-        const byName = new Map(day.stops.map((s) => [s.name, s]))
-        day.stops = names.map((nm) => byName.get(nm)).filter(Boolean)
-      })
-      saveState(); render()
-    }
 
     resetBtn.addEventListener('click', () => {
-      if (!confirm('Tilbakestille hele planen til utgangspunktet? Dine endringer forsvinner.')) return
+      if (!confirm('Tilbakestille hele planen? Dine endringer forsvinner.')) return
       try { localStorage.removeItem(STORE_KEY) } catch {}
       state = plan.map((d) => ({ date: d.date, area: d.area, stops: d.stops.slice() }))
       render()
@@ -294,7 +294,7 @@ const PLAN = [
 
   <style>
     .plan-tip {
-      font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 640px;
+      font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 680px;
       background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.25);
       border-radius: 8px; padding: 0.7rem 0.9rem;
       display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
@@ -306,46 +306,61 @@ const PLAN = [
     }
     .reset-btn:hover { border-color: var(--accent); }
 
-    #days { display: flex; flex-direction: column; gap: 1.25rem; max-width: 640px; }
+    #days { display: flex; flex-direction: column; gap: 1.5rem; max-width: 680px; }
     .day-card {
       background: var(--surface); border: 1px solid rgba(176,30,52,0.25);
-      border-radius: 10px; padding: 1rem; overflow: hidden;
+      border-radius: 10px; padding: 1rem; overflow: hidden; max-width: 100%; box-sizing: border-box;
     }
     .day-head {
-      display: flex; justify-content: space-between; align-items: baseline;
+      display: flex; justify-content: space-between; align-items: flex-start;
       gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;
       padding-bottom: 0.6rem; border-bottom: 1px solid rgba(176,30,52,0.2);
     }
     .day-title {
-      font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 1rem;
+      font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 1.05rem;
       color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
     }
-    .day-area { font-size: 0.85rem; color: var(--text); display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-    .travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+    .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
+    .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; }
+
+    .day-map {
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+      margin-bottom: 0.6rem; max-width: 100%; background: var(--bg);
+    }
+    .day-map iframe { display: block; width: 100%; max-width: 100%; height: 200px; border: 0; }
+    .route-btn {
+      display: block; text-align: center; background: var(--bg); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.55rem; border-radius: 8px;
+      text-decoration: none; font-size: 0.88rem; font-weight: 600; margin-bottom: 0.9rem;
+    }
+    .route-btn:hover { background: rgba(244,162,76,0.1); }
 
     .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
     .stop {
       display: flex; align-items: center; gap: 0.5rem;
       background: rgba(26,12,18,0.5); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.6rem 0.6rem; cursor: grab;
+      border-radius: 8px; padding: 0.5rem 0.55rem;
     }
     .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
-    .stop.dragging { opacity: 0.5; border-color: var(--accent); }
-    .drag-handle {
-      color: var(--accent); font-size: 1.25rem; cursor: grab; flex-shrink: 0;
-      touch-action: none; opacity: 0.7; line-height: 1;
+    .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
+    .mv {
+      background: var(--surface); color: var(--accent); border: 1px solid var(--border);
+      width: 26px; height: 22px; border-radius: 5px; cursor: pointer; font-size: 0.7rem;
+      display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
     }
+    .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
+    .mv:disabled { opacity: 0.25; cursor: default; }
     .stop-num {
-      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
-      background: var(--border); color: var(--text); font-size: 0.7rem; font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.7rem; font-weight: 700; color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace; margin: 1px 0;
     }
     .stop-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
+    .stop-name a { color: var(--text); text-decoration: none; }
+    .stop-name a:hover { color: var(--accent); text-decoration: underline; }
     .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
     .stop-tag {
-      flex-shrink: 0; font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.5rem;
+      flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;
       border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;
     }
     .stop-tag.must { background: #e74c3c; color: #fff; }
@@ -353,11 +368,11 @@ const PLAN = [
     .stop-tag.note { background: var(--border); color: var(--text); }
     .remove-btn {
       flex-shrink: 0; background: none; border: none; color: var(--muted);
-      font-size: 0.95rem; cursor: pointer; padding: 0.2rem 0.35rem; line-height: 1; border-radius: 4px;
+      font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.3rem; line-height: 1; border-radius: 4px;
     }
     .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
 
-    .walk-row { padding: 0.05rem 0 0.05rem 2rem; }
+    .walk-row { padding: 0.05rem 0 0.05rem 2.2rem; }
     .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
 
     .add-stop-btn {

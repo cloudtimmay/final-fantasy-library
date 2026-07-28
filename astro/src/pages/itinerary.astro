@@ -2,107 +2,101 @@
 import Base from '../layouts/Base.astro'
 
 const AREA_MIN_FROM_AKIB: Record<string, number> = {
-  'Akihabara': 0,
-  'Shinjuku': 15,
-  'Ikebukuro': 15,
-  'Shibuya': 20,
-  'Harajuku': 22,
-  'Tokyo Station': 5,
-  'Nakano': 25,
-  'Yokohama': 45,
-  'Shinagawa': 12,
+  'Akihabara': 0, 'Shinjuku': 15, 'Ikebukuro': 15, 'Shibuya': 20,
+  'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
 }
 
+// Each stop now carries coordinates (lat/lng) so the page can estimate
+// walking time to the next stop. Restaurants have no coords → treated as
+// same-area, no walk estimate shown.
 const PLAN = [
   {
-    date: '1. des (tue)', area: 'Akihabara',
+    date: '1. des (man)', area: 'Akihabara',
     stops: [
-      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '' },
-      { name: 'Super Potato', hours: '11:00–20:00', tag: 'MUST' },
-      { name: 'Animate', hours: '10:00–21:00', tag: 'MUST' },
-      { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '' },
-      { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '' },
-      { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '' },
-      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · 30 sek fra Super Potato · tsukemen', tag: 'mat' },
-      { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '' },
-      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '' },
-      { name: 'Final Fantasy Eorzea Cafe', hours: '10:45–23:00', tag: 'mat' },
-      { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '' },
-      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '' },
-      { name: '3COINS', hours: '10:00–21:00', tag: '' },
-      { name: 'Kamikaze Style Akihabara', hours: '10:00–21:00', tag: '' },
-      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 / middag 17:30–20:30 · stengt helg · 4.9★', tag: 'mat' },
-      { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '' },
-      { name: 'Darumanome Akihabara', hours: '10:30–22:00', tag: 'mat' },
+      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '', lat: 35.698917, lng: 139.774798 },
+      { name: 'Super Potato', hours: '11:00–20:00', tag: 'MUST', lat: 35.699358, lng: 139.770702 },
+      { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', lat: 35.700494, lng: 139.771743 },
+      { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', lat: 35.699229, lng: 139.770461 },
+      { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', lat: 35.701461, lng: 139.771787 },
+      { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', lat: 35.702324, lng: 139.771887 },
+      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · 30 sek fra Super Potato · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
+      { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '', lat: 35.701199, lng: 139.771271 },
+      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', lat: 35.702083, lng: 139.771894 },
+      { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', lat: 35.702057, lng: 139.769845 },
+      { name: 'Final Fantasy Eorzea Cafe', hours: '10:45–23:00', tag: 'mat', lat: 35.697776, lng: 139.770364 },
+      { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', lat: 35.699830, lng: 139.771788 },
+      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', lat: 35.697734, lng: 139.773475 },
+      { name: '3COINS', hours: '10:00–21:00', tag: '', lat: 35.698373, lng: 139.772696 },
+      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 / middag 17:30–20:30 · stengt helg', tag: 'mat', lat: 35.700344, lng: 139.775282 },
+      { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '', lat: 35.703070, lng: 139.772150 },
+      { name: 'Darumanome', hours: '10:30–22:00', tag: 'mat', lat: 35.698878, lng: 139.770472 },
     ],
   },
   {
-    date: '2. des (wed)', area: 'Shinjuku',
+    date: '2. des (tir)', area: 'Shinjuku',
     stops: [
-      { name: 'Yodobashi Shinjuku (Game)', hours: '09:30–22:00', tag: '' },
-      { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST' },
-      { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST' },
-      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · rett ved ARTNIA · kontant · chicken paitan', tag: 'mat' },
-      { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '' },
-      { name: 'Bic Camera Shinjuku West', hours: '10:00–22:00', tag: '' },
-      { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '' },
-      { name: 'Book-Off Shinjuku', hours: '10:00–22:00', tag: '' },
-      { name: 'DAISO', hours: '10:00–21:00', tag: '' },
-      { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '' },
-      { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '' },
-      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '' },
-      { name: '🍣 Sushi Hatsume (omakase)', hours: 'middag 17–22 · bestill bord · 4.9★', tag: 'mat' },
-      { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '' },
+      { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', lat: 35.689883, lng: 139.697953 },
+      { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', lat: 35.696102, lng: 139.709009 },
+      { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', lat: 35.690151, lng: 139.705842 },
+      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · rett ved ARTNIA · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
+      { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', lat: 35.690903, lng: 139.704070 },
+      { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', lat: 35.692513, lng: 139.698556 },
+      { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', lat: 35.689568, lng: 139.698385 },
+      { name: 'DAISO', hours: '10:00–22:00', tag: '', lat: 35.691304, lng: 139.702974 },
+      { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', lat: 35.692699, lng: 139.706307 },
+      { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', lat: 35.689356, lng: 139.697787 },
+      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', lat: 35.689910, lng: 139.702255 },
+      { name: '🍣 Sushi Hatsume (omakase)', hours: 'middag 17–22 · bestill bord', tag: 'mat', lat: 35.694050, lng: 139.698016 },
+      { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', lat: 35.712735, lng: 139.703455 },
     ],
   },
   {
-    date: '3. des (thur)', area: 'Ikebukuro',
+    date: '3. des (ons)', area: 'Ikebukuro',
     stops: [
-      { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '' },
-      { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '' },
-      { name: 'Donguri (Ghibli) Ikebukuro', hours: '10:00–20:00', tag: '' },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22 · 4.8★ · 2. etg, heis', tag: 'mat' },
-      { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '' },
-      { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '' },
-      { name: 'Sen', hours: '11:00–22:00', tag: 'mat' },
-      { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '' },
+      { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', lat: 35.731144, lng: 139.715459 },
+      { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', lat: 35.728499, lng: 139.719797 },
+      { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', lat: 35.728862, lng: 139.719377 },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22 · 2. etg, heis', tag: 'mat', lat: 35.733522, lng: 139.709866 },
+      { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', lat: 35.730857, lng: 139.712384 },
+      { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', lat: 35.731606, lng: 139.712377 },
+      { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', lat: 35.729680, lng: 139.715769 },
     ],
   },
   {
-    date: '4. des (fri)', area: 'Shibuya + Harajuku',
+    date: '4. des (tor)', area: 'Shibuya + Harajuku',
     stops: [
-      { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '' },
-      { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '' },
-      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '' },
-      { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '' },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00 · billig · rett ved PARCO', tag: 'mat' },
-      { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '' },
-      { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku' },
+      { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', lat: 35.662116, lng: 139.698639 },
+      { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', lat: 35.661834, lng: 139.698776 },
+      { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', lat: 35.659766, lng: 139.700826 },
+      { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', lat: 35.660387, lng: 139.697817 },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00 · rett ved PARCO', tag: 'mat', lat: 35.659435, lng: 139.697921 },
+      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', lat: 35.657255, lng: 139.701621 },
+      { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', lat: 35.668369, lng: 139.704914 },
     ],
   },
   {
-    date: '5. des (sat)', area: 'Tokyo Station + Shinagawa',
+    date: '5. des (fre)', area: 'Tokyo Station + Shinagawa',
     stops: [
-      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen' },
-      { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:00', tag: '' },
-      { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '' },
-      { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '' },
-      { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30?', tag: 'sjekk tid' },
-      { name: 'Soranoiro Nippon (ramen)', hours: '09:00–22:30', tag: 'mat' },
+      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen', lat: null, lng: null },
+      { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.682496, lng: 139.768683 },
+      { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', lat: 35.681627, lng: 139.768495 },
+      { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', lat: 35.681347, lng: 139.768360 },
+      { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.681858, lng: 139.768669 },
+      { name: 'Soranoiro Nippon (ramen)', hours: '09:00–22:30', tag: 'mat', lat: null, lng: null },
     ],
   },
   {
-    date: '6. des (sun)', area: 'Nakano + Shibuya-rest',
+    date: '6. des (lør)', area: 'Nakano',
     stops: [
-      { name: 'Nakano Broadway', hours: '10:00–20:00', tag: 'sett av tid' },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00 · velg egne ingredienser · nær Broadway', tag: 'mat' },
+      { name: 'Nakano Broadway', hours: '10:00–20:00', tag: 'sett av tid', lat: 35.709248, lng: 139.665652 },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00 · nær Broadway', tag: 'mat', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
-    date: '7. des (mon)', area: 'Yokohama',
+    date: '7. des (søn)', area: 'Yokohama',
     stops: [
-      { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '' },
-      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna' },
+      { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', lat: 35.464556, lng: 139.624649 },
+      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna', lat: null, lng: null },
     ],
   },
 ]
@@ -114,9 +108,9 @@ const PLAN = [
   </div>
 
   <p class="hint">
-    Dra butikkene opp/ned for å endre rekkefølge. Endringene huskes på denne enheten.
-    Reisetid er omtrentlig togtid fra Akihabara — grov pekepinn, ikke eksakt rute.
-    Restauranter (🍜🍣) er forslag fra nett — sjekk åpningstider på nytt før turen.
+    Dra butikkene opp/ned for å endre rekkefølge — gangtiden mellom stoppene regnes om automatisk.
+    Gangtid er anslått fra luftlinje (grov pekepinn, ikke eksakt rute).
+    Restauranter (🍜🍣) er forslag fra nett — sjekk åpningstider før turen.
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </p>
 
@@ -125,7 +119,7 @@ const PLAN = [
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB })}></script>
 
   <script>
-    const STORE_KEY = 'ff-itinerary-order-v2'
+    const STORE_KEY = 'ff-itinerary-order-v3'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
@@ -155,6 +149,29 @@ const PLAN = [
 
     let state = buildState()
 
+    // Haversine distance in metres.
+    function distM(a, b) {
+      const R = 6371000
+      const toRad = (d) => d * Math.PI / 180
+      const dLat = toRad(b.lat - a.lat)
+      const dLng = toRad(b.lng - a.lng)
+      const lat1 = toRad(a.lat), lat2 = toRad(b.lat)
+      const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
+      return 2 * R * Math.asin(Math.sqrt(x))
+    }
+
+    // Walking estimate: straight-line × 1.4 (street factor), ~80 m/min.
+    function walkText(a, b) {
+      if (!a || !b || a.lat == null || b.lat == null) return ''
+      const straight = distM(a, b)
+      const walkM = straight * 1.4
+      if (walkM > 2500) {
+        return `🚃 ~${Math.round(walkM / 1000 * 3)} min (ta tog)`
+      }
+      const min = Math.max(1, Math.round(walkM / 80))
+      return `🚶 ~${min} min · ${Math.round(walkM)} m`
+    }
+
     function travelBadge(area) {
       const key = Object.keys(areaMin).find((k) => area.includes(k))
       const min = key != null ? areaMin[key] : null
@@ -176,7 +193,7 @@ const PLAN = [
           <ul class="stop-list" data-day="${di}"></ul>
         `
         const ul = card.querySelector('.stop-list')
-        day.stops.forEach((s) => {
+        day.stops.forEach((s, si) => {
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           li.draggable = true
@@ -193,6 +210,17 @@ const PLAN = [
             ${tagHtml}
           `
           ul.appendChild(li)
+          // Walk estimate to next stop.
+          const next = day.stops[si + 1]
+          if (next) {
+            const wt = walkText(s, next)
+            if (wt) {
+              const walk = document.createElement('li')
+              walk.className = 'walk-row'
+              walk.innerHTML = `<span class="walk-line">${wt} →</span>`
+              ul.appendChild(walk)
+            }
+          }
         })
         daysEl.appendChild(card)
       })
@@ -203,7 +231,7 @@ const PLAN = [
     function attachDnd() {
       document.querySelectorAll('.stop').forEach((li) => {
         li.addEventListener('dragstart', () => { dragEl = li; li.classList.add('dragging') })
-        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; persist() })
+        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; persistAndRerender() })
       })
       document.querySelectorAll('.stop-list').forEach((ul) => {
         ul.addEventListener('dragover', (e) => {
@@ -225,7 +253,7 @@ const PLAN = [
       }, { offset: -Infinity, element: null }).element
     }
 
-    function persist() {
+    function persistAndRerender() {
       const order = []
       state.forEach((day, di) => {
         const ul = daysEl.querySelector(`.stop-list[data-day="${di}"]`)
@@ -235,6 +263,7 @@ const PLAN = [
         day.stops = names.map((nm) => byName.get(nm)).filter(Boolean)
       })
       saveOrder(order)
+      render()  // re-render so walk estimates update to the new order
     }
 
     resetBtn.addEventListener('click', () => {
@@ -271,7 +300,7 @@ const PLAN = [
     .day-area { font-size: 0.85rem; color: var(--text); display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
 
-    .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+    .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
     .stop {
       display: flex; align-items: center; gap: 0.6rem;
       background: rgba(26,12,18,0.5); border: 1px solid var(--border);
@@ -290,5 +319,11 @@ const PLAN = [
     .stop-tag.must { background: #e74c3c; color: #fff; }
     .stop-tag.food { background: #f39c12; color: #2a1a04; }
     .stop-tag.note { background: var(--border); color: var(--text); }
+
+    .walk-row { padding: 0.1rem 0 0.1rem 1.5rem; }
+    .walk-line {
+      font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace;
+      letter-spacing: 0.02em;
+    }
   </style>
 </Base>

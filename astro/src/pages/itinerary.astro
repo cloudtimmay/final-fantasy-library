@@ -6,9 +6,6 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
 }
 
-// Each stop now carries coordinates (lat/lng) so the page can estimate
-// walking time to the next stop. Restaurants have no coords → treated as
-// same-area, no walk estimate shown.
 const PLAN = [
   {
     date: '1. des (man)', area: 'Akihabara',
@@ -19,7 +16,7 @@ const PLAN = [
       { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', lat: 35.699229, lng: 139.770461 },
       { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', lat: 35.701461, lng: 139.771787 },
       { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', lat: 35.702324, lng: 139.771887 },
-      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · 30 sek fra Super Potato · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
+      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
       { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '', lat: 35.701199, lng: 139.771271 },
       { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', lat: 35.702083, lng: 139.771894 },
       { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', lat: 35.702057, lng: 139.769845 },
@@ -27,7 +24,7 @@ const PLAN = [
       { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', lat: 35.699830, lng: 139.771788 },
       { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', lat: 35.697734, lng: 139.773475 },
       { name: '3COINS', hours: '10:00–21:00', tag: '', lat: 35.698373, lng: 139.772696 },
-      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 / middag 17:30–20:30 · stengt helg', tag: 'mat', lat: 35.700344, lng: 139.775282 },
+      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 · stengt helg', tag: 'mat', lat: 35.700344, lng: 139.775282 },
       { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '', lat: 35.703070, lng: 139.772150 },
       { name: 'Darumanome', hours: '10:30–22:00', tag: 'mat', lat: 35.698878, lng: 139.770472 },
     ],
@@ -38,7 +35,7 @@ const PLAN = [
       { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', lat: 35.689883, lng: 139.697953 },
       { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', lat: 35.696102, lng: 139.709009 },
       { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', lat: 35.690151, lng: 139.705842 },
-      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · rett ved ARTNIA · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
+      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
       { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', lat: 35.690903, lng: 139.704070 },
       { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', lat: 35.692513, lng: 139.698556 },
       { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', lat: 35.689568, lng: 139.698385 },
@@ -56,7 +53,7 @@ const PLAN = [
       { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', lat: 35.731144, lng: 139.715459 },
       { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', lat: 35.728499, lng: 139.719797 },
       { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', lat: 35.728862, lng: 139.719377 },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22 · 2. etg, heis', tag: 'mat', lat: 35.733522, lng: 139.709866 },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22', tag: 'mat', lat: 35.733522, lng: 139.709866 },
       { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', lat: 35.730857, lng: 139.712384 },
       { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', lat: 35.731606, lng: 139.712377 },
       { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', lat: 35.729680, lng: 139.715769 },
@@ -69,7 +66,7 @@ const PLAN = [
       { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', lat: 35.661834, lng: 139.698776 },
       { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', lat: 35.659766, lng: 139.700826 },
       { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', lat: 35.660387, lng: 139.697817 },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00 · rett ved PARCO', tag: 'mat', lat: 35.659435, lng: 139.697921 },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00', tag: 'mat', lat: 35.659435, lng: 139.697921 },
       { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', lat: 35.657255, lng: 139.701621 },
       { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', lat: 35.668369, lng: 139.704914 },
     ],
@@ -89,7 +86,7 @@ const PLAN = [
     date: '6. des (lør)', area: 'Nakano',
     stops: [
       { name: 'Nakano Broadway', hours: '10:00–20:00', tag: 'sett av tid', lat: 35.709248, lng: 139.665652 },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00 · nær Broadway', tag: 'mat', lat: 35.708064, lng: 139.665548 },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00', tag: 'mat', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
@@ -107,71 +104,57 @@ const PLAN = [
     <span class="count">1.–7. des · base Akihabara</span>
   </div>
 
-  <p class="hint">
-    Dra butikkene opp/ned for å endre rekkefølge — gangtiden mellom stoppene regnes om automatisk.
-    Gangtid er anslått fra luftlinje (grov pekepinn, ikke eksakt rute).
-    Restauranter (🍜🍣) er forslag fra nett — sjekk åpningstider før turen.
-    <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
-  </p>
+  <div class="plan-tip">
+    <span>✋ Dra i <strong>⠿</strong>-håndtaket for å endre rekkefølge · trykk <strong>✕</strong> for å fjerne · <strong>+ Legg til stopp</strong> nederst på hver dag.</span>
+    <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill alt</button>
+  </div>
 
   <div id="days"></div>
 
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB })}></script>
 
   <script>
-    const STORE_KEY = 'ff-itinerary-order-v3'
+    const STORE_KEY = 'ff-itinerary-v4'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
-    function loadOrder() {
+    // Saved state: per-day array of full stop objects (reflects order + adds + removes).
+    // A day with no saved entry falls back to the base plan.
+    function loadSaved() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
     }
-    function saveOrder(order) {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(order)) } catch {}
+    function saveState() {
+      try {
+        const out = state.map((d) => d.stops)
+        localStorage.setItem(STORE_KEY, JSON.stringify(out))
+      } catch {}
     }
 
     function buildState() {
-      const saved = loadOrder()
+      const saved = loadSaved()
       return plan.map((day, di) => {
-        let stops = day.stops.slice()
-        if (saved && saved[di]) {
-          const byName = new Map(stops.map((s) => [s.name, s]))
-          const ordered = []
-          saved[di].forEach((nm) => { if (byName.has(nm)) { ordered.push(byName.get(nm)); byName.delete(nm) } })
-          byName.forEach((s) => ordered.push(s))
-          stops = ordered
-        }
-        return { ...day, stops }
+        const stops = (saved && saved[di]) ? saved[di] : day.stops.slice()
+        return { date: day.date, area: day.area, stops }
       })
     }
 
     let state = buildState()
 
-    // Haversine distance in metres.
     function distM(a, b) {
-      const R = 6371000
-      const toRad = (d) => d * Math.PI / 180
-      const dLat = toRad(b.lat - a.lat)
-      const dLng = toRad(b.lng - a.lng)
+      const R = 6371000, toRad = (d) => d * Math.PI / 180
+      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng)
       const lat1 = toRad(a.lat), lat2 = toRad(b.lat)
-      const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
+      const x = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2
       return 2 * R * Math.asin(Math.sqrt(x))
     }
-
-    // Walking estimate: straight-line × 1.4 (street factor), ~80 m/min.
     function walkText(a, b) {
       if (!a || !b || a.lat == null || b.lat == null) return ''
-      const straight = distM(a, b)
-      const walkM = straight * 1.4
-      if (walkM > 2500) {
-        return `🚃 ~${Math.round(walkM / 1000 * 3)} min (ta tog)`
-      }
-      const min = Math.max(1, Math.round(walkM / 80))
-      return `🚶 ~${min} min · ${Math.round(walkM)} m`
+      const walkM = distM(a, b) * 1.4
+      if (walkM > 2500) return `🚃 ~${Math.round(walkM/1000*3)} min (ta tog)`
+      return `🚶 ~${Math.max(1, Math.round(walkM/80))} min · ${Math.round(walkM)} m`
     }
-
     function travelBadge(area) {
       const key = Object.keys(areaMin).find((k) => area.includes(k))
       const min = key != null ? areaMin[key] : null
@@ -191,6 +174,15 @@ const PLAN = [
             <div class="day-area">${day.area} ${travelBadge(day.area)}</div>
           </div>
           <ul class="stop-list" data-day="${di}"></ul>
+          <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
+          <div class="add-form" data-day="${di}" hidden>
+            <input class="af-name" type="text" placeholder="Navn på stopp *" />
+            <input class="af-hours" type="text" placeholder="Åpningstider (valgfritt)" />
+            <div class="af-row">
+              <button class="af-save" type="button">Legg til</button>
+              <button class="af-cancel" type="button">Avbryt</button>
+            </div>
+          </div>
         `
         const ul = card.querySelector('.stop-list')
         day.stops.forEach((s, si) => {
@@ -198,19 +190,21 @@ const PLAN = [
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           li.draggable = true
           li.dataset.day = di
+          li.dataset.idx = si
           const tagHtml = s.tag
             ? `<span class="stop-tag ${s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'}">${s.tag}</span>`
             : ''
           li.innerHTML = `
-            <span class="drag-handle">⠿</span>
+            <span class="drag-handle" title="Dra for å flytte">⠿</span>
+            <span class="stop-num">${si + 1}</span>
             <span class="stop-body">
               <span class="stop-name">${s.name}</span>
-              <span class="stop-hours">${s.hours}</span>
+              ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
             </span>
             ${tagHtml}
+            <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
           `
           ul.appendChild(li)
-          // Walk estimate to next stop.
           const next = day.stops[si + 1]
           if (next) {
             const wt = walkText(s, next)
@@ -224,14 +218,14 @@ const PLAN = [
         })
         daysEl.appendChild(card)
       })
-      attachDnd()
+      attachEvents()
     }
 
     let dragEl = null
-    function attachDnd() {
+    function attachEvents() {
       document.querySelectorAll('.stop').forEach((li) => {
         li.addEventListener('dragstart', () => { dragEl = li; li.classList.add('dragging') })
-        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; persistAndRerender() })
+        li.addEventListener('dragend', () => { li.classList.remove('dragging'); dragEl = null; syncFromDom() })
       })
       document.querySelectorAll('.stop-list').forEach((ul) => {
         ul.addEventListener('dragover', (e) => {
@@ -240,6 +234,32 @@ const PLAN = [
           const after = getAfter(ul, e.clientY)
           if (after == null) ul.appendChild(dragEl)
           else ul.insertBefore(dragEl, after)
+        })
+      })
+      document.querySelectorAll('.remove-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const di = +btn.dataset.day, idx = +btn.dataset.idx
+          state[di].stops.splice(idx, 1)
+          saveState(); render()
+        })
+      })
+      document.querySelectorAll('.add-stop-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
+          if (form) { form.hidden = false; form.querySelector('.af-name').focus() }
+        })
+      })
+      document.querySelectorAll('.add-form').forEach((form) => {
+        const di = +form.dataset.day
+        form.querySelector('.af-cancel').addEventListener('click', () => {
+          form.hidden = true; form.querySelector('.af-name').value = ''; form.querySelector('.af-hours').value = ''
+        })
+        form.querySelector('.af-save').addEventListener('click', () => {
+          const name = form.querySelector('.af-name').value.trim()
+          if (!name) return
+          const hours = form.querySelector('.af-hours').value.trim()
+          state[di].stops.push({ name, hours, tag: '', lat: null, lng: null })
+          saveState(); render()
         })
       })
     }
@@ -252,23 +272,20 @@ const PLAN = [
         return closest
       }, { offset: -Infinity, element: null }).element
     }
-
-    function persistAndRerender() {
-      const order = []
+    function syncFromDom() {
       state.forEach((day, di) => {
         const ul = daysEl.querySelector(`.stop-list[data-day="${di}"]`)
         const names = [...ul.querySelectorAll('.stop-name')].map((n) => n.textContent)
-        order[di] = names
         const byName = new Map(day.stops.map((s) => [s.name, s]))
         day.stops = names.map((nm) => byName.get(nm)).filter(Boolean)
       })
-      saveOrder(order)
-      render()  // re-render so walk estimates update to the new order
+      saveState(); render()
     }
 
     resetBtn.addEventListener('click', () => {
+      if (!confirm('Tilbakestille hele planen til utgangspunktet? Dine endringer forsvinner.')) return
       try { localStorage.removeItem(STORE_KEY) } catch {}
-      state = plan.map((d) => ({ ...d, stops: d.stops.slice() }))
+      state = plan.map((d) => ({ date: d.date, area: d.area, stops: d.stops.slice() }))
       render()
     })
 
@@ -276,10 +293,16 @@ const PLAN = [
   </script>
 
   <style>
-    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; max-width: 640px; }
+    .plan-tip {
+      font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 640px;
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.25);
+      border-radius: 8px; padding: 0.7rem 0.9rem;
+      display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
+    }
+    .plan-tip strong { color: var(--accent); }
     .reset-btn {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
-      padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
+      padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;
     }
     .reset-btn:hover { border-color: var(--accent); }
 
@@ -302,13 +325,22 @@ const PLAN = [
 
     .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
     .stop {
-      display: flex; align-items: center; gap: 0.6rem;
+      display: flex; align-items: center; gap: 0.5rem;
       background: rgba(26,12,18,0.5); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.6rem 0.7rem; cursor: grab;
+      border-radius: 8px; padding: 0.6rem 0.6rem; cursor: grab;
     }
     .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
     .stop.dragging { opacity: 0.5; border-color: var(--accent); }
-    .drag-handle { color: var(--muted); font-size: 1.1rem; cursor: grab; flex-shrink: 0; touch-action: none; }
+    .drag-handle {
+      color: var(--accent); font-size: 1.25rem; cursor: grab; flex-shrink: 0;
+      touch-action: none; opacity: 0.7; line-height: 1;
+    }
+    .stop-num {
+      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--border); color: var(--text); font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'IBM Plex Mono', monospace;
+    }
     .stop-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
@@ -319,11 +351,34 @@ const PLAN = [
     .stop-tag.must { background: #e74c3c; color: #fff; }
     .stop-tag.food { background: #f39c12; color: #2a1a04; }
     .stop-tag.note { background: var(--border); color: var(--text); }
+    .remove-btn {
+      flex-shrink: 0; background: none; border: none; color: var(--muted);
+      font-size: 0.95rem; cursor: pointer; padding: 0.2rem 0.35rem; line-height: 1; border-radius: 4px;
+    }
+    .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
 
-    .walk-row { padding: 0.1rem 0 0.1rem 1.5rem; }
-    .walk-line {
-      font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace;
-      letter-spacing: 0.02em;
+    .walk-row { padding: 0.05rem 0 0.05rem 2rem; }
+    .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+
+    .add-stop-btn {
+      margin-top: 0.6rem; width: 100%; background: rgba(244,162,76,0.08);
+      color: var(--accent); border: 1px dashed rgba(244,162,76,0.4);
+      padding: 0.55rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    .add-stop-btn:hover { background: rgba(244,162,76,0.15); }
+    .add-form { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .add-form input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 0.6rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+    }
+    .af-row { display: flex; gap: 0.5rem; }
+    .af-save {
+      flex: 1; background: var(--accent); color: #fff; border: none;
+      padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem;
+    }
+    .af-cancel {
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+      padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
     }
   </style>
 </Base>

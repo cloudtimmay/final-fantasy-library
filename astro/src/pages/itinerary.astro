@@ -116,29 +116,29 @@ const PLAN = [
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE })}></script>
 
   <script is:inline>
-    // Load Leaflet (free, no key) then build the page.
     function loadLeaflet() {
       return new Promise((resolve) => {
-        if (window.L) return resolve()
+        if (window.L) return resolve(true)
         const css = document.createElement('link')
         css.rel = 'stylesheet'
         css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
         document.head.appendChild(css)
         const js = document.createElement('script')
         js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        js.onload = () => resolve()
-        js.onerror = () => resolve() // fail gracefully; list still works
+        js.onload = () => resolve(true)
+        js.onerror = () => resolve(false)
         document.head.appendChild(js)
       })
     }
 
-    const STORE_KEY = 'ff-itinerary-v7'
+    const STORE_KEY = 'ff-itinerary-v8'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
     let mapInstances = []
+    let leafletOk = false
 
     function loadSaved() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
@@ -174,18 +174,31 @@ const PLAN = [
       if (min === 0) return '🏠 base'
       return `🚃 ~${min} min fra base`
     }
-    function dayRouteUrl(day) {
+    // Google Maps caps a route at ~10 points. Split into segments (overlap 1) so all stops are covered.
+    function dayRouteUrls(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
-      const all = [baseP, ...pts, baseP]
-      if (all.length < 2) return ''
-      const origin = all[0], destination = all[all.length - 1]
-      const waypoints = all.slice(1, -1).join('|')
-      let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
-      if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
-      return url
+      const full = [baseP, ...pts, baseP]
+      if (full.length < 2) return []
+      const MAX = 10
+      const segs = []
+      if (full.length <= MAX) {
+        segs.push(full)
+      } else {
+        let i = 0
+        while (i < full.length - 1) {
+          segs.push(full.slice(i, i + MAX))
+          i += MAX - 1
+        }
+      }
+      return segs.map((seg) => {
+        const origin = seg[0], destination = seg[seg.length - 1]
+        const waypoints = seg.slice(1, -1).join('|')
+        let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
+        if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
+        return url
+      })
     }
-
     function baseRow(label) {
       return `
         <li class="stop is-base">
@@ -195,39 +208,28 @@ const PLAN = [
     }
 
     function initMap(di, day) {
-      if (!window.L) return
+      if (!leafletOk || !window.L) return
       const el = document.getElementById(`map-${di}`)
       if (!el) return
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
-      const map = L.map(el, { scrollWheelZoom: false, attributionControl: true })
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19, attribution: '© OpenStreetMap'
-      }).addTo(map)
-
-      const latlngs = []
-      // Base marker (start + end).
+      const map = L.map(el, { scrollWheelZoom: false })
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
+      const latlngs = [[base.lat, base.lng]]
       const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
       L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base (start/slutt)')
-      latlngs.push([base.lat, base.lng])
-
-      // Numbered stop markers.
       pts.forEach((s, i) => {
         const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
         L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${s.name}`)
         latlngs.push([s.lat, s.lng])
       })
-      latlngs.push([base.lat, base.lng]) // back to base
-
-      // Route line base → stops → base.
-      L.polyline(latlngs, { color: '#f4a24c', weight: 3, opacity: 0.8, dashArray: '6 6' }).addTo(map)
+      latlngs.push([base.lat, base.lng])
+      L.polyline(latlngs, { color: '#f4a24c', weight: 3, opacity: 0.85, dashArray: '6 6' }).addTo(map)
       map.fitBounds(latlngs, { padding: [30, 30] })
-      // Ensure correct sizing after layout.
-      setTimeout(() => map.invalidateSize(), 100)
+      setTimeout(() => map.invalidateSize(), 120)
       mapInstances.push(map)
     }
 
     function render() {
-      // Clean up old maps.
       mapInstances.forEach((m) => { try { m.remove() } catch {} })
       mapInstances = []
       daysEl.innerHTML = ''
@@ -235,7 +237,14 @@ const PLAN = [
       state.forEach((day, di) => {
         const card = document.createElement('div')
         card.className = 'day-card'
-        const routeUrl = dayRouteUrl(day)
+        const urls = dayRouteUrls(day)
+        let routeBtns = ''
+        if (urls.length === 1) {
+          routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
+        } else if (urls.length > 1) {
+          routeBtns = '<div class="route-parts">' + urls.map((u, i) =>
+            `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
+        }
         card.innerHTML = `
           <div class="day-head">
             <div>
@@ -244,8 +253,8 @@ const PLAN = [
             </div>
             <div class="day-travel">${travelBadge(day.area)}</div>
           </div>
-          <div id="map-${di}" class="day-map"></div>
-          ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>` : ''}
+          ${leafletOk ? `<div id="map-${di}" class="day-map"></div>` : ''}
+          ${routeBtns}
           <ul class="stop-list" data-day="${di}"></ul>
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
@@ -258,14 +267,12 @@ const PLAN = [
           </div>
         `
         const ul = card.querySelector('.stop-list')
-
         ul.insertAdjacentHTML('beforeend', baseRow('Start: base'))
         const firstStop = day.stops[0]
         if (firstStop) {
           const wt = walkText(base, firstStop)
           if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
         }
-
         day.stops.forEach((s, si) => {
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
@@ -293,18 +300,15 @@ const PLAN = [
             if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
           }
         })
-
         const lastStop = day.stops[day.stops.length - 1]
         if (lastStop) {
           const wt = walkText(lastStop, base)
           if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
         }
         ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base'))
-
         daysEl.appendChild(card)
       })
 
-      // Init maps after DOM is in place.
       state.forEach((day, di) => initMap(di, day))
       attachEvents()
     }
@@ -316,7 +320,6 @@ const PLAN = [
       ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
       saveState(); render()
     }
-
     function attachEvents() {
       document.querySelectorAll('.mv.up').forEach((b) =>
         b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
@@ -354,23 +357,10 @@ const PLAN = [
       render()
     })
 
-    loadLeaflet().then(render)
+    loadLeaflet().then((ok) => { leafletOk = ok; render() })
   </script>
 
   <style is:global>
-    .pin {
-      display: flex; align-items: center; justify-content: center;
-      width: 100%; height: 100%; border-radius: 50%;
-      background: #f4a24c; color: #2a1a04; font-weight: 700; font-size: 12px;
-      border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-      font-family: 'IBM Plex Mono', monospace;
-    }
-    .pin.must { background: #e74c3c; color: #fff; }
-    .pin.food { background: #f5c542; color: #2a1a04; }
-    .pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
-  </style>
-
-  <style>
     .plan-tip {
       font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 680px;
       background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.25);
@@ -405,6 +395,8 @@ const PLAN = [
       height: 240px; border: 1px solid var(--border); border-radius: 8px;
       overflow: hidden; margin-bottom: 0.6rem; max-width: 100%; background: #1a1a1a;
     }
+    .route-parts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+    .route-parts .route-btn { flex: 1; margin-bottom: 0; min-width: 130px; }
     .route-btn {
       display: block; text-align: center; background: var(--bg); color: var(--text);
       border: 1px solid var(--accent); padding: 0.55rem; border-radius: 8px;
@@ -475,5 +467,17 @@ const PLAN = [
       background: var(--surface); color: var(--muted); border: 1px solid var(--border);
       padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
     }
+
+    /* Leaflet marker pins */
+    .pin {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%; border-radius: 50%;
+      background: #f4a24c; color: #2a1a04; font-weight: 700; font-size: 12px;
+      border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .pin.must { background: #e74c3c; color: #fff; }
+    .pin.food { background: #f5c542; color: #2a1a04; }
+    .pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
   </style>
 </Base>

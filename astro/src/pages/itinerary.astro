@@ -1,7 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
 
-// Your accommodation — start and end of every day.
 const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
 const AREA_MIN_FROM_AKIB: Record<string, number> = {
@@ -108,7 +107,7 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Hver dag starter og slutter på <strong>🏠 basen</strong>. Bruk <strong>▲▼</strong> for å flytte · <strong>✕</strong> for å fjerne · <strong>+</strong> for å legge til · <strong>🗺️</strong> åpner dagens rute (base → stopp → base) i Google Maps.</span>
+    <span>Kartet viser rekkefølgen: <strong>🏠 base → 1 → 2 → …→ 🏠</strong>. Bruk <strong>▲▼</strong> for å flytte · <strong>✕</strong> fjerne · <strong>+</strong> legge til · <strong>🗺️</strong> åpner ruten i Google Maps.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
@@ -116,12 +115,30 @@ const PLAN = [
 
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE })}></script>
 
-  <script>
-    const STORE_KEY = 'ff-itinerary-v6'
+  <script is:inline>
+    // Load Leaflet (free, no key) then build the page.
+    function loadLeaflet() {
+      return new Promise((resolve) => {
+        if (window.L) return resolve()
+        const css = document.createElement('link')
+        css.rel = 'stylesheet'
+        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        document.head.appendChild(css)
+        const js = document.createElement('script')
+        js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+        js.onload = () => resolve()
+        js.onerror = () => resolve() // fail gracefully; list still works
+        document.head.appendChild(js)
+      })
+    }
+
+    const STORE_KEY = 'ff-itinerary-v7'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
+
+    let mapInstances = []
 
     function loadSaved() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
@@ -157,7 +174,6 @@ const PLAN = [
       if (min === 0) return '🏠 base'
       return `🚃 ~${min} min fra base`
     }
-    // Route: base → all stops → base, as a Google Maps directions link.
     function dayRouteUrl(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
@@ -169,13 +185,6 @@ const PLAN = [
       if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
       return url
     }
-    function dayMapSrc(day) {
-      const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
-      const all = [base, ...pts]
-      const avgLat = all.reduce((s, p) => s + p.lat, 0) / all.length
-      const avgLng = all.reduce((s, p) => s + p.lng, 0) / all.length
-      return `https://maps.google.com/maps?q=${avgLat},${avgLng}&z=14&output=embed`
-    }
 
     function baseRow(label) {
       return `
@@ -185,13 +194,48 @@ const PLAN = [
         </li>`
     }
 
+    function initMap(di, day) {
+      if (!window.L) return
+      const el = document.getElementById(`map-${di}`)
+      if (!el) return
+      const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
+      const map = L.map(el, { scrollWheelZoom: false, attributionControl: true })
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap'
+      }).addTo(map)
+
+      const latlngs = []
+      // Base marker (start + end).
+      const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
+      L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base (start/slutt)')
+      latlngs.push([base.lat, base.lng])
+
+      // Numbered stop markers.
+      pts.forEach((s, i) => {
+        const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
+        L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${s.name}`)
+        latlngs.push([s.lat, s.lng])
+      })
+      latlngs.push([base.lat, base.lng]) // back to base
+
+      // Route line base → stops → base.
+      L.polyline(latlngs, { color: '#f4a24c', weight: 3, opacity: 0.8, dashArray: '6 6' }).addTo(map)
+      map.fitBounds(latlngs, { padding: [30, 30] })
+      // Ensure correct sizing after layout.
+      setTimeout(() => map.invalidateSize(), 100)
+      mapInstances.push(map)
+    }
+
     function render() {
+      // Clean up old maps.
+      mapInstances.forEach((m) => { try { m.remove() } catch {} })
+      mapInstances = []
       daysEl.innerHTML = ''
+
       state.forEach((day, di) => {
         const card = document.createElement('div')
         card.className = 'day-card'
         const routeUrl = dayRouteUrl(day)
-        const mapSrc = dayMapSrc(day)
         card.innerHTML = `
           <div class="day-head">
             <div>
@@ -200,10 +244,8 @@ const PLAN = [
             </div>
             <div class="day-travel">${travelBadge(day.area)}</div>
           </div>
-          <div class="day-map">
-            <iframe src="${mapSrc}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Kart ${day.area}"></iframe>
-          </div>
-          ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne dagens rute (base → stopp → base)</a>` : ''}
+          <div id="map-${di}" class="day-map"></div>
+          ${routeUrl ? `<a class="route-btn" href="${routeUrl}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>` : ''}
           <ul class="stop-list" data-day="${di}"></ul>
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
@@ -217,7 +259,6 @@ const PLAN = [
         `
         const ul = card.querySelector('.stop-list')
 
-        // Start at base.
         ul.insertAdjacentHTML('beforeend', baseRow('Start: base'))
         const firstStop = day.stops[0]
         if (firstStop) {
@@ -253,7 +294,6 @@ const PLAN = [
           }
         })
 
-        // Return to base.
         const lastStop = day.stops[day.stops.length - 1]
         if (lastStop) {
           const wt = walkText(lastStop, base)
@@ -263,6 +303,9 @@ const PLAN = [
 
         daysEl.appendChild(card)
       })
+
+      // Init maps after DOM is in place.
+      state.forEach((day, di) => initMap(di, day))
       attachEvents()
     }
 
@@ -311,8 +354,21 @@ const PLAN = [
       render()
     })
 
-    render()
+    loadLeaflet().then(render)
   </script>
+
+  <style is:global>
+    .pin {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%; border-radius: 50%;
+      background: #f4a24c; color: #2a1a04; font-weight: 700; font-size: 12px;
+      border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .pin.must { background: #e74c3c; color: #fff; }
+    .pin.food { background: #f5c542; color: #2a1a04; }
+    .pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
+  </style>
 
   <style>
     .plan-tip {
@@ -346,10 +402,9 @@ const PLAN = [
     .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; }
 
     .day-map {
-      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-      margin-bottom: 0.6rem; max-width: 100%; background: var(--bg);
+      height: 240px; border: 1px solid var(--border); border-radius: 8px;
+      overflow: hidden; margin-bottom: 0.6rem; max-width: 100%; background: #1a1a1a;
     }
-    .day-map iframe { display: block; width: 100%; max-width: 100%; height: 200px; border: 0; }
     .route-btn {
       display: block; text-align: center; background: var(--bg); color: var(--text);
       border: 1px solid var(--accent); padding: 0.55rem; border-radius: 8px;

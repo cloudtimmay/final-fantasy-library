@@ -10,25 +10,15 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
 
 const PLAN = [
   {
-    date: '1. des (man)', area: 'Akihabara',
+    date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — holdt lett. Ta det med ro.',
     stops: [
-      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '', lat: 35.698917, lng: 139.774798 },
-      { name: 'Super Potato', hours: '11:00–20:00', tag: 'MUST', lat: 35.699358, lng: 139.770702 },
+      { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid her', tag: 'MUST', lat: 35.699358, lng: 139.770702 },
       { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', lat: 35.700494, lng: 139.771743 },
+      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj ~12:00 · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
       { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', lat: 35.699229, lng: 139.770461 },
       { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', lat: 35.701461, lng: 139.771787 },
       { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', lat: 35.702324, lng: 139.771887 },
-      { name: '🍜 Tsujita Akihabara', hours: '11:00–21:30 · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
-      { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '', lat: 35.701199, lng: 139.771271 },
-      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', lat: 35.702083, lng: 139.771894 },
-      { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', lat: 35.702057, lng: 139.769845 },
-      { name: 'Final Fantasy Eorzea Cafe', hours: '10:45–23:00', tag: 'mat', lat: 35.697776, lng: 139.770364 },
-      { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', lat: 35.699830, lng: 139.771788 },
-      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', lat: 35.697734, lng: 139.773475 },
-      { name: '3COINS', hours: '10:00–21:00', tag: '', lat: 35.698373, lng: 139.772696 },
-      { name: '🍣 Asahi Sushi', hours: 'lunsj 12–13:30 · stengt helg', tag: 'mat', lat: 35.700344, lng: 139.775282 },
-      { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '', lat: 35.703070, lng: 139.772150 },
-      { name: 'Darumanome', hours: '10:30–22:00', tag: 'mat', lat: 35.698878, lng: 139.770472 },
+      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag ~17:00 · FF-tema', tag: 'mat', lat: 35.697776, lng: 139.770364 },
     ],
   },
   {
@@ -37,7 +27,7 @@ const PLAN = [
       { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', lat: 35.689883, lng: 139.697953 },
       { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', lat: 35.696102, lng: 139.709009 },
       { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', lat: 35.690151, lng: 139.705842 },
-      { name: '🍜 Ramen Hayashida', hours: '11:00–23:00 · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
+      { name: '🍜 Ramen Hayashida', hours: 'Lunsj ~12:00 · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
       { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', lat: 35.690903, lng: 139.704070 },
       { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', lat: 35.692513, lng: 139.698556 },
       { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', lat: 35.689568, lng: 139.698385 },
@@ -45,7 +35,7 @@ const PLAN = [
       { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', lat: 35.692699, lng: 139.706307 },
       { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', lat: 35.689356, lng: 139.697787 },
       { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', lat: 35.689910, lng: 139.702255 },
-      { name: '🍣 Sushi Hatsume (omakase)', hours: 'middag 17–22 · bestill bord', tag: 'mat', lat: 35.694050, lng: 139.698016 },
+      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag ~17:00 · bestill bord', tag: 'mat', lat: 35.694050, lng: 139.698016 },
       { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', lat: 35.712735, lng: 139.703455 },
     ],
   },
@@ -55,7 +45,7 @@ const PLAN = [
       { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', lat: 35.731144, lng: 139.715459 },
       { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', lat: 35.728499, lng: 139.719797 },
       { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', lat: 35.728862, lng: 139.719377 },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: '12–15 / 16:30–22', tag: 'mat', lat: 35.733522, lng: 139.709866 },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj ~12:00 · 4.8★', tag: 'mat', lat: 35.733522, lng: 139.709866 },
       { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', lat: 35.730857, lng: 139.712384 },
       { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', lat: 35.731606, lng: 139.712377 },
       { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', lat: 35.729680, lng: 139.715769 },
@@ -66,10 +56,10 @@ const PLAN = [
     stops: [
       { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', lat: 35.662116, lng: 139.698639 },
       { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', lat: 35.661834, lng: 139.698776 },
+      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', lat: 35.657255, lng: 139.701621 },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj ~12:00 · rett ved PARCO', tag: 'mat', lat: 35.659435, lng: 139.697921 },
       { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', lat: 35.659766, lng: 139.700826 },
       { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', lat: 35.660387, lng: 139.697817 },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: '11:00–23:00', tag: 'mat', lat: 35.659435, lng: 139.697921 },
-      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', lat: 35.657255, lng: 139.701621 },
       { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', lat: 35.668369, lng: 139.704914 },
     ],
   },
@@ -80,22 +70,35 @@ const PLAN = [
       { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.682496, lng: 139.768683 },
       { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', lat: 35.681627, lng: 139.768495 },
       { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', lat: 35.681347, lng: 139.768360 },
+      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj ~12:00 · Ramen Street', tag: 'mat', lat: 35.680810, lng: 139.769230 },
       { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.681858, lng: 139.768669 },
-      { name: 'Soranoiro Nippon (ramen)', hours: '09:00–22:30', tag: 'mat', lat: 35.680810, lng: 139.769230 },
     ],
   },
   {
     date: '6. des (lør)', area: 'Nakano',
     stops: [
-      { name: 'Nakano Broadway', hours: '10:00–20:00', tag: 'sett av tid', lat: 35.709248, lng: 139.665652 },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: '11:00–21:00', tag: 'mat', lat: 35.708064, lng: 139.665548 },
+      { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', lat: 35.709248, lng: 139.665652 },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj ~12:00 · nær Broadway', tag: 'mat', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
     date: '7. des (søn)', area: 'Yokohama',
     stops: [
       { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', lat: 35.464556, lng: 139.624649 },
-      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00', tag: 'lengre unna', lat: 35.417500, lng: 139.660800 },
+      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00 · lengre unna', tag: '', lat: 35.417500, lng: 139.660800 },
+    ],
+  },
+  {
+    date: '🌙 Kveld / ekstra', area: 'Akihabara', note: 'Fra basen, når du har tid. De 22:00-butikkene passer perfekt på kvelden etter andre bydeler.',
+    stops: [
+      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00 · kveld', tag: 'kveld', lat: 35.698917, lng: 139.774798 },
+      { name: 'BicCamera AKIBA', hours: '10:00–22:00 · kveld', tag: 'kveld', lat: 35.699830, lng: 139.771788 },
+      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00 · kveld', tag: 'kveld', lat: 35.697734, lng: 139.773475 },
+      { name: 'Tokyo Hobby Center', hours: '11:00–22:00 · kveld', tag: 'kveld', lat: 35.703070, lng: 139.772150 },
+      { name: 'Retro Game Camp', hours: '11:00–20:00 · dagtid', tag: '', lat: 35.701199, lng: 139.771271 },
+      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00 · dagtid', tag: '', lat: 35.702083, lng: 139.771894 },
+      { name: 'Kamikaze Style', hours: '11:00–20:00 · dagtid', tag: '', lat: 35.702057, lng: 139.769845 },
+      { name: '3COINS', hours: '10:00–21:00 · dagtid', tag: '', lat: 35.698373, lng: 139.772696 },
     ],
   },
 ]
@@ -107,7 +110,7 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Kartet viser rekkefølgen: <strong>🏠 base → 1 → 2 → …→ 🏠</strong>. Bruk <strong>▲▼</strong> for å flytte · <strong>✕</strong> fjerne · <strong>+</strong> legge til · <strong>🗺️</strong> åpner ruten i Google Maps.</span>
+    <span>Kartet viser rekkefølgen <strong>🏠 → 1 → 2 → 🏠</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>⋯</strong> flytt/kopier til annen dag · <strong>+</strong> legg til · <strong>🗺️</strong> åpne rute.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
@@ -120,18 +123,16 @@ const PLAN = [
       return new Promise((resolve) => {
         if (window.L) return resolve(true)
         const css = document.createElement('link')
-        css.rel = 'stylesheet'
-        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
         document.head.appendChild(css)
         const js = document.createElement('script')
         js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        js.onload = () => resolve(true)
-        js.onerror = () => resolve(false)
+        js.onload = () => resolve(true); js.onerror = () => resolve(false)
         document.head.appendChild(js)
       })
     }
 
-    const STORE_KEY = 'ff-itinerary-v8'
+    const STORE_KEY = 'ff-itinerary-v9'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
@@ -149,7 +150,7 @@ const PLAN = [
     function buildState() {
       const saved = loadSaved()
       return plan.map((day, di) => ({
-        date: day.date, area: day.area,
+        date: day.date, area: day.area, note: day.note || '',
         stops: (saved && saved[di]) ? saved[di] : day.stops.slice(),
       }))
     }
@@ -174,23 +175,14 @@ const PLAN = [
       if (min === 0) return '🏠 base'
       return `🚃 ~${min} min fra base`
     }
-    // Google Maps caps a route at ~10 points. Split into segments (overlap 1) so all stops are covered.
     function dayRouteUrls(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
       const full = [baseP, ...pts, baseP]
       if (full.length < 2) return []
-      const MAX = 10
-      const segs = []
-      if (full.length <= MAX) {
-        segs.push(full)
-      } else {
-        let i = 0
-        while (i < full.length - 1) {
-          segs.push(full.slice(i, i + MAX))
-          i += MAX - 1
-        }
-      }
+      const MAX = 10, segs = []
+      if (full.length <= MAX) segs.push(full)
+      else { let i = 0; while (i < full.length - 1) { segs.push(full.slice(i, i + MAX)); i += MAX - 1 } }
       return segs.map((seg) => {
         const origin = seg[0], destination = seg[seg.length - 1]
         const waypoints = seg.slice(1, -1).join('|')
@@ -200,11 +192,11 @@ const PLAN = [
       })
     }
     function baseRow(label) {
-      return `
-        <li class="stop is-base">
-          <div class="move-col"><span class="base-icon">🏠</span></div>
-          <span class="stop-body"><span class="stop-name">${label}</span></span>
-        </li>`
+      return `<li class="stop is-base"><div class="move-col"><span class="base-icon">🏠</span></div>
+        <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
+    }
+    function dayOptions(exceptDi) {
+      return state.map((d, dj) => dj === exceptDi ? '' : `<option value="${dj}">${d.date}</option>`).join('')
     }
 
     function initMap(di, day) {
@@ -216,7 +208,7 @@ const PLAN = [
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
       const latlngs = [[base.lat, base.lng]]
       const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
-      L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base (start/slutt)')
+      L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base')
       pts.forEach((s, i) => {
         const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
         L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${s.name}`)
@@ -239,12 +231,9 @@ const PLAN = [
         card.className = 'day-card'
         const urls = dayRouteUrls(day)
         let routeBtns = ''
-        if (urls.length === 1) {
-          routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
-        } else if (urls.length > 1) {
-          routeBtns = '<div class="route-parts">' + urls.map((u, i) =>
-            `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
-        }
+        if (urls.length === 1) routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
+        else if (urls.length > 1) routeBtns = '<div class="route-parts">' + urls.map((u, i) => `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
+
         card.innerHTML = `
           <div class="day-head">
             <div>
@@ -253,6 +242,7 @@ const PLAN = [
             </div>
             <div class="day-travel">${travelBadge(day.area)}</div>
           </div>
+          ${day.note ? `<div class="day-note">${day.note}</div>` : ''}
           ${leafletOk ? `<div id="map-${di}" class="day-map"></div>` : ''}
           ${routeBtns}
           <ul class="stop-list" data-day="${di}"></ul>
@@ -260,25 +250,19 @@ const PLAN = [
           <div class="add-form" data-day="${di}" hidden>
             <input class="af-name" type="text" placeholder="Navn på stopp *" />
             <input class="af-hours" type="text" placeholder="Åpningstider (valgfritt)" />
-            <div class="af-row">
-              <button class="af-save" type="button">Legg til</button>
-              <button class="af-cancel" type="button">Avbryt</button>
-            </div>
+            <div class="af-row"><button class="af-save" type="button">Legg til</button><button class="af-cancel" type="button">Avbryt</button></div>
           </div>
         `
         const ul = card.querySelector('.stop-list')
         ul.insertAdjacentHTML('beforeend', baseRow('Start: base'))
         const firstStop = day.stops[0]
-        if (firstStop) {
-          const wt = walkText(base, firstStop)
-          if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
-        }
+        if (firstStop) { const wt = walkText(base, firstStop); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
+
         day.stops.forEach((s, si) => {
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
-          const tagHtml = s.tag
-            ? `<span class="stop-tag ${s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'}">${s.tag}</span>`
-            : ''
+          const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
+          const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
           const gmap = (s.lat != null) ? `https://www.google.com/maps?q=${s.lat},${s.lng}` : ''
           li.innerHTML = `
             <div class="move-col">
@@ -291,20 +275,29 @@ const PLAN = [
               ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
             </span>
             ${tagHtml}
-            <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
+            <div class="stop-actions">
+              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Flytt/kopier">⋯</button>
+              <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
+            </div>
           `
           ul.appendChild(li)
+          // Move/copy panel (hidden until ⋯ pressed).
+          const panel = document.createElement('li')
+          panel.className = 'mc-panel'
+          panel.dataset.day = di; panel.dataset.idx = si
+          panel.hidden = true
+          panel.innerHTML = `
+            <label>Flytt til: <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
+            <label>Kopier til: <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
+          `
+          ul.appendChild(panel)
+
           const next = day.stops[si + 1]
-          if (next) {
-            const wt = walkText(s, next)
-            if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
-          }
+          if (next) { const wt = walkText(s, next); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
         })
+
         const lastStop = day.stops[day.stops.length - 1]
-        if (lastStop) {
-          const wt = walkText(lastStop, base)
-          if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`)
-        }
+        if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
         ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base'))
         daysEl.appendChild(card)
       })
@@ -314,27 +307,41 @@ const PLAN = [
     }
 
     function move(di, idx, delta) {
-      const arr = state[di].stops
-      const ni = idx + delta
+      const arr = state[di].stops, ni = idx + delta
       if (ni < 0 || ni >= arr.length) return
       ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
       saveState(); render()
     }
+    function moveToDay(di, idx, dj) {
+      const [s] = state[di].stops.splice(idx, 1)
+      state[dj].stops.push(s); saveState(); render()
+    }
+    function copyToDay(di, idx, dj) {
+      state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render()
+    }
+
     function attachEvents() {
-      document.querySelectorAll('.mv.up').forEach((b) =>
-        b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
-      document.querySelectorAll('.mv.down').forEach((b) =>
-        b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
-      document.querySelectorAll('.remove-btn').forEach((btn) =>
-        btn.addEventListener('click', () => {
-          state[+btn.dataset.day].stops.splice(+btn.dataset.idx, 1)
-          saveState(); render()
-        }))
-      document.querySelectorAll('.add-stop-btn').forEach((btn) =>
-        btn.addEventListener('click', () => {
-          const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
-          if (form) { form.hidden = false; form.querySelector('.af-name').focus() }
-        }))
+      document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
+      document.querySelectorAll('.mv.down').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
+      document.querySelectorAll('.remove-btn').forEach((btn) => btn.addEventListener('click', () => {
+        state[+btn.dataset.day].stops.splice(+btn.dataset.idx, 1); saveState(); render()
+      }))
+      document.querySelectorAll('.more-btn').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
+        if (panel) panel.hidden = !panel.hidden
+      }))
+      document.querySelectorAll('.mc-move').forEach((sel) => sel.addEventListener('change', () => {
+        const panel = sel.closest('.mc-panel')
+        if (sel.value !== '') moveToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
+      }))
+      document.querySelectorAll('.mc-copy').forEach((sel) => sel.addEventListener('change', () => {
+        const panel = sel.closest('.mc-panel')
+        if (sel.value !== '') copyToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
+      }))
+      document.querySelectorAll('.add-stop-btn').forEach((btn) => btn.addEventListener('click', () => {
+        const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
+        if (form) { form.hidden = false; form.querySelector('.af-name').focus() }
+      }))
       document.querySelectorAll('.add-form').forEach((form) => {
         const di = +form.dataset.day
         form.querySelector('.af-cancel').addEventListener('click', () => {
@@ -353,7 +360,7 @@ const PLAN = [
     resetBtn.addEventListener('click', () => {
       if (!confirm('Tilbakestille hele planen? Dine endringer forsvinner.')) return
       try { localStorage.removeItem(STORE_KEY) } catch {}
-      state = plan.map((d) => ({ date: d.date, area: d.area, stops: d.stops.slice() }))
+      state = plan.map((d) => ({ date: d.date, area: d.area, note: d.note || '', stops: d.stops.slice() }))
       render()
     })
 
@@ -381,7 +388,7 @@ const PLAN = [
     }
     .day-head {
       display: flex; justify-content: space-between; align-items: flex-start;
-      gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;
+      gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem;
       padding-bottom: 0.6rem; border-bottom: 1px solid rgba(176,30,52,0.2);
     }
     .day-title {
@@ -390,6 +397,7 @@ const PLAN = [
     }
     .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
     .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; }
+    .day-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin-bottom: 0.7rem; }
 
     .day-map {
       height: 240px; border: 1px solid var(--border); border-radius: 8px;
@@ -422,10 +430,7 @@ const PLAN = [
     }
     .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
     .mv:disabled { opacity: 0.25; cursor: default; }
-    .stop-num {
-      font-size: 0.7rem; font-weight: 700; color: var(--muted);
-      font-family: 'IBM Plex Mono', monospace; margin: 1px 0;
-    }
+    .stop-num { font-size: 0.7rem; font-weight: 700; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin: 1px 0; }
     .stop-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .stop-name a { color: var(--text); text-decoration: none; }
@@ -438,11 +443,24 @@ const PLAN = [
     .stop-tag.must { background: #e74c3c; color: #fff; }
     .stop-tag.food { background: #f39c12; color: #2a1a04; }
     .stop-tag.note { background: var(--border); color: var(--text); }
-    .remove-btn {
-      flex-shrink: 0; background: none; border: none; color: var(--muted);
-      font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.3rem; line-height: 1; border-radius: 4px;
+    .stop-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .more-btn, .remove-btn {
+      background: none; border: none; color: var(--muted);
+      font-size: 0.95rem; cursor: pointer; padding: 0.1rem 0.3rem; line-height: 1; border-radius: 4px;
     }
+    .more-btn:hover { color: var(--accent); background: rgba(244,162,76,0.12); }
     .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
+
+    .mc-panel {
+      display: flex; flex-direction: column; gap: 0.5rem;
+      background: rgba(244,162,76,0.06); border: 1px dashed rgba(244,162,76,0.3);
+      border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0.1rem 0 0.2rem 2.2rem;
+    }
+    .mc-panel label { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+    .mc-panel select {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem; flex: 1; max-width: 60%;
+    }
 
     .walk-row { padding: 0.05rem 0 0.05rem 2.2rem; }
     .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
@@ -459,16 +477,9 @@ const PLAN = [
       padding: 0.6rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
     }
     .af-row { display: flex; gap: 0.5rem; }
-    .af-save {
-      flex: 1; background: var(--accent); color: #fff; border: none;
-      padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem;
-    }
-    .af-cancel {
-      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
-      padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
-    }
+    .af-save { flex: 1; background: var(--accent); color: #fff; border: none; padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+    .af-cancel { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
 
-    /* Leaflet marker pins */
     .pin {
       display: flex; align-items: center; justify-content: center;
       width: 100%; height: 100%; border-radius: 50%;

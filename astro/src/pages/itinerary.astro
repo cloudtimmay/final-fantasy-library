@@ -8,97 +8,94 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
 }
 
+// slot: 'dagtid' = closes early (do during day) · 'kveld' = open 22:00+ (do in the evening).
+// Each day ordered: must/daytime shops → lunch → more daytime → dinner → evening shops at bottom.
 const PLAN = [
   {
-    date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — holdt lett. Ta det med ro.',
+    date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
     stops: [
-      { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid her', tag: 'MUST', lat: 35.699358, lng: 139.770702 },
-      { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', lat: 35.700494, lng: 139.771743 },
-      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj ~12:00 · tsukemen', tag: 'mat', lat: 35.699031, lng: 139.770140 },
-      { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', lat: 35.699229, lng: 139.770461 },
-      { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', lat: 35.701461, lng: 139.771787 },
-      { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', lat: 35.702324, lng: 139.771887 },
-      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag ~17:00 · FF-tema', tag: 'mat', lat: 35.697776, lng: 139.770364 },
+      { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid', tag: 'MUST', slot: 'dagtid', lat: 35.699358, lng: 139.770702 },
+      { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.700494, lng: 139.771743 },
+      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj ~12:00 · tsukemen', tag: 'mat', slot: '', lat: 35.699031, lng: 139.770140 },
+      { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.699229, lng: 139.770461 },
+      { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.701461, lng: 139.771787 },
+      { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.702324, lng: 139.771887 },
+      { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.701199, lng: 139.771271 },
+      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.702083, lng: 139.771894 },
+      { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.702057, lng: 139.769845 },
+      { name: '3COINS', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.698373, lng: 139.772696 },
+      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag ~17:00 · FF-tema', tag: 'mat', slot: '', lat: 35.697776, lng: 139.770364 },
+      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.698917, lng: 139.774798 },
+      { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.699830, lng: 139.771788 },
+      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.697734, lng: 139.773475 },
+      { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '', slot: 'kveld', lat: 35.703070, lng: 139.772150 },
     ],
   },
   {
     date: '2. des (tir)', area: 'Shinjuku',
     stops: [
-      { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', lat: 35.689883, lng: 139.697953 },
-      { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', lat: 35.696102, lng: 139.709009 },
-      { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', lat: 35.690151, lng: 139.705842 },
-      { name: '🍜 Ramen Hayashida', hours: 'Lunsj ~12:00 · kontant', tag: 'mat', lat: 35.690729, lng: 139.703751 },
-      { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', lat: 35.690903, lng: 139.704070 },
-      { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', lat: 35.692513, lng: 139.698556 },
-      { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', lat: 35.689568, lng: 139.698385 },
-      { name: 'DAISO', hours: '10:00–22:00', tag: '', lat: 35.691304, lng: 139.702974 },
-      { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', lat: 35.692699, lng: 139.706307 },
-      { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', lat: 35.689356, lng: 139.697787 },
-      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', lat: 35.689910, lng: 139.702255 },
-      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag ~17:00 · bestill bord', tag: 'mat', lat: 35.694050, lng: 139.698016 },
-      { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', lat: 35.712735, lng: 139.703455 },
+      { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.696102, lng: 139.709009 },
+      { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.690151, lng: 139.705842 },
+      { name: '🍜 Ramen Hayashida', hours: 'Lunsj ~12:00 · kontant', tag: 'mat', slot: '', lat: 35.690729, lng: 139.703751 },
+      { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.690903, lng: 139.704070 },
+      { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.692513, lng: 139.698556 },
+      { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.692699, lng: 139.706307 },
+      { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.689356, lng: 139.697787 },
+      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag ~17:00 · bestill bord', tag: 'mat', slot: '', lat: 35.694050, lng: 139.698016 },
+      { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.689883, lng: 139.697953 },
+      { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.689568, lng: 139.698385 },
+      { name: 'DAISO', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.691304, lng: 139.702974 },
+      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', slot: 'kveld', lat: 35.689910, lng: 139.702255 },
+      { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', slot: 'kveld', lat: 35.712735, lng: 139.703455 },
     ],
   },
   {
     date: '3. des (ons)', area: 'Ikebukuro',
     stops: [
-      { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', lat: 35.731144, lng: 139.715459 },
-      { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', lat: 35.728499, lng: 139.719797 },
-      { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', lat: 35.728862, lng: 139.719377 },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj ~12:00 · 4.8★', tag: 'mat', lat: 35.733522, lng: 139.709866 },
-      { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', lat: 35.730857, lng: 139.712384 },
-      { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', lat: 35.731606, lng: 139.712377 },
-      { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', lat: 35.729680, lng: 139.715769 },
+      { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.731144, lng: 139.715459 },
+      { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.728499, lng: 139.719797 },
+      { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', slot: 'dagtid', lat: 35.728862, lng: 139.719377 },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj ~12:00 · 4.8★', tag: 'mat', slot: '', lat: 35.733522, lng: 139.709866 },
+      { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', slot: 'dagtid', lat: 35.730857, lng: 139.712384 },
+      { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.731606, lng: 139.712377 },
+      { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.729680, lng: 139.715769 },
     ],
   },
   {
     date: '4. des (tor)', area: 'Shibuya + Harajuku',
     stops: [
-      { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', lat: 35.662116, lng: 139.698639 },
-      { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', lat: 35.661834, lng: 139.698776 },
-      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', lat: 35.657255, lng: 139.701621 },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj ~12:00 · rett ved PARCO', tag: 'mat', lat: 35.659435, lng: 139.697921 },
-      { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', lat: 35.659766, lng: 139.700826 },
-      { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', lat: 35.660387, lng: 139.697817 },
-      { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', lat: 35.668369, lng: 139.704914 },
+      { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.662116, lng: 139.698639 },
+      { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.661834, lng: 139.698776 },
+      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.657255, lng: 139.701621 },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj ~12:00 · rett ved PARCO', tag: 'mat', slot: '', lat: 35.659435, lng: 139.697921 },
+      { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.659766, lng: 139.700826 },
+      { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', slot: 'dagtid', lat: 35.668369, lng: 139.704914 },
+      { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', slot: 'kveld', lat: 35.660387, lng: 139.697817 },
     ],
   },
   {
     date: '5. des (fre)', area: 'Tokyo Station + Shinagawa',
     stops: [
-      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.)', tag: 'kun i dag/i morgen', lat: 35.606832, lng: 139.734280 },
-      { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.682496, lng: 139.768683 },
-      { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', lat: 35.681627, lng: 139.768495 },
-      { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', lat: 35.681347, lng: 139.768360 },
-      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj ~12:00 · Ramen Street', tag: 'mat', lat: 35.680810, lng: 139.769230 },
-      { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', lat: 35.681858, lng: 139.768669 },
+      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.) · start her', tag: 'kun i dag/i morgen', slot: 'dagtid', lat: 35.606832, lng: 139.734280 },
+      { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.682496, lng: 139.768683 },
+      { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681627, lng: 139.768495 },
+      { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681347, lng: 139.768360 },
+      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj ~12:00 · Ramen Street', tag: 'mat', slot: '', lat: 35.680810, lng: 139.769230 },
+      { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681858, lng: 139.768669 },
     ],
   },
   {
     date: '6. des (lør)', area: 'Nakano',
     stops: [
-      { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', lat: 35.709248, lng: 139.665652 },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj ~12:00 · nær Broadway', tag: 'mat', lat: 35.708064, lng: 139.665548 },
+      { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', slot: 'dagtid', lat: 35.709248, lng: 139.665652 },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj ~12:00 · nær Broadway', tag: 'mat', slot: '', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
     date: '7. des (søn)', area: 'Yokohama',
     stops: [
-      { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', lat: 35.464556, lng: 139.624649 },
-      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00 · lengre unna', tag: '', lat: 35.417500, lng: 139.660800 },
-    ],
-  },
-  {
-    date: '🌙 Kveld / ekstra', area: 'Akihabara', note: 'Fra basen, når du har tid. De 22:00-butikkene passer perfekt på kvelden etter andre bydeler.',
-    stops: [
-      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00 · kveld', tag: 'kveld', lat: 35.698917, lng: 139.774798 },
-      { name: 'BicCamera AKIBA', hours: '10:00–22:00 · kveld', tag: 'kveld', lat: 35.699830, lng: 139.771788 },
-      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00 · kveld', tag: 'kveld', lat: 35.697734, lng: 139.773475 },
-      { name: 'Tokyo Hobby Center', hours: '11:00–22:00 · kveld', tag: 'kveld', lat: 35.703070, lng: 139.772150 },
-      { name: 'Retro Game Camp', hours: '11:00–20:00 · dagtid', tag: '', lat: 35.701199, lng: 139.771271 },
-      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00 · dagtid', tag: '', lat: 35.702083, lng: 139.771894 },
-      { name: 'Kamikaze Style', hours: '11:00–20:00 · dagtid', tag: '', lat: 35.702057, lng: 139.769845 },
-      { name: '3COINS', hours: '10:00–21:00 · dagtid', tag: '', lat: 35.698373, lng: 139.772696 },
+      { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', slot: 'dagtid', lat: 35.464556, lng: 139.624649 },
+      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00 · lengre unna', tag: '', slot: 'dagtid', lat: 35.417500, lng: 139.660800 },
     ],
   },
 ]
@@ -110,7 +107,7 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Kartet viser rekkefølgen <strong>🏠 → 1 → 2 → 🏠</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>⋯</strong> flytt/kopier til annen dag · <strong>+</strong> legg til · <strong>🗺️</strong> åpne rute.</span>
+    <span><strong>☀️ dagtid</strong> = gjør på dagen · <strong>🌙 kveld</strong> = åpent 22:00+, ta sist. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>⋯</strong> flytt/kopier · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
@@ -132,7 +129,7 @@ const PLAN = [
       })
     }
 
-    const STORE_KEY = 'ff-itinerary-v9'
+    const STORE_KEY = 'ff-itinerary-v10'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
@@ -197,6 +194,11 @@ const PLAN = [
     }
     function dayOptions(exceptDi) {
       return state.map((d, dj) => dj === exceptDi ? '' : `<option value="${dj}">${d.date}</option>`).join('')
+    }
+    function slotBadge(slot) {
+      if (slot === 'kveld') return '<span class="slot-badge kveld">🌙 kveld</span>'
+      if (slot === 'dagtid') return '<span class="slot-badge dagtid">☀️ dagtid</span>'
+      return ''
     }
 
     function initMap(di, day) {
@@ -272,7 +274,10 @@ const PLAN = [
             </div>
             <span class="stop-body">
               <span class="stop-name">${gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${s.name}</a>` : s.name}</span>
-              ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
+              <span class="stop-sub">
+                ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
+                ${slotBadge(s.slot)}
+              </span>
             </span>
             ${tagHtml}
             <div class="stop-actions">
@@ -281,11 +286,8 @@ const PLAN = [
             </div>
           `
           ul.appendChild(li)
-          // Move/copy panel (hidden until ⋯ pressed).
           const panel = document.createElement('li')
-          panel.className = 'mc-panel'
-          panel.dataset.day = di; panel.dataset.idx = si
-          panel.hidden = true
+          panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si; panel.hidden = true
           panel.innerHTML = `
             <label>Flytt til: <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
             <label>Kopier til: <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
@@ -312,13 +314,8 @@ const PLAN = [
       ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
       saveState(); render()
     }
-    function moveToDay(di, idx, dj) {
-      const [s] = state[di].stops.splice(idx, 1)
-      state[dj].stops.push(s); saveState(); render()
-    }
-    function copyToDay(di, idx, dj) {
-      state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render()
-    }
+    function moveToDay(di, idx, dj) { const [s] = state[di].stops.splice(idx, 1); state[dj].stops.push(s); saveState(); render() }
+    function copyToDay(di, idx, dj) { state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render() }
 
     function attachEvents() {
       document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
@@ -351,7 +348,7 @@ const PLAN = [
           const name = form.querySelector('.af-name').value.trim()
           if (!name) return
           const hours = form.querySelector('.af-hours').value.trim()
-          state[di].stops.push({ name, hours, tag: '', lat: null, lng: null })
+          state[di].stops.push({ name, hours, tag: '', slot: '', lat: null, lng: null })
           saveState(); render()
         })
       })
@@ -431,11 +428,18 @@ const PLAN = [
     .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
     .mv:disabled { opacity: 0.25; cursor: default; }
     .stop-num { font-size: 0.7rem; font-weight: 700; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin: 1px 0; }
-    .stop-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-width: 0; }
+    .stop-body { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .stop-name a { color: var(--text); text-decoration: none; }
     .stop-name a:hover { color: var(--accent); text-decoration: underline; }
+    .stop-sub { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
     .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
+    .slot-badge {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+    }
+    .slot-badge.dagtid { background: rgba(244,162,76,0.18); color: var(--accent); }
+    .slot-badge.kveld { background: rgba(107,159,212,0.2); color: #8fbce8; }
     .stop-tag {
       flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;
       border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;

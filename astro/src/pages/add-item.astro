@@ -8,10 +8,20 @@ const seriesRaw = await sanity.fetch(`
 `)
 const seriesList = (seriesRaw || []).filter(Boolean).sort()
 ---
-<Base title="Add game">
+<Base title="Add item">
   <div class="add-wrap">
-    <h1>Add game</h1>
-    <p class="hint">Register a game you own. Scan the barcode, look it up, add a photo, and save.</p>
+    <h1>Add to collection</h1>
+    <p class="hint">Pick a type, scan the barcode, look it up, add a photo, and save.</p>
+
+    <div class="field">
+      <label>Type</label>
+      <select id="f-type">
+        <option value="album">💿 Album / CD</option>
+        <option value="game">🎮 Game</option>
+        <option value="book">📖 Book</option>
+        <option value="merch">🗿 Merch</option>
+      </select>
+    </div>
 
     <div class="field">
       <label>Barcode</label>
@@ -26,48 +36,75 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
 
     <div class="lookup-row">
       <span class="lookup-label">Look up:</span>
-      <button type="button" class="lk-btn" data-src="google">Google</button>
-      <button type="button" class="lk-btn" data-src="googleimg">Google Images</button>
-      <button type="button" class="lk-btn" data-src="mobygames">MobyGames</button>
+      <span id="f-lookups"></span>
     </div>
 
-    <div class="field-row">
-      <div class="field">
-        <label>Platform</label>
-        <select id="f-platform">
-          <option value="">Select…</option>
-          <option>PS1</option><option>PS2</option><option>PS3</option><option>PS4</option><option>PS5</option>
-          <option>PSP</option><option>PS Vita</option>
-          <option>SNES</option><option>NES</option><option>N64</option><option>GameCube</option>
-          <option>Switch</option><option>3DS</option><option>DS</option><option>GBA</option>
-          <option>Xbox</option><option>Xbox 360</option><option>PC</option><option>Other</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Series / Franchise</label>
-        <select id="f-series">
-          <option value="">Select series…</option>
-          {seriesList.map((s: string) => <option value={s}>{s}</option>)}
-          <option value="__new__">+ New series…</option>
-        </select>
-        <input id="f-series-new" type="text" placeholder="New series name" hidden style="margin-top:0.5rem" />
-      </div>
+    <div class="field" data-for="merch">
+      <label>Merch type</label>
+      <select id="f-category">
+        <option value="figure">Figure</option>
+        <option value="plushie">Plushie</option>
+        <option value="wearable">Wearable</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
+    <div class="field" data-for="game">
+      <label>Platform</label>
+      <select id="f-platform">
+        <option value="">Select…</option>
+        <option>PS1</option><option>PS2</option><option>PS3</option><option>PS4</option><option>PS5</option>
+        <option>PSP</option><option>PS Vita</option>
+        <option>SNES</option><option>NES</option><option>N64</option><option>GameCube</option>
+        <option>Switch</option><option>3DS</option><option>DS</option><option>GBA</option>
+        <option>Xbox</option><option>Xbox 360</option><option>PC</option><option>Other</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Series / Franchise</label>
+      <select id="f-series">
+        <option value="">Select series…</option>
+        {seriesList.map((s: string) => <option value={s}>{s}</option>)}
+        <option value="__new__">+ New series…</option>
+      </select>
+      <input id="f-series-new" type="text" placeholder="New series name" hidden style="margin-top:0.5rem" />
     </div>
 
     <div class="field">
       <label>Title *</label>
-      <input id="f-title" type="text" placeholder="Game title" />
+      <input id="f-title" type="text" placeholder="Title" />
     </div>
 
-    <div class="field-row">
+    <div class="field" data-for="album game book">
+      <label id="f-creator-label">Creator</label>
+      <input id="f-creator" type="text" placeholder="Name" />
+    </div>
+
+    <div class="field" data-for="merch">
+      <label>Manufacturer</label>
+      <input id="f-manufacturer" type="text" placeholder="e.g. Square Enix" />
+    </div>
+
+    <div class="field" data-for="album">
+      <label>Catalog number (VGMdb ref)</label>
+      <input id="f-ref" type="text" placeholder="e.g. SQEX-10130" />
+    </div>
+
+    <div class="field-row" data-for="merch">
       <div class="field">
-        <label>Publisher / Developer</label>
-        <input id="f-creator" type="text" placeholder="e.g. Square Enix" />
+        <label>Scale</label>
+        <input id="f-scale" type="text" placeholder="e.g. 1/7" />
       </div>
       <div class="field">
-        <label>Year</label>
-        <input id="f-year" type="number" inputmode="numeric" placeholder="1997" />
+        <label>Condition</label>
+        <input id="f-condition" type="text" placeholder="e.g. New in box" />
       </div>
+    </div>
+
+    <div class="field">
+      <label>Year</label>
+      <input id="f-year" type="number" inputmode="numeric" placeholder="2005" />
     </div>
 
     <div class="field-row">
@@ -107,21 +144,39 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       <textarea id="f-notes" rows="2" placeholder="Anything worth noting…"></textarea>
     </div>
 
-    <button id="f-save" type="button" class="save-btn">Save game</button>
+    <button id="f-save" type="button" class="save-btn">Save</button>
     <p id="f-msg" class="save-msg" hidden></p>
 
-    <a href="/games" class="back-link">← Back to games</a>
+    <a href="/" class="back-link">← Back</a>
   </div>
 
   <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
+    const CONFIG = {
+      album: { endpoint: '/api/album-create', backLabel: 'album', creatorLabel: 'Artist / Composer',
+        lookups: [['vgmdb','VGMdb'],['google','Google'],['googleimg','Google Images']] },
+      game: { endpoint: '/api/game-create', backLabel: 'game', creatorLabel: 'Publisher / Developer',
+        lookups: [['mobygames','MobyGames'],['google','Google'],['googleimg','Google Images']] },
+      book: { endpoint: '/api/book-create', backLabel: 'book', creatorLabel: 'Author / Publisher',
+        lookups: [['googlebooks','Google Books'],['google','Google'],['googleimg','Google Images']] },
+      merch: { endpoint: '/api/merch-create', backLabel: 'merch', creatorLabel: '',
+        lookups: [['mfc','MyFigureCollection'],['google','Google'],['googleimg','Google Images']] },
+    }
+
+    const typeSelect = document.querySelector('#f-type')
     const barcodeInput = document.querySelector('#f-barcode')
+    const categorySelect = document.querySelector('#f-category')
     const platformSelect = document.querySelector('#f-platform')
     const seriesSelect = document.querySelector('#f-series')
     const seriesNewInput = document.querySelector('#f-series-new')
     const titleInput = document.querySelector('#f-title')
+    const creatorLabel = document.querySelector('#f-creator-label')
     const creatorInput = document.querySelector('#f-creator')
+    const manufacturerInput = document.querySelector('#f-manufacturer')
+    const refInput = document.querySelector('#f-ref')
+    const scaleInput = document.querySelector('#f-scale')
+    const conditionInput = document.querySelector('#f-condition')
     const yearInput = document.querySelector('#f-year')
     const yenInput = document.querySelector('#f-yen')
     const nokInput = document.querySelector('#f-nok')
@@ -129,6 +184,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const notesInput = document.querySelector('#f-notes')
     const saveBtn = document.querySelector('#f-save')
     const msg = document.querySelector('#f-msg')
+    const lookupsEl = document.querySelector('#f-lookups')
     const scanBtn = document.querySelector('#f-scan')
     const reader = document.querySelector('#f-reader')
     const scanMsg = document.querySelector('#f-scan-msg')
@@ -138,6 +194,24 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const photoName = document.querySelector('#f-photo-name')
     const preview = document.querySelector('#f-preview')
     let selectedPhoto = null
+
+    function currentType() { return typeSelect.value }
+
+    function applyType() {
+      const type = currentType()
+      const cfg = CONFIG[type]
+      // Show/hide type-specific fields.
+      document.querySelectorAll('[data-for]').forEach((el) => {
+        const types = el.getAttribute('data-for').split(' ')
+        el.hidden = !types.includes(type)
+      })
+      if (cfg.creatorLabel) creatorLabel.textContent = cfg.creatorLabel
+      // Render lookup buttons.
+      lookupsEl.innerHTML = cfg.lookups.map(([src, label]) =>
+        `<button type="button" class="lk-btn" data-src="${src}">${label}</button>`).join(' ')
+      lookupsEl.querySelectorAll('.lk-btn').forEach((btn) => btn.addEventListener('click', () => doLookup(btn.dataset.src)))
+      saveBtn.textContent = 'Save ' + cfg.backLabel
+    }
 
     function handlePhoto(fileInput) {
       const file = fileInput.files && fileInput.files[0]
@@ -158,6 +232,8 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     }
 
     const params = new URLSearchParams(window.location.search)
+    const preType = params.get('type')
+    if (preType && CONFIG[preType]) typeSelect.value = preType
     const preBarcode = params.get('barcode')
     if (preBarcode) barcodeInput.value = preBarcode
 
@@ -177,22 +253,25 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       } catch {}
     }
     barcodeInput.addEventListener('change', () => checkDuplicate(barcodeInput.value))
-    if (preBarcode) checkDuplicate(preBarcode)
 
-    document.querySelectorAll('.lk-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const term = (titleInput.value.trim() || barcodeInput.value.trim())
-        if (!term) { showMsg('Enter a title or barcode first.', false); return }
-        const enc = encodeURIComponent(term)
-        let url = ''
-        switch (btn.dataset.src) {
-          case 'google': url = `https://www.google.com/search?q=${enc}+game`; break
-          case 'googleimg': url = `https://www.google.com/search?tbm=isch&q=${enc}+game+cover`; break
-          case 'mobygames': url = `https://www.mobygames.com/search/?q=${enc}`; break
-        }
-        if (url) window.open(url, '_blank', 'noopener')
-      })
-    })
+    function lookupUrl(src, term) {
+      const enc = encodeURIComponent(term)
+      switch (src) {
+        case 'vgmdb': return `https://vgmdb.net/search?q=${enc}`
+        case 'mobygames': return `https://www.mobygames.com/search/?q=${enc}`
+        case 'googlebooks': return `https://www.google.com/search?tbm=bks&q=${enc}`
+        case 'mfc': return `https://myfigurecollection.net/?_tb=item&keywords=${enc}`
+        case 'google': return `https://www.google.com/search?q=${enc}`
+        case 'googleimg': return `https://www.google.com/search?tbm=isch&q=${enc}`
+      }
+      return ''
+    }
+    function doLookup(src) {
+      const term = (refInput.value.trim() || titleInput.value.trim() || barcodeInput.value.trim())
+      if (!term) { showMsg('Enter a title, code or catalog number first.', false); return }
+      const url = lookupUrl(src, term)
+      if (url) window.open(url, '_blank', 'noopener')
+    }
 
     let scanner = null, running = false
     async function startScan() {
@@ -211,24 +290,33 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     }
     scanBtn.addEventListener('click', () => { if (running) stopScan(); else startScan() })
 
+    function buildBody(type) {
+      const base = {
+        title: titleInput.value.trim(),
+        series: chosenSeries(),
+        year: yearInput.value,
+        barcode: barcodeInput.value,
+        purchasePriceYen: yenInput.value,
+        purchasePrice: nokInput.value,
+        acquiredDate: dateInput.value,
+        notes: notesInput.value,
+      }
+      if (type === 'album') return { ...base, creator: creatorInput.value, ref: refInput.value }
+      if (type === 'game') return { ...base, creator: creatorInput.value, platform: platformSelect.value }
+      if (type === 'book') return { ...base, creator: creatorInput.value }
+      if (type === 'merch') return { ...base, manufacturer: manufacturerInput.value, category: categorySelect.value, scale: scaleInput.value, condition: conditionInput.value }
+      return base
+    }
+
     async function save() {
       if (!titleInput.value.trim()) return showMsg('Please enter a title.', false)
+      const type = currentType()
+      const cfg = CONFIG[type]
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
       try {
-        const res = await fetch('/api/game-create', {
+        const res = await fetch(cfg.endpoint, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: titleInput.value.trim(),
-            platform: platformSelect.value,
-            creator: creatorInput.value,
-            series: chosenSeries(),
-            year: yearInput.value,
-            barcode: barcodeInput.value,
-            purchasePriceYen: yenInput.value,
-            purchasePrice: nokInput.value,
-            acquiredDate: dateInput.value,
-            notes: notesInput.value,
-          }),
+          body: JSON.stringify(buildBody(type)),
         })
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
@@ -239,15 +327,22 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
           try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch {}
         }
         showMsg('Saved ✓ — ready for the next one.', true)
-        titleInput.value = ''; creatorInput.value = ''; platformSelect.value = ''; seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
+        // Reset fields (keep type selected).
+        titleInput.value = ''; creatorInput.value = ''; manufacturerInput.value = ''; refInput.value = ''
+        scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
+        seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
         yearInput.value = ''; barcodeInput.value = ''; yenInput.value = ''; nokInput.value = ''; notesInput.value = ''
         selectedPhoto = null; photoCamera.value = ''; photoGallery.value = ''; photoName.hidden = true; preview.hidden = true; preview.src = ''
         dupWarn.hidden = true; dupWarn.innerHTML = ''
         titleInput.focus()
       } catch (e) { showMsg('Network error.', false) }
-      finally { saveBtn.disabled = false; saveBtn.textContent = 'Save game' }
+      finally { saveBtn.disabled = false; saveBtn.textContent = 'Save ' + cfg.backLabel }
     }
     saveBtn.addEventListener('click', save)
+
+    typeSelect.addEventListener('change', applyType)
+    applyType()
+    if (preBarcode) checkDuplicate(preBarcode)
   </script>
 
   <style>

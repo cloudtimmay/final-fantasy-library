@@ -87,8 +87,8 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     </div>
 
     <div class="field" data-for="album">
-      <label>Catalog number (VGMdb ref)</label>
-      <input id="f-ref" type="text" placeholder="e.g. SQEX-10130" />
+      <label>Catalog number</label>
+      <input id="f-catalog" type="text" placeholder="e.g. SQEX-10130" />
     </div>
 
     <div class="field-row" data-for="merch">
@@ -103,7 +103,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     </div>
 
     <div class="field">
-      <label>Year</label>
+      <label id="f-year-label">Year</label>
       <input id="f-year" type="number" inputmode="numeric" placeholder="2005" />
     </div>
 
@@ -154,13 +154,13 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
 
   <script>
     const CONFIG = {
-      album: { endpoint: '/api/album-create', backLabel: 'album', creatorLabel: 'Artist / Composer',
+      album: { endpoint: '/api/album-create', backLabel: 'album', creatorLabel: 'Composer / Artist', yearLabel: 'Release year',
         lookups: [['vgmdb','VGMdb'],['google','Google'],['googleimg','Google Images']] },
-      game: { endpoint: '/api/game-create', backLabel: 'game', creatorLabel: 'Publisher / Developer',
+      game: { endpoint: '/api/game-create', backLabel: 'game', creatorLabel: 'Publisher / Developer', yearLabel: 'Year',
         lookups: [['mobygames','MobyGames'],['google','Google'],['googleimg','Google Images']] },
-      book: { endpoint: '/api/book-create', backLabel: 'book', creatorLabel: 'Author / Publisher',
+      book: { endpoint: '/api/book-create', backLabel: 'book', creatorLabel: 'Author / Publisher', yearLabel: 'Year',
         lookups: [['googlebooks','Google Books'],['google','Google'],['googleimg','Google Images']] },
-      merch: { endpoint: '/api/merch-create', backLabel: 'merch', creatorLabel: '',
+      merch: { endpoint: '/api/merch-create', backLabel: 'merch', creatorLabel: '', yearLabel: 'Year',
         lookups: [['mfc','MyFigureCollection'],['google','Google'],['googleimg','Google Images']] },
     }
 
@@ -174,9 +174,10 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const creatorLabel = document.querySelector('#f-creator-label')
     const creatorInput = document.querySelector('#f-creator')
     const manufacturerInput = document.querySelector('#f-manufacturer')
-    const refInput = document.querySelector('#f-ref')
+    const catalogInput = document.querySelector('#f-catalog')
     const scaleInput = document.querySelector('#f-scale')
     const conditionInput = document.querySelector('#f-condition')
+    const yearLabel = document.querySelector('#f-year-label')
     const yearInput = document.querySelector('#f-year')
     const yenInput = document.querySelector('#f-yen')
     const nokInput = document.querySelector('#f-nok')
@@ -205,6 +206,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         el.hidden = !types.includes(type)
       })
       if (cfg.creatorLabel) creatorLabel.textContent = cfg.creatorLabel
+      yearLabel.textContent = cfg.yearLabel
       lookupsEl.innerHTML = cfg.lookups.map(([src, label]) =>
         `<button type="button" class="lk-btn" data-src="${src}">${label}</button>`).join(' ')
       lookupsEl.querySelectorAll('.lk-btn').forEach((btn) => btn.addEventListener('click', () => doLookup(btn.dataset.src)))
@@ -275,14 +277,12 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       return ''
     }
     function doLookup(src) {
-      const term = (refInput.value.trim() || titleInput.value.trim() || barcodeInput.value.trim())
+      const term = (catalogInput.value.trim() || titleInput.value.trim() || barcodeInput.value.trim())
       if (!term) { showMsg('Enter a title, code or catalog number first.', false); return }
       const url = lookupUrl(src, term)
       if (url) window.open(url, '_blank', 'noopener')
     }
 
-    // Scanner is loaded on demand (only when you tap Scan), so the page stays
-    // light for the camera-photo flow — this is what was crashing on return.
     let scannerLibLoading = null
     function loadScannerLib() {
       if (window.Html5Qrcode) return Promise.resolve(true)
@@ -324,17 +324,16 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       const base = {
         title: titleInput.value.trim(),
         series: chosenSeries(),
-        year: yearInput.value,
         barcode: barcodeInput.value,
         purchasePriceYen: yenInput.value,
         purchasePrice: nokInput.value,
         acquiredDate: dateInput.value,
         notes: notesInput.value,
       }
-      if (type === 'album') return { ...base, creator: creatorInput.value, ref: refInput.value }
-      if (type === 'game') return { ...base, creator: creatorInput.value, platform: platformSelect.value }
-      if (type === 'book') return { ...base, creator: creatorInput.value }
-      if (type === 'merch') return { ...base, manufacturer: manufacturerInput.value, category: categorySelect.value, scale: scaleInput.value, condition: conditionInput.value }
+      if (type === 'album') return { ...base, composer: creatorInput.value, catalogNumber: catalogInput.value, releaseDate: yearInput.value }
+      if (type === 'game') return { ...base, creator: creatorInput.value, platform: platformSelect.value, year: yearInput.value }
+      if (type === 'book') return { ...base, creator: creatorInput.value, year: yearInput.value }
+      if (type === 'merch') return { ...base, manufacturer: manufacturerInput.value, category: categorySelect.value, scale: scaleInput.value, condition: conditionInput.value, year: yearInput.value }
       return base
     }
 
@@ -357,7 +356,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
           try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch (e) {}
         }
         showMsg('Saved ✓ — ready for the next one.', true)
-        titleInput.value = ''; creatorInput.value = ''; manufacturerInput.value = ''; refInput.value = ''
+        titleInput.value = ''; creatorInput.value = ''; manufacturerInput.value = ''; catalogInput.value = ''
         scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
         seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
         yearInput.value = ''; barcodeInput.value = ''; yenInput.value = ''; nokInput.value = ''; notesInput.value = ''

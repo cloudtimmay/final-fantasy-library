@@ -16,11 +16,12 @@ export const POST: APIRoute = async ({ request }) => {
   const num = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
   const str = (v: any) => { const s = String(v ?? '').trim(); return s || undefined }
 
-  const doc: any = { _type: 'album', title, status: 'owned' }
-  if (str(body.creator)) doc.creator = str(body.creator)
+  // Matches the album schema: composer, catalogNumber, releaseDate (string), format 'cd'.
+  const doc: any = { _type: 'album', title, status: 'owned', format: 'cd' }
+  if (str(body.composer)) doc.composer = str(body.composer)
   if (str(body.series)) doc.series = str(body.series)
-  if (num(body.year) != null) doc.year = num(body.year)
-  if (str(body.ref)) doc.ref = str(body.ref)
+  if (str(body.catalogNumber)) doc.catalogNumber = str(body.catalogNumber)
+  if (str(body.releaseDate)) doc.releaseDate = str(body.releaseDate)
   if (str(body.barcode)) doc.barcode = str(body.barcode)
   if (num(body.purchasePriceYen) != null) doc.purchasePriceYen = num(body.purchasePriceYen)
   if (num(body.purchasePrice) != null) doc.purchasePrice = num(body.purchasePrice)

@@ -150,6 +150,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     <a href="/" class="back-link">← Back</a>
   </div>
 
+  <script is:inline src="/resize-image.js"></script>
   <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
@@ -200,24 +201,34 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     function applyType() {
       const type = currentType()
       const cfg = CONFIG[type]
-      // Show/hide type-specific fields.
       document.querySelectorAll('[data-for]').forEach((el) => {
         const types = el.getAttribute('data-for').split(' ')
         el.hidden = !types.includes(type)
       })
       if (cfg.creatorLabel) creatorLabel.textContent = cfg.creatorLabel
-      // Render lookup buttons.
       lookupsEl.innerHTML = cfg.lookups.map(([src, label]) =>
         `<button type="button" class="lk-btn" data-src="${src}">${label}</button>`).join(' ')
       lookupsEl.querySelectorAll('.lk-btn').forEach((btn) => btn.addEventListener('click', () => doLookup(btn.dataset.src)))
       saveBtn.textContent = 'Save ' + cfg.backLabel
     }
 
-    function handlePhoto(fileInput) {
+    // Resize the photo before preview/upload to avoid memory crashes on phones.
+    async function handlePhoto(fileInput) {
       const file = fileInput.files && fileInput.files[0]
       if (!file) return
-      selectedPhoto = file; photoName.hidden = false; photoName.textContent = file.name
-      preview.hidden = false; preview.src = URL.createObjectURL(file)
+      photoName.hidden = false
+      photoName.textContent = 'Processing photo…'
+      let chosen = file
+      try {
+        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+      } catch (e) { chosen = file }
+      selectedPhoto = chosen
+      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      preview.hidden = false
+      preview.src = URL.createObjectURL(chosen)
+      photoName.textContent = file.name || 'photo'
+      // Let the input be re-selected with the same file later.
+      fileInput.value = ''
     }
     photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
     photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
@@ -250,7 +261,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
           dupWarn.hidden = false
           dupWarn.innerHTML = `⚠️ <strong>Already in your collection:</strong> “${m.title}” (${m.status || m._type}).`
         }
-      } catch {}
+      } catch (e) {}
     }
     barcodeInput.addEventListener('change', () => checkDuplicate(barcodeInput.value))
 
@@ -324,14 +335,14 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
           saveBtn.textContent = 'Uploading photo…'
           const form = new FormData()
           form.append('file', selectedPhoto); form.append('docId', data.id); form.append('field', 'image')
-          try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch {}
+          try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch (e) {}
         }
         showMsg('Saved ✓ — ready for the next one.', true)
-        // Reset fields (keep type selected).
         titleInput.value = ''; creatorInput.value = ''; manufacturerInput.value = ''; refInput.value = ''
         scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
         seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
         yearInput.value = ''; barcodeInput.value = ''; yenInput.value = ''; nokInput.value = ''; notesInput.value = ''
+        if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
         selectedPhoto = null; photoCamera.value = ''; photoGallery.value = ''; photoName.hidden = true; preview.hidden = true; preview.src = ''
         dupWarn.hidden = true; dupWarn.innerHTML = ''
         titleInput.focus()

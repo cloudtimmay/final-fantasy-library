@@ -49,6 +49,126 @@ function isNew(acquiredDate: string | undefined): boolean {
 }
 ---
 <Base title="Dashboard">
+<div class="trip-countdown" id="tc">
+  <div class="tc-title" id="tc-title">Nedtelling til Japan 🇯🇵</div>
+  <div class="tc-cells" id="tc-cells">
+    <div class="tc-cell" id="c-months"><span class="tc-num">–</span><span class="tc-lab">mnd</span></div>
+    <div class="tc-cell" id="c-weeks"><span class="tc-num">–</span><span class="tc-lab">uker</span></div>
+    <div class="tc-cell" id="c-days"><span class="tc-num">–</span><span class="tc-lab">dager</span></div>
+    <div class="tc-cell" id="c-hours"><span class="tc-num">–</span><span class="tc-lab">timer</span></div>
+    <div class="tc-cell" id="c-mins"><span class="tc-num">–</span><span class="tc-lab">min</span></div>
+  </div>
+  <div class="tc-done" id="tc-done" hidden></div>
+</div>
+
+<script is:inline>
+  (function () {
+    // Local device time: correct in Norway before, and in Japan during the trip.
+    const DEPART = new Date(2026, 10, 30, 4, 30, 0)   // 30. nov 2026 04:30
+    const RETURN = new Date(2026, 11, 7, 23, 0, 0)    // 7. des 2026 23:00
+
+    const el = (id) => document.getElementById(id)
+    const setNum = (id, v) => { const c = el(id); if (c) c.querySelector('.tc-num').textContent = v }
+    const pad = (n) => String(n).padStart(2, '0')
+
+    function calendarBreakdown(now, target) {
+      let months = 0
+      let cursor = new Date(now)
+      while (true) {
+        const next = new Date(cursor); next.setMonth(next.getMonth() + 1)
+        if (next <= target) { cursor = next; months++ } else break
+      }
+      let rem = target - cursor
+      const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR, WEEK = 7 * DAY
+      const weeks = Math.floor(rem / WEEK); rem -= weeks * WEEK
+      const days = Math.floor(rem / DAY); rem -= days * DAY
+      const hours = Math.floor(rem / HOUR); rem -= hours * HOUR
+      const minutes = Math.floor(rem / MIN)
+      return { months, weeks, days, hours, minutes }
+    }
+
+    function dhm(now, target) {
+      let rem = target - now
+      const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR
+      const days = Math.floor(rem / DAY); rem -= days * DAY
+      const hours = Math.floor(rem / HOUR); rem -= hours * HOUR
+      const minutes = Math.floor(rem / MIN)
+      return { days, hours, minutes }
+    }
+
+    function tick() {
+      const now = new Date()
+      const cells = el('tc-cells'), done = el('tc-done')
+      const title = el('tc-title')
+
+      if (now < DEPART) {
+        // Phase 1 — countdown to leaving for Japan.
+        title.textContent = 'Nedtelling til Japan 🇯🇵'
+        cells.hidden = false; done.hidden = true
+        el('c-months').hidden = false; el('c-weeks').hidden = false
+        const b = calendarBreakdown(now, DEPART)
+        setNum('c-months', b.months)
+        setNum('c-weeks', b.weeks)
+        setNum('c-days', b.days)
+        setNum('c-hours', pad(b.hours))
+        setNum('c-mins', pad(b.minutes))
+      } else if (now < RETURN) {
+        // Phase 2 — countdown to flying home.
+        title.textContent = 'Til hjemreise ✈️'
+        cells.hidden = false; done.hidden = true
+        el('c-months').hidden = true; el('c-weeks').hidden = true
+        const b = dhm(now, RETURN)
+        setNum('c-days', b.days)
+        setNum('c-hours', pad(b.hours))
+        setNum('c-mins', pad(b.minutes))
+      } else {
+        // After the trip.
+        title.textContent = 'Turen er over 💤'
+        cells.hidden = true; done.hidden = false
+        done.textContent = 'Velkommen hjem! Håper det ble en god tur.'
+      }
+    }
+
+    tick()
+    setInterval(tick, 1000)
+  })()
+</script>
+
+<style is:global>
+  .trip-countdown {
+    max-width: 100%; margin: 0 0 2rem;
+    background: linear-gradient(135deg, rgba(176,30,52,0.18), rgba(244,162,76,0.10));
+    border: 1px solid rgba(244,162,76,0.35); border-radius: 12px;
+    padding: 1.1rem 1.25rem;
+  }
+  .tc-title {
+    font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 0.95rem;
+    color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
+    margin-bottom: 0.85rem; letter-spacing: 0.03em;
+  }
+  .tc-cells { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .tc-cell {
+    flex: 1; min-width: 58px; background: rgba(12,9,16,0.55);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.7rem 0.4rem; text-align: center;
+  }
+  .tc-num {
+    display: block; font-family: 'IBM Plex Mono', monospace; font-weight: 600;
+    font-size: 1.7rem; line-height: 1; color: var(--text);
+  }
+  .tc-lab {
+    display: block; margin-top: 0.35rem; font-size: 0.65rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; font-family: 'IBM Plex Mono', monospace;
+  }
+  .tc-done {
+    font-family: 'IBM Plex Mono', monospace; font-size: 0.95rem; color: var(--text);
+    padding: 0.5rem 0;
+  }
+  @media (max-width: 640px) {
+    .tc-num { font-size: 1.4rem; }
+    .tc-cell { min-width: 50px; padding: 0.6rem 0.3rem; }
+  }
+</style>
   <div class="hud-header">
     <div class="hud-title">
       <span class="hud-slashes">//</span> COLLECTION REGISTRY

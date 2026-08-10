@@ -151,7 +151,6 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
   </div>
 
   <script is:inline src="/resize-image.js"></script>
-  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
     const CONFIG = {
@@ -212,7 +211,6 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       saveBtn.textContent = 'Save ' + cfg.backLabel
     }
 
-    // Resize the photo before preview/upload to avoid memory crashes on phones.
     async function handlePhoto(fileInput) {
       const file = fileInput.files && fileInput.files[0]
       if (!file) return
@@ -227,7 +225,6 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       preview.hidden = false
       preview.src = URL.createObjectURL(chosen)
       photoName.textContent = file.name || 'photo'
-      // Let the input be re-selected with the same file later.
       fileInput.value = ''
     }
     photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
@@ -284,16 +281,38 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       if (url) window.open(url, '_blank', 'noopener')
     }
 
+    // Scanner is loaded on demand (only when you tap Scan), so the page stays
+    // light for the camera-photo flow — this is what was crashing on return.
+    let scannerLibLoading = null
+    function loadScannerLib() {
+      if (window.Html5Qrcode) return Promise.resolve(true)
+      if (scannerLibLoading) return scannerLibLoading
+      scannerLibLoading = new Promise((resolve) => {
+        const s = document.createElement('script')
+        s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
+        s.onload = () => resolve(true)
+        s.onerror = () => resolve(false)
+        document.head.appendChild(s)
+      })
+      return scannerLibLoading
+    }
+
     let scanner = null, running = false
     async function startScan() {
-      if (typeof Html5Qrcode === 'undefined') { scanMsg.hidden = false; scanMsg.textContent = 'Scanner could not be loaded. Check your connection.'; return }
+      scanMsg.hidden = false; scanMsg.style.color = 'var(--muted)'; scanMsg.textContent = 'Loading scanner…'
+      const ok = await loadScannerLib()
+      if (!ok || typeof Html5Qrcode === 'undefined') {
+        scanMsg.style.color = '#e74c3c'
+        scanMsg.textContent = 'Scanner could not be loaded. Check your connection.'
+        return
+      }
       reader.hidden = false; scanMsg.hidden = true
       scanner = new Html5Qrcode('f-reader')
       try {
         await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 250, height: 150 } },
           (decodedText) => { const code = decodedText.replace(/[^0-9Xx]/g, ''); barcodeInput.value = code; stopScan(); checkDuplicate(code) }, () => {})
         running = true; scanBtn.textContent = '✕ Close'
-      } catch (err) { scanMsg.hidden = false; scanMsg.textContent = 'Could not access camera. Allow camera and try again.'; reader.hidden = true }
+      } catch (err) { scanMsg.hidden = false; scanMsg.style.color = '#e74c3c'; scanMsg.textContent = 'Could not access camera. Allow camera and try again.'; reader.hidden = true }
     }
     async function stopScan() {
       if (scanner && running) { try { await scanner.stop() } catch (e) {} running = false }

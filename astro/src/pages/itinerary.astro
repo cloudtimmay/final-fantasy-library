@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
 
 const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -7,6 +8,15 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Akihabara': 0, 'Shinjuku': 15, 'Ikebukuro': 15, 'Shibuya': 20,
   'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
 }
+
+let shops: any[] = []
+try {
+  shops = await sanity.fetch(`
+    *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
+      _id, shopName, area, placeType, openingHours, latitude, longitude
+    } | order(area asc, shopName asc)
+  `)
+} catch (e) { shops = [] }
 
 const PLAN = [
   {
@@ -105,13 +115,13 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Sett <strong>🕗 dagen starter</strong> øverst på hver dag — tidslinja flyter derfra (butikk 45 min, måltid 60 + gangtid). <strong>⋯</strong> = egen tid/varighet, flytt, kopier · <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>🗺️</strong> rute.</span>
+    <span>Nummer viser rekkefølgen (matcher kartet). Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>-menyen. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til fra butikklista · <strong>🗺️</strong> rute.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops })}></script>
 
   <script is:inline>
     function loadLeaflet() {
@@ -130,12 +140,34 @@ const PLAN = [
     const STORE_KEY = 'ff-itinerary-v12'
     const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
-    const { plan, areaMin, base } = JSON.parse(raw)
+    const { plan, areaMin, base, shops } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
 
     let mapInstances = []
     let leafletOk = false
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
+    }
+
+    function buildShopOptions() {
+      if (!shops || !shops.length) return ''
+      const byArea = {}
+      shops.forEach((s, i) => {
+        const area = s.area || 'Andre'
+        if (!byArea[area]) byArea[area] = []
+        byArea[area].push({ i, name: s.shopName, hasCoord: (typeof s.latitude === 'number' && typeof s.longitude === 'number') })
+      })
+      let html = ''
+      Object.keys(byArea).sort().forEach((area) => {
+        html += `<optgroup label="${esc(area)}">`
+        byArea[area].forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
+        html += `</optgroup>`
+      })
+      return html
+    }
+    const SHOP_OPTIONS = buildShopOptions()
 
     function loadSaved() {
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
@@ -159,6 +191,15 @@ const PLAN = [
     const pad = (n) => String(n).padStart(2, '0')
     function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
     function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
+
+    // Accepts "35.699, 139.771" or "35.699 139.771" (as copied from Google Maps).
+    function parseLatLng(str) {
+      const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(str || '')
+      if (!m) return null
+      const lat = parseFloat(m[1]), lng = parseFloat(m[2])
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+      return { lat, lng }
+    }
 
     function defaultDur(s) {
       if (s.tag === 'mat') return 60
@@ -211,6 +252,17 @@ const PLAN = [
       return { baseStart, times, baseEnd: clock }
     }
 
+    function resortDay(di) {
+      const day = state[di]
+      const { times } = computeTimes(day)
+      const withT = day.stops.map((s, i) => ({
+        s, orig: i,
+        t: (s.fixedTime && parseT(s.fixedTime) != null) ? parseT(s.fixedTime) : times[i],
+      }))
+      withT.sort((a, b) => (a.t - b.t) || (a.orig - b.orig))
+      day.stops = withT.map((x) => x.s)
+    }
+
     function dayRouteUrls(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
@@ -244,13 +296,13 @@ const PLAN = [
       if (!leafletOk || !window.L) return
       const el = document.getElementById(`map-${di}`)
       if (!el) return
-      const pts = day.stops.filter((s) => s.lat != null && s.lng != null)
       const map = L.map(el, { scrollWheelZoom: false })
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
       const latlngs = [[base.lat, base.lng]]
       const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
       L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base')
-      pts.forEach((s, i) => {
+      day.stops.forEach((s, i) => {
+        if (s.lat == null || s.lng == null) return
         const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
         L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${s.name}`)
         latlngs.push([s.lat, s.lng])
@@ -276,6 +328,10 @@ const PLAN = [
         if (urls.length === 1) routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
         else if (urls.length > 1) routeBtns = '<div class="route-parts">' + urls.map((u, i) => `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
 
+        const shopSelectHtml = SHOP_OPTIONS
+          ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`
+          : `<select class="af-shop"><option value="__custom__" selected>✏️ Skriv selv</option></select>`
+
         card.innerHTML = `
           <div class="day-head">
             <div>
@@ -293,8 +349,11 @@ const PLAN = [
           <ul class="stop-list" data-day="${di}"></ul>
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
-            <input class="af-name" type="text" placeholder="Navn på stopp *" />
-            <input class="af-hours" type="text" placeholder="Info (valgfritt)" />
+            ${shopSelectHtml}
+            <div class="af-custom" hidden>
+              <input class="af-name" type="text" placeholder="Navn på stopp *" />
+              <input class="af-hours" type="text" placeholder="Info (valgfritt)" />
+            </div>
             <div class="af-row"><button class="af-save" type="button">Legg til</button><button class="af-cancel" type="button">Avbryt</button></div>
           </div>
         `
@@ -305,6 +364,7 @@ const PLAN = [
 
         day.stops.forEach((s, si) => {
           const t = times[si]
+          const noCoord = (s.lat == null || s.lng == null)
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
@@ -315,6 +375,7 @@ const PLAN = [
             <span class="stop-time">${fmt(t)}${s.fixedTime ? ' 📌' : ''}</span>
             <div class="move-col">
               <button class="mv up" data-day="${di}" data-idx="${si}" ${si === 0 ? 'disabled' : ''} title="Opp">▲</button>
+              <span class="stop-num">${si + 1}</span>
               <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
             </div>
             <span class="stop-body">
@@ -322,11 +383,12 @@ const PLAN = [
               <span class="stop-sub">
                 ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
                 ${slotBadge(s.slot)}
+                ${noCoord ? '<span class="nocoord">📍 mangler koordinater</span>' : ''}
               </span>
             </span>
             ${tagHtml}
             <div class="stop-actions">
-              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Tid / flytt / kopier">⋯</button>
+              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Tid / koordinater / flytt / kopier">⋯</button>
               <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
             </div>
           `
@@ -334,6 +396,13 @@ const PLAN = [
           const panel = document.createElement('li')
           panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si
           panel.innerHTML = `
+            ${noCoord ? `
+              <div class="mc-coord-row">
+                <label>📍 Koordinater <input type="text" class="mc-coord" placeholder="lat, lng (fra Google Maps)" /></label>
+                <button class="mc-coord-save" type="button">Lagre</button>
+              </div>
+              <p class="mc-coord-msg" hidden></p>
+            ` : ''}
             <div class="mc-time-row">
               <label>🕐 Tid <input type="time" class="mc-time" value="${s.fixedTime || ''}" /></label>
               <label>⏱ Varighet <input type="number" class="mc-dur" min="5" step="5" value="${durVal}" /> min</label>
@@ -366,6 +435,50 @@ const PLAN = [
     function moveToDay(di, idx, dj) { const [s] = state[di].stops.splice(idx, 1); state[dj].stops.push(s); saveState(); render() }
     function copyToDay(di, idx, dj) { state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render() }
 
+    function addShopStop(di, shopIdx) {
+      const shop = shops[shopIdx]
+      if (!shop) return
+      state[di].stops.push({
+        name: shop.shopName,
+        hours: shop.openingHours || '',
+        tag: shop.placeType === 'restaurant' ? 'mat' : '',
+        slot: '',
+        shopId: shop._id || null,
+        lat: (typeof shop.latitude === 'number') ? shop.latitude : null,
+        lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
+      })
+      saveState(); render()
+    }
+    function addCustomStop(di, name, hours) {
+      state[di].stops.push({ name, hours, tag: '', slot: '', lat: null, lng: null })
+      saveState(); render()
+    }
+
+    function coordMsg(el, text, color) { el.hidden = false; el.textContent = text; el.style.color = color }
+
+    async function saveCoords(di, idx, panel) {
+      const s = state[di].stops[idx]
+      const inp = panel.querySelector('.mc-coord')
+      const msg = panel.querySelector('.mc-coord-msg')
+      const parsed = parseLatLng(inp.value)
+      if (!parsed) { coordMsg(msg, 'Skriv «lat, lng» — f.eks. 35.6990, 139.7710', '#e74c3c'); return }
+      s.lat = parsed.lat; s.lng = parsed.lng
+      saveState()
+      if (s.shopId) {
+        coordMsg(msg, 'Lagrer til butikken…', 'var(--muted)')
+        try {
+          const res = await fetch('/api/shop-coords', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: s.shopId, latitude: parsed.lat, longitude: parsed.lng }),
+          })
+          coordMsg(msg, res.ok ? 'Lagret ✓ — også til butikken i Sanity' : 'Lagret lokalt, men Sanity-lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
+        } catch (e) { coordMsg(msg, 'Lagret lokalt (ingen nett til Sanity)', '#e74c3c') }
+      } else {
+        coordMsg(msg, 'Lagret lokalt ✓ (ikke koblet til en butikk)', '#2ecc71')
+      }
+      setTimeout(render, 1400)
+    }
+
     function attachEvents() {
       document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
         state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
@@ -379,9 +492,16 @@ const PLAN = [
         const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
         if (panel) panel.classList.toggle('open')
       }))
+      document.querySelectorAll('.mc-coord-save').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = btn.closest('.mc-panel')
+        saveCoords(+panel.dataset.day, +panel.dataset.idx, panel)
+      }))
       document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
-        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
-        s.fixedTime = inp.value || null; saveState(); render()
+        const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
+        const s = state[di].stops[+panel.dataset.idx]
+        s.fixedTime = inp.value || null
+        resortDay(di)
+        saveState(); render()
       }))
       document.querySelectorAll('.mc-dur').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
@@ -397,19 +517,28 @@ const PLAN = [
       }))
       document.querySelectorAll('.add-stop-btn').forEach((btn) => btn.addEventListener('click', () => {
         const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
-        if (form) { form.hidden = false; form.querySelector('.af-name').focus() }
+        if (form) { form.hidden = false; const sel = form.querySelector('.af-shop'); if (sel) sel.focus() }
       }))
       document.querySelectorAll('.add-form').forEach((form) => {
         const di = +form.dataset.day
+        const shopSel = form.querySelector('.af-shop')
+        const custom = form.querySelector('.af-custom')
+        function syncCustom() { custom.hidden = shopSel.value !== '__custom__' }
+        shopSel.addEventListener('change', syncCustom)
+        syncCustom()
         form.querySelector('.af-cancel').addEventListener('click', () => {
-          form.hidden = true; form.querySelector('.af-name').value = ''; form.querySelector('.af-hours').value = ''
+          form.hidden = true; shopSel.value = ''; custom.hidden = true
+          form.querySelector('.af-name').value = ''; form.querySelector('.af-hours').value = ''
         })
         form.querySelector('.af-save').addEventListener('click', () => {
-          const name = form.querySelector('.af-name').value.trim()
-          if (!name) return
-          const hours = form.querySelector('.af-hours').value.trim()
-          state[di].stops.push({ name, hours, tag: '', slot: '', lat: null, lng: null })
-          saveState(); render()
+          const val = shopSel.value
+          if (val === '__custom__') {
+            const name = form.querySelector('.af-name').value.trim()
+            if (!name) return
+            addCustomStop(di, name, form.querySelector('.af-hours').value.trim())
+          } else if (val !== '') {
+            addShopStop(di, +val)
+          }
         })
       })
     }
@@ -498,11 +627,16 @@ const PLAN = [
     .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
     .mv {
       background: var(--surface); color: var(--accent); border: 1px solid var(--border);
-      width: 26px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 0.65rem;
+      width: 26px; height: 18px; border-radius: 5px; cursor: pointer; font-size: 0.6rem;
       display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
     }
     .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
     .mv:disabled { opacity: 0.25; cursor: default; }
+    .stop-num {
+      width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #2a1a04;
+      font-size: 0.75rem; font-weight: 700; font-family: 'IBM Plex Mono', monospace;
+      display: flex; align-items: center; justify-content: center; margin: 1px 0;
+    }
     .stop-body { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .stop-name a { color: var(--text); text-decoration: none; }
@@ -515,6 +649,11 @@ const PLAN = [
     }
     .slot-badge.dagtid { background: rgba(244,162,76,0.18); color: var(--accent); }
     .slot-badge.kveld { background: rgba(107,159,212,0.2); color: #8fbce8; }
+    .nocoord {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+      background: rgba(231,76,60,0.15); color: #ff9b8f;
+    }
     .stop-tag {
       flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;
       border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;
@@ -544,6 +683,14 @@ const PLAN = [
     .mc-time-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
     .mc-time-row label { flex: 1; }
     .mc-dur { width: 64px; }
+    .mc-coord-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }
+    .mc-coord-row label { flex: 1; flex-direction: column; align-items: stretch; gap: 0.25rem; }
+    .mc-coord { width: 100%; }
+    .mc-coord-save {
+      background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.8rem;
+      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+    }
+    .mc-coord-msg { font-size: 0.75rem; margin: 0; }
 
     .walk-row { padding: 0.05rem 0 0.05rem 3.4rem; }
     .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
@@ -555,10 +702,11 @@ const PLAN = [
     }
     .add-stop-btn:hover { background: rgba(244,162,76,0.15); }
     .add-form { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
-    .add-form input {
+    .add-form select, .add-form input {
       background: var(--bg); color: var(--text); border: 1px solid var(--border);
       padding: 0.6rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
     }
+    .af-custom { display: flex; flex-direction: column; gap: 0.5rem; }
     .af-row { display: flex; gap: 0.5rem; }
     .af-save { flex: 1; background: var(--accent); color: #fff; border: none; padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
     .af-cancel { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }

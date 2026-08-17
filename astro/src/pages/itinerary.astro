@@ -8,15 +8,13 @@ const AREA_MIN_FROM_AKIB: Record<string, number> = {
   'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
 }
 
-// slot: 'dagtid' = closes early (do during day) · 'kveld' = open 22:00+ (do in the evening).
-// Each day ordered: must/daytime shops → lunch → more daytime → dinner → evening shops at bottom.
 const PLAN = [
   {
     date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
     stops: [
       { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid', tag: 'MUST', slot: 'dagtid', lat: 35.699358, lng: 139.770702 },
       { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.700494, lng: 139.771743 },
-      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj ~12:00 · tsukemen', tag: 'mat', slot: '', lat: 35.699031, lng: 139.770140 },
+      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj · tsukemen', tag: 'mat', slot: '', lat: 35.699031, lng: 139.770140 },
       { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.699229, lng: 139.770461 },
       { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.701461, lng: 139.771787 },
       { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.702324, lng: 139.771887 },
@@ -24,7 +22,7 @@ const PLAN = [
       { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.702083, lng: 139.771894 },
       { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.702057, lng: 139.769845 },
       { name: '3COINS', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.698373, lng: 139.772696 },
-      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag ~17:00 · FF-tema', tag: 'mat', slot: '', lat: 35.697776, lng: 139.770364 },
+      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag · FF-tema', tag: 'mat', slot: '', lat: 35.697776, lng: 139.770364 },
       { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.698917, lng: 139.774798 },
       { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.699830, lng: 139.771788 },
       { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.697734, lng: 139.773475 },
@@ -36,12 +34,12 @@ const PLAN = [
     stops: [
       { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.696102, lng: 139.709009 },
       { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.690151, lng: 139.705842 },
-      { name: '🍜 Ramen Hayashida', hours: 'Lunsj ~12:00 · kontant', tag: 'mat', slot: '', lat: 35.690729, lng: 139.703751 },
+      { name: '🍜 Ramen Hayashida', hours: 'Lunsj · kontant', tag: 'mat', slot: '', lat: 35.690729, lng: 139.703751 },
       { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.690903, lng: 139.704070 },
       { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.692513, lng: 139.698556 },
       { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.692699, lng: 139.706307 },
       { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.689356, lng: 139.697787 },
-      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag ~17:00 · bestill bord', tag: 'mat', slot: '', lat: 35.694050, lng: 139.698016 },
+      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag · bestill bord', tag: 'mat', slot: '', lat: 35.694050, lng: 139.698016 },
       { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.689883, lng: 139.697953 },
       { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.689568, lng: 139.698385 },
       { name: 'DAISO', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.691304, lng: 139.702974 },
@@ -55,7 +53,7 @@ const PLAN = [
       { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.731144, lng: 139.715459 },
       { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.728499, lng: 139.719797 },
       { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', slot: 'dagtid', lat: 35.728862, lng: 139.719377 },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj ~12:00 · 4.8★', tag: 'mat', slot: '', lat: 35.733522, lng: 139.709866 },
+      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj · 4.8★', tag: 'mat', slot: '', lat: 35.733522, lng: 139.709866 },
       { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', slot: 'dagtid', lat: 35.730857, lng: 139.712384 },
       { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.731606, lng: 139.712377 },
       { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.729680, lng: 139.715769 },
@@ -67,7 +65,7 @@ const PLAN = [
       { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.662116, lng: 139.698639 },
       { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.661834, lng: 139.698776 },
       { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.657255, lng: 139.701621 },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj ~12:00 · rett ved PARCO', tag: 'mat', slot: '', lat: 35.659435, lng: 139.697921 },
+      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj · rett ved PARCO', tag: 'mat', slot: '', lat: 35.659435, lng: 139.697921 },
       { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.659766, lng: 139.700826 },
       { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', slot: 'dagtid', lat: 35.668369, lng: 139.704914 },
       { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', slot: 'kveld', lat: 35.660387, lng: 139.697817 },
@@ -80,7 +78,7 @@ const PLAN = [
       { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.682496, lng: 139.768683 },
       { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681627, lng: 139.768495 },
       { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681347, lng: 139.768360 },
-      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj ~12:00 · Ramen Street', tag: 'mat', slot: '', lat: 35.680810, lng: 139.769230 },
+      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj · Ramen Street', tag: 'mat', slot: '', lat: 35.680810, lng: 139.769230 },
       { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681858, lng: 139.768669 },
     ],
   },
@@ -88,7 +86,7 @@ const PLAN = [
     date: '6. des (lør)', area: 'Nakano',
     stops: [
       { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', slot: 'dagtid', lat: 35.709248, lng: 139.665652 },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj ~12:00 · nær Broadway', tag: 'mat', slot: '', lat: 35.708064, lng: 139.665548 },
+      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj · nær Broadway', tag: 'mat', slot: '', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
@@ -107,7 +105,7 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span><strong>☀️ dagtid</strong> = gjør på dagen · <strong>🌙 kveld</strong> = åpent 22:00+, ta sist. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>⋯</strong> flytt/kopier · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
+    <span>Sett <strong>🕗 dagen starter</strong> øverst på hver dag — tidslinja flyter derfra (butikk 45 min, måltid 60 + gangtid). <strong>⋯</strong> = egen tid/varighet, flytt, kopier · <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>🗺️</strong> rute.</span>
     <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
   </div>
 
@@ -129,7 +127,8 @@ const PLAN = [
       })
     }
 
-    const STORE_KEY = 'ff-itinerary-v10'
+    const STORE_KEY = 'ff-itinerary-v12'
+    const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
@@ -142,22 +141,44 @@ const PLAN = [
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
     }
     function saveState() {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.map((d) => d.stops))) } catch {}
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.map((d) => ({ startTime: d.startTime, stops: d.stops })))) } catch {}
     }
     function buildState() {
       const saved = loadSaved()
-      return plan.map((day, di) => ({
-        date: day.date, area: day.area, note: day.note || '',
-        stops: (saved && saved[di]) ? saved[di] : day.stops.slice(),
-      }))
+      return plan.map((day, di) => {
+        const s = saved && saved[di]
+        return {
+          date: day.date, area: day.area, note: day.note || '',
+          startTime: (s && s.startTime) || DEFAULT_START,
+          stops: (s && s.stops) ? s.stops : day.stops.slice(),
+        }
+      })
     }
     let state = buildState()
+
+    const pad = (n) => String(n).padStart(2, '0')
+    function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
+    function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
+
+    function defaultDur(s) {
+      if (s.tag === 'mat') return 60
+      if (s.tag === 'MUST') return 75
+      if (s.tag === 'sett av tid') return 120
+      if (s.slot === 'kveld') return 40
+      return 45
+    }
 
     function distM(a, b) {
       const R = 6371000, toRad = (d) => d * Math.PI / 180
       const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng)
       const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2
       return 2 * R * Math.asin(Math.sqrt(x))
+    }
+    function walkMin(a, b) {
+      if (!a || !b || a.lat == null || b.lat == null) return 0
+      const walkM = distM(a, b) * 1.4
+      if (walkM > 2500) return Math.round(walkM/1000*3) + 5
+      return Math.max(1, Math.round(walkM/80))
     }
     function walkText(a, b) {
       if (!a || !b || a.lat == null || b.lat == null) return ''
@@ -172,6 +193,24 @@ const PLAN = [
       if (min === 0) return '🏠 base'
       return `🚃 ~${min} min fra base`
     }
+
+    function computeTimes(day) {
+      let clock = parseT(day.startTime)
+      if (clock == null) clock = parseT(DEFAULT_START)
+      const first = day.stops[0]
+      const baseStart = clock
+      if (first) clock += walkMin(base, first)
+      const times = []
+      day.stops.forEach((s, si) => {
+        if (s.fixedTime) { const p = parseT(s.fixedTime); if (p != null) clock = p }
+        times.push(clock)
+        clock += (s.dur != null ? s.dur : defaultDur(s))
+        const dest = day.stops[si + 1] || base
+        clock += walkMin(s, dest)
+      })
+      return { baseStart, times, baseEnd: clock }
+    }
+
     function dayRouteUrls(day) {
       const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
@@ -188,8 +227,8 @@ const PLAN = [
         return url
       })
     }
-    function baseRow(label) {
-      return `<li class="stop is-base"><div class="move-col"><span class="base-icon">🏠</span></div>
+    function baseRow(label, time) {
+      return `<li class="stop is-base"><span class="stop-time">${time}</span><div class="move-col"><span class="base-icon">🏠</span></div>
         <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
     }
     function dayOptions(exceptDi) {
@@ -229,6 +268,7 @@ const PLAN = [
       daysEl.innerHTML = ''
 
       state.forEach((day, di) => {
+        const { baseStart, times, baseEnd } = computeTimes(day)
         const card = document.createElement('div')
         card.className = 'day-card'
         const urls = dayRouteUrls(day)
@@ -242,7 +282,10 @@ const PLAN = [
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
             </div>
-            <div class="day-travel">${travelBadge(day.area)}</div>
+            <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
+          </div>
+          <div class="day-startrow">
+            <label>🕗 Dagen starter <input type="time" class="day-start-input" data-day="${di}" value="${day.startTime}" /></label>
           </div>
           ${day.note ? `<div class="day-note">${day.note}</div>` : ''}
           ${leafletOk ? `<div id="map-${di}" class="day-map"></div>` : ''}
@@ -251,25 +294,27 @@ const PLAN = [
           <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
           <div class="add-form" data-day="${di}" hidden>
             <input class="af-name" type="text" placeholder="Navn på stopp *" />
-            <input class="af-hours" type="text" placeholder="Åpningstider (valgfritt)" />
+            <input class="af-hours" type="text" placeholder="Info (valgfritt)" />
             <div class="af-row"><button class="af-save" type="button">Legg til</button><button class="af-cancel" type="button">Avbryt</button></div>
           </div>
         `
         const ul = card.querySelector('.stop-list')
-        ul.insertAdjacentHTML('beforeend', baseRow('Start: base'))
+        ul.insertAdjacentHTML('beforeend', baseRow('Start: base', fmt(baseStart)))
         const firstStop = day.stops[0]
         if (firstStop) { const wt = walkText(base, firstStop); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
 
         day.stops.forEach((s, si) => {
+          const t = times[si]
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
           const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
           const gmap = (s.lat != null) ? `https://www.google.com/maps?q=${s.lat},${s.lng}` : ''
+          const durVal = (s.dur != null ? s.dur : defaultDur(s))
           li.innerHTML = `
+            <span class="stop-time">${fmt(t)}${s.fixedTime ? ' 📌' : ''}</span>
             <div class="move-col">
               <button class="mv up" data-day="${di}" data-idx="${si}" ${si === 0 ? 'disabled' : ''} title="Opp">▲</button>
-              <span class="stop-num">${si + 1}</span>
               <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
             </div>
             <span class="stop-body">
@@ -281,16 +326,20 @@ const PLAN = [
             </span>
             ${tagHtml}
             <div class="stop-actions">
-              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Flytt/kopier">⋯</button>
+              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Tid / flytt / kopier">⋯</button>
               <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
             </div>
           `
           ul.appendChild(li)
           const panel = document.createElement('li')
-          panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si; panel.hidden = true
+          panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si
           panel.innerHTML = `
-            <label>Flytt til: <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
-            <label>Kopier til: <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
+            <div class="mc-time-row">
+              <label>🕐 Tid <input type="time" class="mc-time" value="${s.fixedTime || ''}" /></label>
+              <label>⏱ Varighet <input type="number" class="mc-dur" min="5" step="5" value="${durVal}" /> min</label>
+            </div>
+            <label>Flytt til <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
+            <label>Kopier til <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
           `
           ul.appendChild(panel)
 
@@ -300,7 +349,7 @@ const PLAN = [
 
         const lastStop = day.stops[day.stops.length - 1]
         if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
-        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base'))
+        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base', fmt(baseEnd)))
         daysEl.appendChild(card)
       })
 
@@ -318,6 +367,9 @@ const PLAN = [
     function copyToDay(di, idx, dj) { state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render() }
 
     function attachEvents() {
+      document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
+        state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
+      }))
       document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
       document.querySelectorAll('.mv.down').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
       document.querySelectorAll('.remove-btn').forEach((btn) => btn.addEventListener('click', () => {
@@ -325,7 +377,15 @@ const PLAN = [
       }))
       document.querySelectorAll('.more-btn').forEach((btn) => btn.addEventListener('click', () => {
         const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
-        if (panel) panel.hidden = !panel.hidden
+        if (panel) panel.classList.toggle('open')
+      }))
+      document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
+        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
+        s.fixedTime = inp.value || null; saveState(); render()
+      }))
+      document.querySelectorAll('.mc-dur').forEach((inp) => inp.addEventListener('change', () => {
+        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
+        const v = parseInt(inp.value, 10); s.dur = isNaN(v) ? null : v; saveState(); render()
       }))
       document.querySelectorAll('.mc-move').forEach((sel) => sel.addEventListener('change', () => {
         const panel = sel.closest('.mc-panel')
@@ -357,7 +417,7 @@ const PLAN = [
     resetBtn.addEventListener('click', () => {
       if (!confirm('Tilbakestille hele planen? Dine endringer forsvinner.')) return
       try { localStorage.removeItem(STORE_KEY) } catch {}
-      state = plan.map((d) => ({ date: d.date, area: d.area, note: d.note || '', stops: d.stops.slice() }))
+      state = plan.map((d) => ({ date: d.date, area: d.area, note: d.note || '', startTime: DEFAULT_START, stops: d.stops.slice() }))
       render()
     })
 
@@ -393,7 +453,19 @@ const PLAN = [
       color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
     }
     .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
-    .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; }
+    .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; line-height: 1.5; }
+    .day-startrow { margin-bottom: 0.7rem; }
+    .day-startrow label {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      font-size: 0.82rem; color: var(--text);
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.3);
+      border-radius: 8px; padding: 0.4rem 0.7rem;
+    }
+    .day-start-input {
+      background: var(--bg); color: var(--accent); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.9rem; font-weight: 700;
+      font-family: 'IBM Plex Mono', monospace;
+    }
     .day-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin-bottom: 0.7rem; }
 
     .day-map {
@@ -417,17 +489,20 @@ const PLAN = [
     }
     .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
     .stop.is-base { background: rgba(244,162,76,0.1); border-color: rgba(244,162,76,0.4); }
+    .stop-time {
+      flex-shrink: 0; width: 52px; font-family: 'IBM Plex Mono', monospace; font-weight: 700;
+      font-size: 0.82rem; color: var(--accent); text-align: right;
+    }
     .base-icon { font-size: 1.1rem; width: 26px; text-align: center; }
     .stop.is-base .stop-name { color: var(--accent); font-weight: 700; }
     .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
     .mv {
       background: var(--surface); color: var(--accent); border: 1px solid var(--border);
-      width: 26px; height: 22px; border-radius: 5px; cursor: pointer; font-size: 0.7rem;
+      width: 26px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 0.65rem;
       display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
     }
     .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
     .mv:disabled { opacity: 0.25; cursor: default; }
-    .stop-num { font-size: 0.7rem; font-weight: 700; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin: 1px 0; }
     .stop-body { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
     .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .stop-name a { color: var(--text); text-decoration: none; }
@@ -455,18 +530,22 @@ const PLAN = [
     .more-btn:hover { color: var(--accent); background: rgba(244,162,76,0.12); }
     .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
 
-    .mc-panel {
+    .mc-panel { display: none; }
+    .mc-panel.open {
       display: flex; flex-direction: column; gap: 0.5rem;
       background: rgba(244,162,76,0.06); border: 1px dashed rgba(244,162,76,0.3);
-      border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0.1rem 0 0.2rem 2.2rem;
+      border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0.1rem 0 0.2rem 3.4rem;
     }
     .mc-panel label { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
-    .mc-panel select {
+    .mc-panel select, .mc-panel input {
       background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem; flex: 1; max-width: 60%;
+      border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem;
     }
+    .mc-time-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    .mc-time-row label { flex: 1; }
+    .mc-dur { width: 64px; }
 
-    .walk-row { padding: 0.05rem 0 0.05rem 2.2rem; }
+    .walk-row { padding: 0.05rem 0 0.05rem 3.4rem; }
     .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
 
     .add-stop-btn {

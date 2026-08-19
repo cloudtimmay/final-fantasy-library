@@ -18,6 +18,13 @@ try {
   `)
 } catch (e) { shops = [] }
 
+// Saved plan (synced across devices). Null the first time.
+let savedState: string | null = null
+try {
+  const doc = await sanity.fetch(`*[_id == "itineraryState"][0]{ data }`)
+  if (doc && typeof doc.data === 'string') savedState = doc.data
+} catch (e) { savedState = null }
+
 const PLAN = [
   {
     date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
@@ -115,13 +122,16 @@ const PLAN = [
   </div>
 
   <div class="plan-tip">
-    <span>Nummer viser rekkefølgen (matcher kartet). Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>-menyen. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til fra butikklista · <strong>🗺️</strong> rute.</span>
-    <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
+    <span>Endringer lagres automatisk og synkes mellom enhetene dine. Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
+    <div class="tip-actions">
+      <span id="save-status" class="save-status"></span>
+      <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
+    </div>
   </div>
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
 
   <script is:inline>
     function loadLeaflet() {
@@ -140,9 +150,10 @@ const PLAN = [
     const STORE_KEY = 'ff-itinerary-v12'
     const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
-    const { plan, areaMin, base, shops } = JSON.parse(raw)
+    const { plan, areaMin, base, shops, savedState } = JSON.parse(raw)
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
+    const saveStatusEl = document.querySelector('#save-status')
 
     let mapInstances = []
     let leafletOk = false
@@ -169,12 +180,41 @@ const PLAN = [
     }
     const SHOP_OPTIONS = buildShopOptions()
 
+    // Prefer server-synced state; fall back to local cache.
     function loadSaved() {
+      if (savedState) { try { const p = JSON.parse(savedState); if (p) return p } catch (e) {} }
       try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
     }
-    function saveState() {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.map((d) => ({ startTime: d.startTime, stops: d.stops })))) } catch {}
+
+    function setStatus(text, color) {
+      if (!saveStatusEl) return
+      saveStatusEl.textContent = text
+      saveStatusEl.style.color = color || 'var(--muted)'
     }
+
+    let saveTimer = null
+    function scheduleRemoteSave(payload) {
+      setStatus('Lagrer…', 'var(--muted)')
+      clearTimeout(saveTimer)
+      saveTimer = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/itinerary-save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: payload }),
+          })
+          setStatus(res.ok ? 'Lagret ✓' : 'Lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
+        } catch (e) {
+          setStatus('Lagret lokalt (ingen nett)', '#e0a04c')
+        }
+      }, 1000)
+    }
+
+    function saveState() {
+      const payload = JSON.stringify(state.map((d) => ({ startTime: d.startTime, stops: d.stops })))
+      try { localStorage.setItem(STORE_KEY, payload) } catch {}
+      scheduleRemoteSave(payload)
+    }
+
     function buildState() {
       const saved = loadSaved()
       return plan.map((day, di) => {
@@ -192,7 +232,6 @@ const PLAN = [
     function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
     function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
 
-    // Accepts "35.699, 139.771" or "35.699 139.771" (as copied from Google Maps).
     function parseLatLng(str) {
       const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(str || '')
       if (!m) return null
@@ -474,7 +513,7 @@ const PLAN = [
           coordMsg(msg, res.ok ? 'Lagret ✓ — også til butikken i Sanity' : 'Lagret lokalt, men Sanity-lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
         } catch (e) { coordMsg(msg, 'Lagret lokalt (ingen nett til Sanity)', '#e74c3c') }
       } else {
-        coordMsg(msg, 'Lagret lokalt ✓ (ikke koblet til en butikk)', '#2ecc71')
+        coordMsg(msg, 'Lagret ✓ (ikke koblet til en butikk)', '#2ecc71')
       }
       setTimeout(render, 1400)
     }
@@ -544,10 +583,9 @@ const PLAN = [
     }
 
     resetBtn.addEventListener('click', () => {
-      if (!confirm('Tilbakestille hele planen? Dine endringer forsvinner.')) return
-      try { localStorage.removeItem(STORE_KEY) } catch {}
+      if (!confirm('Tilbakestille hele planen på alle enheter? Dine endringer forsvinner.')) return
       state = plan.map((d) => ({ date: d.date, area: d.area, note: d.note || '', startTime: DEFAULT_START, stops: d.stops.slice() }))
-      render()
+      saveState(); render()
     })
 
     loadLeaflet().then((ok) => { leafletOk = ok; render() })
@@ -561,6 +599,8 @@ const PLAN = [
       display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
     }
     .plan-tip strong { color: var(--accent); }
+    .tip-actions { display: flex; align-items: center; gap: 0.6rem; }
+    .save-status { font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
     .reset-btn {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
       padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;

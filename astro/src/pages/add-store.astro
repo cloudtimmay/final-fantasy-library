@@ -15,7 +15,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
 <Base title="Add shop">
   <div class="add-wrap">
     <h1>Add shop</h1>
-    <p class="hint">Save a shop with an optional pinned location. Use “Use my location” while you're standing there.</p>
+    <p class="hint">Save a shop with an optional pinned location. Use “Use my location” while you're standing there, or paste coordinates from Google Maps.</p>
 
     <div class="field">
       <label>Shop / Place *</label>
@@ -82,7 +82,15 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     </div>
 
     <div class="field">
-      <label>Location</label>
+      <label>Coordinates</label>
+      <div class="coord-paste">
+        <input id="s-coord-paste" type="text" placeholder="Paste “lat, lng” from Google Maps" />
+        <button id="s-coord-apply" type="button" class="coord-apply-btn">Apply</button>
+      </div>
+      <div class="coord-fields">
+        <input id="s-lat" type="text" inputmode="decimal" placeholder="Latitude" />
+        <input id="s-lng" type="text" inputmode="decimal" placeholder="Longitude" />
+      </div>
       <button id="s-locate" type="button" class="locate-btn">📍 Use my location</button>
       <p id="s-coords" class="coords" hidden></p>
       <p id="s-locate-msg" class="locate-msg" hidden></p>
@@ -104,6 +112,10 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     const prioritySel = document.querySelector('#s-priority')
     const addressInput = document.querySelector('#s-address')
     const mapLink = document.querySelector('#s-map-link')
+    const coordPaste = document.querySelector('#s-coord-paste')
+    const coordApply = document.querySelector('#s-coord-apply')
+    const latInput = document.querySelector('#s-lat')
+    const lngInput = document.querySelector('#s-lng')
     const locateBtn = document.querySelector('#s-locate')
     const coords = document.querySelector('#s-coords')
     const locateMsg = document.querySelector('#s-locate-msg')
@@ -114,6 +126,34 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     let lng = null
 
     const isUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s.trim())
+
+    // Read lat/lng from the two number fields; returns true if both valid.
+    function readCoordFields() {
+      const la = parseFloat(latInput.value), lo = parseFloat(lngInput.value)
+      if (!isNaN(la) && !isNaN(lo) && la >= -90 && la <= 90 && lo >= -180 && lo <= 180) {
+        lat = la; lng = lo; return true
+      }
+      if (latInput.value.trim() === '' && lngInput.value.trim() === '') { lat = null; lng = null }
+      return false
+    }
+
+    function setCoords(la, lo) {
+      lat = la; lng = lo
+      latInput.value = (typeof la === 'number') ? la.toFixed(6) : ''
+      lngInput.value = (typeof lo === 'number') ? lo.toFixed(6) : ''
+      renderCoords()
+      updateMapLink()
+    }
+
+    function renderCoords() {
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        coords.hidden = false
+        coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
+          `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
+      } else {
+        coords.hidden = true
+      }
+    }
 
     function updateMapLink() {
       if (typeof lat === 'number' && typeof lng === 'number') {
@@ -132,6 +172,25 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     updateMapLink()
     addressInput.addEventListener('input', updateMapLink)
     nameInput.addEventListener('input', updateMapLink)
+
+    // Typing directly in the lat/lng fields updates state.
+    latInput.addEventListener('input', () => { readCoordFields(); renderCoords(); updateMapLink() })
+    lngInput.addEventListener('input', () => { readCoordFields(); renderCoords(); updateMapLink() })
+
+    // Paste "lat, lng" (or "lat lng") to fill both fields at once.
+    function applyPaste() {
+      const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(coordPaste.value || '')
+      if (!m) { locateMsg.hidden = false; locateMsg.textContent = 'Paste like: 35.6990, 139.7710'; return }
+      const la = parseFloat(m[1]), lo = parseFloat(m[2])
+      if (isNaN(la) || isNaN(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) {
+        locateMsg.hidden = false; locateMsg.textContent = 'Those don’t look like valid coordinates.'; return
+      }
+      locateMsg.hidden = true
+      coordPaste.value = ''
+      setCoords(la, lo)
+    }
+    coordApply.addEventListener('click', applyPaste)
+    coordPaste.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyPaste() } })
 
     areaSel.addEventListener('change', () => {
       if (areaSel.value === '__new__') {
@@ -172,12 +231,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
 
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          lat = pos.coords.latitude
-          lng = pos.coords.longitude
-          coords.hidden = false
-          coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
-            `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
-          updateMapLink()
+          setCoords(pos.coords.latitude, pos.coords.longitude)
           locateBtn.disabled = false
           locateBtn.textContent = '📍 Update location'
         },
@@ -196,6 +250,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
 
     async function save() {
       if (!nameInput.value.trim()) return showMsg('Please enter a shop name.', false)
+      readCoordFields()
 
       saveBtn.disabled = true
       saveBtn.textContent = 'Saving…'
@@ -230,9 +285,8 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
         hoursInput.value = ''
         prioritySel.value = 'maybe'
         document.querySelectorAll('.s-trip').forEach((c) => { c.checked = false })
-        lat = null
-        lng = null
-        coords.hidden = true
+        setCoords(null, null)
+        coordPaste.value = ''
         locateBtn.textContent = '📍 Use my location'
         updateMapLink()
         nameInput.focus()
@@ -263,6 +317,15 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
       padding: 0.45rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
     }
     .map-open-btn:hover { background: rgba(255,255,255,0.04); }
+    .coord-paste { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .coord-paste input { flex: 1; min-width: 0; }
+    .coord-apply-btn {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
+    }
+    .coord-apply-btn:hover { background: rgba(255,255,255,0.04); }
+    .coord-fields { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .coord-fields input { flex: 1; min-width: 0; }
     .trip-checks { display: flex; flex-direction: column; gap: 0.5rem; }
     .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .trip-check input { width: auto; margin: 0; }

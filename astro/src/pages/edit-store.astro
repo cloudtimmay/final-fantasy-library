@@ -110,7 +110,15 @@ const currentTripIds: string[] = shop?.tripIds || []
         </div>
 
         <div class="field">
-          <label>Location</label>
+          <label>Coordinates</label>
+          <div class="coord-paste">
+            <input id="s-coord-paste" type="text" placeholder="Paste “lat, lng” from Google Maps" />
+            <button id="s-coord-apply" type="button" class="coord-apply-btn">Apply</button>
+          </div>
+          <div class="coord-fields">
+            <input id="s-lat" type="text" inputmode="decimal" placeholder="Latitude" />
+            <input id="s-lng" type="text" inputmode="decimal" placeholder="Longitude" />
+          </div>
           <button id="s-locate" type="button" class="locate-btn">📍 Use my location</button>
           <p id="s-coords" class="coords" hidden></p>
           <p id="s-locate-msg" class="locate-msg" hidden></p>
@@ -136,18 +144,48 @@ const currentTripIds: string[] = shop?.tripIds || []
       const prioritySel = document.querySelector('#s-priority')
       const addressInput = document.querySelector('#s-address')
       const mapLink = document.querySelector('#s-map-link')
+      const coordPaste = document.querySelector('#s-coord-paste')
+      const coordApply = document.querySelector('#s-coord-apply')
+      const latInput = document.querySelector('#s-lat')
+      const lngInput = document.querySelector('#s-lng')
       const locateBtn = document.querySelector('#s-locate')
       const coords = document.querySelector('#s-coords')
       const locateMsg = document.querySelector('#s-locate-msg')
       const saveBtn = document.querySelector('#s-save')
       const msg = document.querySelector('#s-msg')
 
-      let lat = initLat
-      let lng = initLng
+      let lat = (typeof initLat === 'number') ? initLat : null
+      let lng = (typeof initLng === 'number') ? initLng : null
 
       const isUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s.trim())
 
-      // Build the best Maps link from current coords, or address/name.
+      function readCoordFields() {
+        const la = parseFloat(latInput.value), lo = parseFloat(lngInput.value)
+        if (!isNaN(la) && !isNaN(lo) && la >= -90 && la <= 90 && lo >= -180 && lo <= 180) {
+          lat = la; lng = lo; return true
+        }
+        if (latInput.value.trim() === '' && lngInput.value.trim() === '') { lat = null; lng = null }
+        return false
+      }
+
+      function setCoords(la, lo) {
+        lat = la; lng = lo
+        latInput.value = (typeof la === 'number') ? la.toFixed(6) : ''
+        lngInput.value = (typeof lo === 'number') ? lo.toFixed(6) : ''
+        renderCoords()
+        updateMapLink()
+      }
+
+      function renderCoords() {
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          coords.hidden = false
+          coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
+            `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
+        } else {
+          coords.hidden = true
+        }
+      }
+
       function updateMapLink() {
         if (typeof lat === 'number' && typeof lng === 'number') {
           mapLink.href = `https://www.google.com/maps?q=${lat},${lng}`
@@ -162,9 +200,32 @@ const currentTripIds: string[] = shop?.tripIds || []
           }
         }
       }
+
+      // Prefill the fields from existing coords.
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        latInput.value = lat.toFixed(6); lngInput.value = lng.toFixed(6)
+      }
+      renderCoords()
       updateMapLink()
       addressInput.addEventListener('input', updateMapLink)
       nameInput.addEventListener('input', updateMapLink)
+
+      latInput.addEventListener('input', () => { readCoordFields(); renderCoords(); updateMapLink() })
+      lngInput.addEventListener('input', () => { readCoordFields(); renderCoords(); updateMapLink() })
+
+      function applyPaste() {
+        const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(coordPaste.value || '')
+        if (!m) { locateMsg.hidden = false; locateMsg.textContent = 'Paste like: 35.6990, 139.7710'; return }
+        const la = parseFloat(m[1]), lo = parseFloat(m[2])
+        if (isNaN(la) || isNaN(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) {
+          locateMsg.hidden = false; locateMsg.textContent = 'Those don’t look like valid coordinates.'; return
+        }
+        locateMsg.hidden = true
+        coordPaste.value = ''
+        setCoords(la, lo)
+      }
+      coordApply.addEventListener('click', applyPaste)
+      coordPaste.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyPaste() } })
 
       areaSel.addEventListener('change', () => {
         if (areaSel.value === '__new__') {
@@ -187,17 +248,6 @@ const currentTripIds: string[] = shop?.tripIds || []
           .map((c) => c.value)
       }
 
-      function renderCoords() {
-        if (typeof lat === 'number' && typeof lng === 'number') {
-          coords.hidden = false
-          coords.innerHTML = `📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} · ` +
-            `<a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">Open in Maps ↗</a>`
-        } else {
-          coords.hidden = true
-        }
-      }
-      renderCoords()
-
       function showMsg(text, ok) {
         msg.hidden = false
         msg.textContent = text
@@ -216,10 +266,7 @@ const currentTripIds: string[] = shop?.tripIds || []
 
         navigator.geolocation.getCurrentPosition(
           (pos) => {
-            lat = pos.coords.latitude
-            lng = pos.coords.longitude
-            renderCoords()
-            updateMapLink()
+            setCoords(pos.coords.latitude, pos.coords.longitude)
             locateBtn.disabled = false
             locateBtn.textContent = '📍 Update location'
           },
@@ -238,6 +285,7 @@ const currentTripIds: string[] = shop?.tripIds || []
 
       async function save() {
         if (!nameInput.value.trim()) return showMsg('Please enter a shop name.', false)
+        readCoordFields()
 
         saveBtn.disabled = true
         saveBtn.textContent = 'Saving…'
@@ -295,6 +343,15 @@ const currentTripIds: string[] = shop?.tripIds || []
       padding: 0.45rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
     }
     .map-open-btn:hover { background: rgba(255,255,255,0.04); }
+    .coord-paste { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .coord-paste input { flex: 1; min-width: 0; }
+    .coord-apply-btn {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0 1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; white-space: nowrap;
+    }
+    .coord-apply-btn:hover { background: rgba(255,255,255,0.04); }
+    .coord-fields { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .coord-fields input { flex: 1; min-width: 0; }
     .trip-checks { display: flex; flex-direction: column; gap: 0.5rem; }
     .trip-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .trip-check input { width: auto; margin: 0; }

@@ -7,7 +7,8 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 ## Fremdrift
 
 - [x] **Bolk 1 — `merch`/`figure`-navnesplitten.** Fullført og committet på `cleanup`-grena. Se status-notat i «Viktig sidefunn» under.
-- [ ] Bolk 2 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [x] **Bolk 2 — søppel-fjerning.** Fullført og committet på `cleanup`-grena. De fire ubrukte filene og de to kode-bugene fra seksjon 1/3 er ryddet opp.
+- [ ] Bolk 3 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -50,10 +51,10 @@ Rangert fra tryggest å fjerne til de som bør avklares først.
 
 | Fil | Hvorfor |
 |---|---|
-| `erskim_rOneDriveYmseProgrammingVStudioFinal Fantasy Librarycollection-registry` (rotfil) | Ikke kode i det hele tatt — innholdet er en dump av `git config --list` (bruker-e-post, editor-sti, LFS-filtre osv.), tydelig et uhell fra en feiltolket kommando. Brukes ingen steder i prosjektet. |
-| ~~`astro/src/pages/api/figure-create.ts`~~ | **Gjennomført.** Ingen kallere funnet noe sted i kodebasen, og skrev i tillegg til en `_type` (`'merch'`) uten registrert skjema. Slettet i bolk 1. |
-| `sanity/components/MfcImport.tsx` | En ferdig input-komponent (søkeknapper mot MFC/Google/Google Images), men aldri koblet til `components.input` på noe felt i noe skjema. Ikke referert noe annet sted. |
-| `missing-isbns.txt`, `missing-eans.txt` (rotfiler) | Ren logg-output fra henholdsvis `scripts/import-books.ts` og `scripts/import-games.ts` — skrives, men leses aldri tilbake av noe skript. Genereres på nytt ved neste kjøring. |
+| ~~`erskim_rOneDriveYmseProgrammingVStudioFinal Fantasy Librarycollection-registry`~~ (rotfil) | **Gjennomført (bolk 2).** Ikke kode i det hele tatt — innholdet var en dump av `git config --list`, tydelig et uhell fra en feiltolket kommando. Slettet. |
+| ~~`astro/src/pages/api/figure-create.ts`~~ | **Gjennomført (bolk 1).** Ingen kallere funnet noe sted i kodebasen, og skrev i tillegg til en `_type` (`'merch'`) uten registrert skjema. Slettet. |
+| ~~`sanity/components/MfcImport.tsx`~~ | **Gjennomført (bolk 2).** En ferdig input-komponent (søkeknapper mot MFC/Google/Google Images), men aldri koblet til `components.input` på noe felt i noe skjema. Slettet. |
+| ~~`missing-isbns.txt`, `missing-eans.txt`~~ (rotfiler) | **Gjennomført (bolk 2).** Ren logg-output fra henholdsvis `scripts/import-books.ts` og `scripts/import-games.ts` — skrives, men ble aldri lest tilbake av noe skript. Slettet (regenereres ved neste kjøring om nødvendig). |
 
 ### Trolig trygt, men verifiser at de ikke trengs som referanse
 
@@ -125,13 +126,13 @@ Begge sidene har sin egen kopi av `checkDuplicate()` (kall til `/api/check-dupli
 
 Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 
-1. **`astro/src/lib/sanity.ts:4`** — en glemt debug-linje:
+1. ~~**`astro/src/lib/sanity.ts:4`** — en glemt debug-linje~~ — **Gjennomført (bolk 2).**
    ```js
    console.log('SANITY ENV:', import.meta.env.SANITY_PROJECT_ID, import.meta.env.SANITY_DATASET, import.meta.env.SANITY_TOKEN ? 'token-finnes' : 'token-mangler')
    ```
-   Kjører ved hver serverstart/import og logger til serverkonsollen. Helt trygt å fjerne.
+   Kjørte ved hver serverstart/import og logget til serverkonsollen. Fjernet.
 
-2. **`astro/src/pages/vgmdb.astro`** — CSS-en bruker `var(--panel)` to steder (input- og knapp-bakgrunn), men `--panel` er aldri definert i temaet (`Base.astro` definerer kun `--bg`, `--surface`, `--border` osv.). Resultatet er en usynlig/feil bakgrunnsfarge på søkefeltet. Trygg fiks: bytt til `var(--surface)` som resten av siden bruker.
+2. ~~**`astro/src/pages/vgmdb.astro`** — `var(--panel)`-CSS-bugen~~ — **Gjennomført (bolk 2).** CSS-en brukte `var(--panel)` to steder (input- og knapp-bakgrunn), men `--panel` var aldri definert i temaet (`Base.astro` definerer kun `--bg`, `--surface`, `--border` osv.), som ga en usynlig/feil bakgrunnsfarge på søkefeltet. Rettet til `var(--surface)`, som resten av siden bruker.
 
 3. **Inkonsekvent `catch`-binding i API-filene** — `itinerary-save.ts`, `shop-coords.ts` og `upload-image.ts` skriver `catch (e)` uten å bruke `e`, mens de fleste andre endepunktene bruker `catch {}`. Ren stil-opprydding, ingen funksjonell effekt.
 
@@ -146,7 +147,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 ## Anbefalt rekkefølge
 
 1. ~~Fiks `merch`/`figure`-navnesplitten~~ — **Gjennomført (bolk 1).** Se status-notatet øverst i rapporten.
-2. Fjern de resterende filene under «Trygt å fjerne» i seksjon 1, samt debug-loggen i `sanity.ts` (punkt 3.1) og CSS-bugen i `vgmdb.astro` (punkt 3.2).
+2. ~~Fjern de fire ubrukte filene, debug-loggen i `sanity.ts` (punkt 3.1) og CSS-bugen i `vgmdb.astro` (punkt 3.2)~~ — **Gjennomført (bolk 2).**
 3. Trekk ut `isNew()` (2.1) og bytt `wishlist.astro` til å bruke `got-it.js` (2.5) — begge er små, mekaniske endringer.
 4. Trekk ut bildeopplasting (2.2) og API-json-hjelperen (2.7) — litt større, men fortsatt lav risiko.
 5. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).

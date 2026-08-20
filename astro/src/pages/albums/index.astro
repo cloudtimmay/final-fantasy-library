@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+import { isNew } from '../../lib/dates'
 
 const albums = await sanity.fetch(`
   *[_type == "album" && !(_id in path("drafts.**"))] | order(artist asc, title asc) {
@@ -12,15 +13,6 @@ const albums = await sanity.fetch(`
 `)
 
 const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))].sort()
-
-const now = Date.now()
-function isNew(acquiredDate: string | undefined): boolean {
-  if (!acquiredDate) return false
-  const d = new Date(acquiredDate).getTime()
-  if (isNaN(d)) return false
-  const days = (now - d) / (1000 * 60 * 60 * 24)
-  return days >= 0 && days <= 30
-}
 ---
 <Base title="Albums">
   <div class="hud-section-head">

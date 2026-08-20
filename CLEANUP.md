@@ -8,7 +8,8 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 
 - [x] **Bolk 1 — `merch`/`figure`-navnesplitten.** Fullført og committet på `cleanup`-grena. Se status-notat i «Viktig sidefunn» under.
 - [x] **Bolk 2 — søppel-fjerning.** Fullført og committet på `cleanup`-grena. De fire ubrukte filene og de to kode-bugene fra seksjon 1/3 er ryddet opp.
-- [ ] Bolk 3 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [x] **Bolk 3 — `isNew()`-uttrekk til `astro/src/lib/dates.ts`.** Fullført og committet på `cleanup`-grena. (Opprinnelig planlagt sammen med punkt 2.5 (`wishlist.astro`/`got-it.js`), men det punktet ble i stedet flyttet til **Bevisst beholdt / ikke duplikasjon** etter at markup-forskjellen ble avdekket.)
+- [ ] Bolk 4 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -98,9 +99,6 @@ Fortsatt god kandidat for en delt modul (f.eks. `astro/src/scripts/barcode-scann
 ### 2.4 `add-store.astro` og `edit-store.astro` — nesten identisk skjema-script
 De to sidene deler et ~150 linjer langt script for koordinathåndtering, kart-lenke-bygging og «lim inn lat,lng»-parsing (`readCoordFields`, `setCoords`, `renderCoords`, `updateMapLink`, `applyPaste`, geolokasjon). Forskjellen mellom filene er stort sett bare at edit-varianten prefylles fra eksisterende data og kaller et annet API-endepunkt (`/api/shop-note` vs. `/api/shop-note-update`). Dette er den største enkelt-duplikasjonen i prosjektet og en god kandidat for enten (a) et delt script-modul, eller (b) å slå sammen de to sidene til ett skjema som tar en valgfri `?id=`-parameter.
 
-### 2.5 `wishlist.astro` reimplementerer «Got it»-knappen i stedet for å bruke `got-it.js`
-De fire kategori-oversiktssidene bruker alle den delte `initGotIt()` fra `astro/src/scripts/got-it.js`. `wishlist.astro` (linje ~127–152) har i stedet sin egen, nesten identiske kopi av samme logikk inline. Bytt den ut med et `import { initGotIt } from '../scripts/got-it.js'`-kall — trygt, mekanisk, og fjerner ca. 25 linjer.
-
 ### 2.6 Filter/sorter/søk-widgets og HUD-kort-CSS på de fire oversiktssidene
 `albums/index.astro`, `games/index.astro`, `books/index.astro` og `merchandise/index.astro` deler en stor mengde nesten identisk CSS (`.hud-section-head`, `.hud-corner`, rad-hover-effekter, `.lookup-box`, `.got-btn` osv. — rundt 80–100 linjer CSS hver) og lignende JS for søk/sortering/filtrering (`updateAlbums`/`updateGames`/`updateBooks`/`updateMerchandise` — strukturelt like, men med feltspesifikke forskjeller). Dette er det største volumet av duplisert kode i prosjektet, men også det som krever mest arbeid og størst risiko å trekke ut riktig (delt CSS-fil/layout-komponent + en parameterisert filtreringsfunksjon), fordi feltene som filtreres på er forskjellige per type. Anbefales som en egen, mindre omfattende oppgave etter at punktene over er ryddet opp i.
 
@@ -119,6 +117,23 @@ Trygt å trekke ut til en delt `astro/src/lib/api.ts` («respond», «parseJsonB
 
 ### 2.9 Mindre duplikasjon: strekkode-dublettsjekk og bilde-håndtering i `add.astro` vs. `add-item.astro`
 Begge sidene har sin egen kopi av `checkDuplicate()` (kall til `/api/check-duplicate`) og kamera/galleri-velgeren for foto. Én reell forskjell: `add-item.astro` kjører bildet gjennom `resize-image.js` før opplasting, `add.astro` gjør det ikke — sannsynligvis en inkonsekvens snarere enn et bevisst valg, verdt å rette samtidig som duplikasjonen fjernes.
+
+---
+
+## Bevisst beholdt / ikke duplikasjon
+
+Funn som først så ut som duplikasjon, men som ved nærmere undersøkelse dekker et reelt, ulikt behov — vurdert i bolk 3 og bevisst latt være urørt.
+
+### `wishlist.astro` sin «Got it»-knapp vs. `astro/src/scripts/got-it.js`
+Opprinnelig listet som punkt 2.5 («gjentatt kode»). Ved gjennomgang av markupen viste det seg at de to løser forskjellige UX-behov, ikke samme problem kopiert to steder:
+- De fire kategori-oversiktssidene (`albums`, `games`, `books`, `merchandise`) viser en **blanding** av eide og ønskede varer i samme liste. Der bytter `got-it.js` sin `initGotIt()` en `.wishlist-tag`-badge til «OWNED» på raden (`wrap.dataset.wishlist = 'no'`, badge-bytte), fordi raden skal bli stående i visningen.
+- `wishlist.astro` viser **kun** wishlist-varer. Der fjerner den egne inline-koden hele raden (`wrap.remove()`) og oppdaterer antall-telleren i toppen («X items») — fordi en kjøpt vare ikke lenger hører hjemme i en liste som per definisjon kun er ønskelisten.
+
+`got-it.js` sin `initGotIt()` forutsetter markup wishlist.astro ikke har (`[data-wishlist="yes"]`-wrapper og `.wishlist-tag`-badge). Å bruke den uendret på wishlist.astro ville gitt en reell regresjon: knappen ville forsvunnet, men raden blitt stående uten badge-bytte, og telleren ville ikke oppdatert seg.
+
+**Konklusjon:** koden i `wishlist.astro` beholdes som egen implementasjon. Å dele koden ville krevd å generalisere den mest gjenbrukte fila i appen (`got-it.js`, brukt av fire sider) for å dekke et femte, avvikende bruksmønster — liten gevinst (~25 linjer) mot risiko for å bryte noe alle fire sidene er avhengige av.
+
+**Mulig fremtidig valg (ikke gjort nå):** generalisere `got-it.js` til å ta et valgfritt callback/options-argument for hva som skal skje ved suksess (badge-bytte som i dag, eller rad-fjerning + teller-oppdatering som i `wishlist.astro`). Dette bør i så fall være en egen, grundig testet bolk — endringen rører selve delen alle fire oversiktssidene bruker.
 
 ---
 
@@ -148,7 +163,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 
 1. ~~Fiks `merch`/`figure`-navnesplitten~~ — **Gjennomført (bolk 1).** Se status-notatet øverst i rapporten.
 2. ~~Fjern de fire ubrukte filene, debug-loggen i `sanity.ts` (punkt 3.1) og CSS-bugen i `vgmdb.astro` (punkt 3.2)~~ — **Gjennomført (bolk 2).**
-3. Trekk ut `isNew()` (2.1) og bytt `wishlist.astro` til å bruke `got-it.js` (2.5) — begge er små, mekaniske endringer.
+3. ~~Trekk ut `isNew()` (2.1)~~ — **Gjennomført (bolk 3).** (Punkt 2.5 er ikke lenger en oppgave her — se **Bevisst beholdt / ikke duplikasjon**.)
 4. Trekk ut bildeopplasting (2.2) og API-json-hjelperen (2.7) — litt større, men fortsatt lav risiko.
 5. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
 6. Ta strekkodeskanneren (2.3), skjema-duplikasjonen i add/edit-store (2.4) og create-endepunktene (2.8) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.

@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+import { isNew } from '../../lib/dates'
 
 const games = await sanity.fetch(`
   *[_type == "game" && !(_id in path("drafts.**"))] | order(title asc) {
@@ -9,15 +10,6 @@ const games = await sanity.fetch(`
 `)
 
 const platformList = [...new Set(games.map((g: any) => g.platform).filter(Boolean))].sort()
-
-const now = Date.now()
-function isNew(acquiredDate: string | undefined): boolean {
-  if (!acquiredDate) return false
-  const d = new Date(acquiredDate).getTime()
-  if (isNaN(d)) return false
-  const days = (now - d) / (1000 * 60 * 60 * 24)
-  return days >= 0 && days <= 30
-}
 ---
 <Base title="Games">
   <div class="hud-section-head">

@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
+import { isNew } from '../lib/dates'
 
 const [albumCount, gameCount, merchCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album" && status != "wishlist" && !(_id in path("drafts.**"))])`),
@@ -37,15 +38,6 @@ const TYPE_LABEL: Record<string, string> = {
 }
 const TYPE_ICON: Record<string, string> = {
   album: '/icons/album.png', game: '/icons/game.png', figure: '/icons/merch.png', book: '/icons/book.png',
-}
-
-const now = Date.now()
-function isNew(acquiredDate: string | undefined): boolean {
-  if (!acquiredDate) return false
-  const d = new Date(acquiredDate).getTime()
-  if (isNaN(d)) return false
-  const days = (now - d) / (1000 * 60 * 60 * 24)
-  return days >= 0 && days <= 30
 }
 ---
 <Base title="Dashboard">

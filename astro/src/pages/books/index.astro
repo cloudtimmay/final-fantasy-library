@@ -1,21 +1,13 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+import { isNew } from '../../lib/dates'
 
 const books = await sanity.fetch(`
   *[_type == "book" && !(_id in path("drafts.**"))] | order(author asc, title asc) {
     _id, title, author, year, genre, publisher, isbn, readStatus, needsInfo, externalImageUrl, image, ${SHARED_FIELDS}
   }
 `)
-
-const now = Date.now()
-function isNew(acquiredDate: string | undefined): boolean {
-  if (!acquiredDate) return false
-  const d = new Date(acquiredDate).getTime()
-  if (isNaN(d)) return false
-  const days = (now - d) / (1000 * 60 * 60 * 24)
-  return days >= 0 && days <= 30
-}
 ---
 <Base title="Books">
   <div class="hud-section-head">

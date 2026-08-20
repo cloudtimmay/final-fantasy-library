@@ -3,14 +3,14 @@ import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 
 const items = await sanity.fetch(`
-  *[_type in ["album","game","book","merch"] && status == "wishlist" && !(_id in path("drafts.**"))]
+  *[_type in ["album","game","book","figure"] && status == "wishlist" && !(_id in path("drafts.**"))]
     | order(_type asc, title asc) {
     _id, _type, title, catalogNumber, barcode, isbn, year, image, externalImageUrl,
     "creator": select(
       _type == "album" => coalesce(composer, artist),
       _type == "game"  => developer,
       _type == "book"  => author,
-      _type == "merch"=> series
+      _type == "figure"=> series
     )
   }
 `)
@@ -30,7 +30,7 @@ const items = await sanity.fetch(`
       <option value="album">Albums</option>
       <option value="game">Games</option>
       <option value="book">Books</option>
-      <option value="merch">merchandise</option>
+      <option value="figure">merchandise</option>
     </select>
   </div>
 

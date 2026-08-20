@@ -30,8 +30,8 @@ async function main() {
     return
   }
 
-  // Skip barcodes we already have a merch for.
-  const existing: string[] = await client.fetch(`*[_type == "merch" && defined(barcode)].barcode`)
+  // Skip barcodes we already have a figure for.
+  const existing: string[] = await client.fetch(`*[_type == "figure" && defined(barcode)].barcode`)
   const existingSet = new Set(existing.filter(Boolean))
 
   const browser = await puppeteer.launch({
@@ -205,8 +205,8 @@ async function main() {
     }
 
     const doc: any = {
-      _id: `merch-jan-${code}`,
-      _type: "merch",
+      _id: `figure-jan-${code}`,
+      _type: "figure",
       barcode: code,
       title: data.title,
       needsInfo: false,

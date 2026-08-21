@@ -1,21 +1,15 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
+import { json, parseJsonBody } from '../../lib/api'
 
 export const prerender = false
-
-const json = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
 const VALID_TYPES = ['shop', 'restaurant', 'sight', 'other']
 const VALID_AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
 
 export const POST: APIRoute = async ({ request }) => {
-  let body: any
-  try {
-    body = await request.json()
-  } catch {
-    return json(400, { error: 'Bad request' })
-  }
+  const body = await parseJsonBody(request)
+  if (!body) return json(400, { error: 'Bad request' })
 
   const places = Array.isArray(body.places) ? body.places : []
   const placeType = VALID_TYPES.includes(body.placeType) ? body.placeType : 'shop'

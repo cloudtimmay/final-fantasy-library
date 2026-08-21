@@ -1,10 +1,8 @@
 import type { APIRoute } from 'astro'
 import { sanity } from '../../lib/sanity'
+import { json } from '../../lib/api'
 
 export const prerender = false
-
-const json = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
 export const GET: APIRoute = async ({ url }) => {
   const barcode = (url.searchParams.get('barcode') || '').trim()

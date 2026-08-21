@@ -1,10 +1,8 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
+import { json } from '../../lib/api'
 
 export const prerender = false
-
-const json = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
 const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase']
 

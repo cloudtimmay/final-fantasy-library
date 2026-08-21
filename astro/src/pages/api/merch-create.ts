@@ -1,20 +1,14 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
+import { json, parseJsonBody } from '../../lib/api'
 
 export const prerender = false
-
-const json = (status: number, data: unknown) =>
-  new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
 const CATEGORIES = ['figure', 'plushie', 'wearable', 'other']
 
 export const POST: APIRoute = async ({ request }) => {
-  let body: any
-  try {
-    body = await request.json()
-  } catch {
-    return json(400, { error: 'Bad request' })
-  }
+  const body = await parseJsonBody(request)
+  if (!body) return json(400, { error: 'Bad request' })
 
   const title = String(body.title || '').trim()
   if (!title) return json(400, { error: 'Title is required' })

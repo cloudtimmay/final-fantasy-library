@@ -10,7 +10,8 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 - [x] **Bolk 2 — søppel-fjerning.** Fullført og committet på `cleanup`-grena. De fire ubrukte filene og de to kode-bugene fra seksjon 1/3 er ryddet opp.
 - [x] **Bolk 3 — `isNew()`-uttrekk til `astro/src/lib/dates.ts`.** Fullført og committet på `cleanup`-grena. (Opprinnelig planlagt sammen med punkt 2.5 (`wishlist.astro`/`got-it.js`), men det punktet ble i stedet flyttet til **Bevisst beholdt / ikke duplikasjon** etter at markup-forskjellen ble avdekket.)
 - [x] **Bolk 4 — bildeopplasting-uttrekk til `astro/src/scripts/image-upload.js`.** Fullført og committet på `cleanup`-grena. API-json-hjelperen (2.7) var bevisst utelatt fra denne bolken og gjenstår som egen oppgave.
-- [ ] Bolk 5 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [x] **Bolk 5 — delt `json()`/`parseJsonBody()` til `astro/src/lib/api.ts`.** Fullført og committet på `cleanup`-grena, på tvers av alle 14 gjenværende endepunkter. Under testingen ble tre urelaterte, eksisterende feil oppdaget — se **Funn under testing** nedenfor.
+- [ ] Bolk 6 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -103,15 +104,15 @@ De to sidene deler et ~150 linjer langt script for koordinathåndtering, kart-le
 ### 2.6 Filter/sorter/søk-widgets og HUD-kort-CSS på de fire oversiktssidene
 `albums/index.astro`, `games/index.astro`, `books/index.astro` og `merchandise/index.astro` deler en stor mengde nesten identisk CSS (`.hud-section-head`, `.hud-corner`, rad-hover-effekter, `.lookup-box`, `.got-btn` osv. — rundt 80–100 linjer CSS hver) og lignende JS for søk/sortering/filtrering (`updateAlbums`/`updateGames`/`updateBooks`/`updateMerchandise` — strukturelt like, men med feltspesifikke forskjeller). Dette er det største volumet av duplisert kode i prosjektet, men også det som krever mest arbeid og størst risiko å trekke ut riktig (delt CSS-fil/layout-komponent + en parameterisert filtreringsfunksjon), fordi feltene som filtreres på er forskjellige per type. Anbefales som en egen, mindre omfattende oppgave etter at punktene over er ryddet opp i.
 
-### 2.7 API: delt `json()`-hjelper og try/catch-parsing i alle 15 endepunkter
-Hvert eneste endepunkt i `astro/src/pages/api/` starter med samme mønster:
+### 2.7 API: delt `json()`-hjelper og try/catch-parsing i alle 14 endepunkter — ~~Gjennomført (bolk 5)~~
+Hvert eneste endepunkt i `astro/src/pages/api/` startet med samme mønster:
 ```js
 const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 // ...
 let body
 try { body = await request.json() } catch { return json(400, { error: 'Bad request' }) }
 ```
-Trygt å trekke ut til en delt `astro/src/lib/api.ts` («respond», «parseJsonBody») — berører ikke forretningslogikk, kun boilerplate.
+**Gjennomført.** Trukket ut til `astro/src/lib/api.ts` (`json()` og `parseJsonBody()`). Før sammenslåingen ble alle 14 filer gjennomgått: `json()`-hjelperen var ordrett identisk i samtlige, og 12 av 14 delte nøyaktig samme feilrespons ved ugyldig body (`json(400, { error: 'Bad request' })`), i to rene formateringsvarianter (flerlinjes vs. kompakt — ingen funksjonell forskjell). De 12 bruker nå `const body = await parseJsonBody(request); if (!body) return json(400, { error: 'Bad request' })`. To endepunkter avvek reelt og fikk kun `json()` importert, med egen parsing uendret: `upload-image.ts` (parser `request.formData()`, ikke JSON) og `check-duplicate.ts` (GET uten body). Bekreftet at alle 14 fortsatt returnerer nøyaktig samme feilrespons som før. `catch {}` vs. `catch (e)`-stilen (punkt 3.3) og `family-purchase-status.ts` sin rekkefølge-bug (punkt 3.4) ble bevisst ikke rørt.
 
 ### 2.8 De fem "create"-endepunktene deler nesten hele implementasjonen
 `album-create.ts`, `book-create.ts`, `game-create.ts`, `merch-create.ts` og `figure-create.ts` har identisk skjelett utover selve feltlisten: samme `num()`/`str()`-konverteringshjelpere (kopiert i to litt ulike stilvarianter — se `album-create.ts:16-17` vs. `merch-create.ts:22-23`), samme `if (str(body.X)) doc.X = str(body.X)`-mønster per felt, og samme try/catch rundt `sanityWrite.create(doc)`. God kandidat for en delt `createItem(type, fieldMap, body)`-hjelper — bygger videre på 2.7.
@@ -165,10 +166,12 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 1. ~~Fiks `merch`/`figure`-navnesplitten~~ — **Gjennomført (bolk 1).** Se status-notatet øverst i rapporten.
 2. ~~Fjern de fire ubrukte filene, debug-loggen i `sanity.ts` (punkt 3.1) og CSS-bugen i `vgmdb.astro` (punkt 3.2)~~ — **Gjennomført (bolk 2).**
 3. ~~Trekk ut `isNew()` (2.1)~~ — **Gjennomført (bolk 3).** (Punkt 2.5 er ikke lenger en oppgave her — se **Bevisst beholdt / ikke duplikasjon**.)
-4. ~~Trekk ut bildeopplasting (2.2)~~ — **Gjennomført (bolk 4).** API-json-hjelperen (2.7) ble bevisst holdt utenfor denne bolken og tas som egen oppgave.
-5. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
-6. Ta strekkodeskanneren (2.3), skjema-duplikasjonen i add/edit-store (2.4) og create-endepunktene (2.8) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.
-7. Vurder den store CSS/JS-duplikasjonen på oversiktssidene (2.6) som et eget, avgrenset refaktoreringsprosjekt til slutt.
+4. ~~Trekk ut bildeopplasting (2.2)~~ — **Gjennomført (bolk 4).**
+5. ~~Trekk ut API-json-hjelperen (2.7)~~ — **Gjennomført (bolk 5).**
+6. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
+7. Ta strekkodeskanneren (2.3), skjema-duplikasjonen i add/edit-store (2.4) og create-endepunktene (2.8) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.
+8. Vurder den store CSS/JS-duplikasjonen på oversiktssidene (2.6) som et eget, avgrenset refaktoreringsprosjekt til slutt.
+9. Ta de tre punktene under **Funn under testing** (shop-note.ts-bugen, itinerary «Legg til stopp», UI-opprydding i itinerary) som egne, små bolker.
 
 ---
 

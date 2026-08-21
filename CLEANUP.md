@@ -9,7 +9,8 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 - [x] **Bolk 1 — `merch`/`figure`-navnesplitten.** Fullført og committet på `cleanup`-grena. Se status-notat i «Viktig sidefunn» under.
 - [x] **Bolk 2 — søppel-fjerning.** Fullført og committet på `cleanup`-grena. De fire ubrukte filene og de to kode-bugene fra seksjon 1/3 er ryddet opp.
 - [x] **Bolk 3 — `isNew()`-uttrekk til `astro/src/lib/dates.ts`.** Fullført og committet på `cleanup`-grena. (Opprinnelig planlagt sammen med punkt 2.5 (`wishlist.astro`/`got-it.js`), men det punktet ble i stedet flyttet til **Bevisst beholdt / ikke duplikasjon** etter at markup-forskjellen ble avdekket.)
-- [ ] Bolk 4 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [x] **Bolk 4 — bildeopplasting-uttrekk til `astro/src/scripts/image-upload.js`.** Fullført og committet på `cleanup`-grena. API-json-hjelperen (2.7) var bevisst utelatt fra denne bolken og gjenstår som egen oppgave.
+- [ ] Bolk 5 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -84,10 +85,10 @@ Identisk 6-7 linjers funksjon i frontmatter på:
 `index.astro`, `albums/index.astro`, `games/index.astro`, `books/index.astro`, `merchandise/index.astro`.
 Ren server-side logikk uten avhengigheter — trivielt og helt trygt å flytte til f.eks. `astro/src/lib/dates.ts` og importere.
 
-### 2.2 Bildeopplasting (kamera/galleri → `/api/upload-image`) — 4 kopier
-Nesten ordrett samme ~50-linjers `<script>`-blokk (inkl. `handleUpload`, feilhåndtering, oppdatering av forhåndsvisningsbildet) i:
+### 2.2 Bildeopplasting (kamera/galleri → `/api/upload-image`) — 4 kopier — ~~Gjennomført (bolk 4)~~
+Nesten ordrett samme ~50-linjers `<script>`-blokk (inkl. `handleUpload`, feilhåndtering, oppdatering av forhåndsvisningsbildet) fantes i:
 `albums/[id].astro`, `games/[id].astro`, `books/[id].astro`, `merchandise/[id].astro`.
-Prosjektet har allerede etablert mønsteret for dette — se `astro/src/scripts/got-it.js`, som importeres som en delt modul fra de fire oversiktssidene. Samme oppskrift kan brukes her (`initImageUpload()` i en ny delt fil), og er lavrisiko fordi logikken er selvstendig og ikke rører markup utover å style om appen mot ett felles script.
+**Gjennomført.** Trukket ut til `astro/src/scripts/image-upload.js` (`initImageUpload()`), etter samme mønster som `got-it.js`. Før sammenslåingen ble de fire kopiene bekreftet identiske i alt som betyr noe (element-ID-er, FormData-felt, endepunkt) bortsett fra placeholder-selektoren — `albums/[id].astro` brukte `.detail-photo` alene, de tre andre brukte den sammensatte `.detail-photo, .detail-photo-placeholder`. Den sammensatte selektoren ble valgt som felles løsning siden den dekker albums sin markup uendret. I `albums/[id].astro` ble kun opplastingsdelen fjernet fra `<script>`-blokken — YouTube-sporspilleren (`openPlayer`, `.track-play`/`.album-play`-håndtering, lukkeknapp) står urørt i samme blokk, med importen lagt til øverst. Testet med og uten eksisterende bilde på alle fire sidetyper.
 
 ### 2.3 Strekkodeskanner (html5-qrcode start/stop) — 4 kopier
 `add.astro`, `add-item.astro`, `scan.astro` og `offline.astro` implementerer hver sin variant av samme skanner-livssyklus (`startScan`/`stopScan`, feilmeldinger, cleanup). Det er noen reelle forskjeller å ta hensyn til ved uttrekk:
@@ -164,7 +165,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 1. ~~Fiks `merch`/`figure`-navnesplitten~~ — **Gjennomført (bolk 1).** Se status-notatet øverst i rapporten.
 2. ~~Fjern de fire ubrukte filene, debug-loggen i `sanity.ts` (punkt 3.1) og CSS-bugen i `vgmdb.astro` (punkt 3.2)~~ — **Gjennomført (bolk 2).**
 3. ~~Trekk ut `isNew()` (2.1)~~ — **Gjennomført (bolk 3).** (Punkt 2.5 er ikke lenger en oppgave her — se **Bevisst beholdt / ikke duplikasjon**.)
-4. Trekk ut bildeopplasting (2.2) og API-json-hjelperen (2.7) — litt større, men fortsatt lav risiko.
+4. ~~Trekk ut bildeopplasting (2.2)~~ — **Gjennomført (bolk 4).** API-json-hjelperen (2.7) ble bevisst holdt utenfor denne bolken og tas som egen oppgave.
 5. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
 6. Ta strekkodeskanneren (2.3), skjema-duplikasjonen i add/edit-store (2.4) og create-endepunktene (2.8) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.
 7. Vurder den store CSS/JS-duplikasjonen på oversiktssidene (2.6) som et eget, avgrenset refaktoreringsprosjekt til slutt.

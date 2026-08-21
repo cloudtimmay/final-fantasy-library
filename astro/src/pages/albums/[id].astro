@@ -172,6 +172,8 @@ const multiDisc = discNumbers.length > 1
   </style>
 
   <script>
+    import { initImageUpload } from '../../scripts/image-upload.js'
+
     const player = document.querySelector('#yt-player')
     const frame = document.querySelector('#yt-frame')
     const now = document.querySelector('#yt-now')
@@ -212,54 +214,6 @@ const multiDisc = discNumbers.length > 1
       player.hidden = true
     })
 
-    // --- Image upload (camera or gallery) ---
-    const camera = document.querySelector('#img-camera')
-    const gallery = document.querySelector('#img-gallery')
-    const uploadMsg = document.querySelector('#upload-msg')
-    const detailPhoto = document.querySelector('.detail-photo')
-
-    async function handleUpload(fileInput) {
-      const file = fileInput.files && fileInput.files[0]
-      if (!file) return
-
-      uploadMsg.hidden = false
-      uploadMsg.style.color = 'var(--muted)'
-      uploadMsg.textContent = 'Uploading…'
-
-      const form = new FormData()
-      form.append('file', file)
-      form.append('docId', window.location.pathname.split('/').pop())
-      form.append('field', 'image')
-
-      try {
-        const res = await fetch('/api/upload-image', { method: 'POST', body: form })
-        const data = await res.json()
-        if (!res.ok) {
-          uploadMsg.style.color = '#e74c3c'
-          uploadMsg.textContent = data.error || 'Upload failed.'
-          return
-        }
-        uploadMsg.style.color = '#2ecc71'
-        uploadMsg.textContent = 'Uploaded ✓'
-        if (detailPhoto && data.url) {
-          const fresh = data.url + '?t=' + Date.now()
-          if (detailPhoto.tagName === 'IMG') {
-            detailPhoto.src = fresh
-          } else {
-            const img = document.createElement('img')
-            img.className = 'detail-photo'
-            img.src = fresh
-            img.alt = document.querySelector('h1')?.textContent || ''
-            detailPhoto.replaceWith(img)
-          }
-        }
-      } catch {
-        uploadMsg.style.color = '#e74c3c'
-        uploadMsg.textContent = 'Network error.'
-      }
-    }
-
-    if (camera) camera.addEventListener('change', () => handleUpload(camera))
-    if (gallery) gallery.addEventListener('change', () => handleUpload(gallery))
+    initImageUpload()
   </script>
 </Base>

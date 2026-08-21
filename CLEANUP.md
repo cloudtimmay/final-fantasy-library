@@ -25,7 +25,7 @@ Dette er ikke ren "død kode", men en funksjonsfeil som ble avdekket underveis i
 
 Sanity-skjemaet for suvenirer/figurer heter `figure` (`sanity/schemaTypes/figure.ts`, tittel «Merchandise»). Det finnes **ikke** noe registrert skjema som heter `merch` (se `sanity/schemaTypes/index.ts`). Likevel:
 
-- Den **faktiske** oppretting-endepunktet som brukes fra UI-et, [astro/src/pages/api/merch-create.ts](astro/src/pages/api/merch-create.ts), er feilnavngitt men skriver korrekt til `_type: 'figure'` — så nye varer havner riktig i skjemaet.
+- Det **faktiske** opprettelses-endepunktet som brukes fra UI-et — den gang kalt `merch-create.ts`, senere omdøpt til [astro/src/pages/api/figure-create.ts](astro/src/pages/api/figure-create.ts) (se **Gjenstående oppgaver**, nå gjennomført) — skriver korrekt til `_type: 'figure'`, så nye varer havner riktig i skjemaet.
 - Men følgende steder filtrerer/leser fortsatt på den gamle, ikke-eksisterende typen `"merch"`, og vil derfor **aldri** vise varer som faktisk er av typen `figure`:
   - [astro/src/pages/wishlist.astro](astro/src/pages/wishlist.astro) (linje 6, 13, dropdown-verdi)
   - [astro/src/pages/series.astro](astro/src/pages/series.astro) (linje 6)
@@ -33,7 +33,7 @@ Sanity-skjemaet for suvenirer/figurer heter `figure` (`sanity/schemaTypes/figure
   - [astro/src/pages/spending.astro](astro/src/pages/spending.astro) (linje 6)
   - [astro/src/pages/api/check-duplicate.ts](astro/src/pages/api/check-duplicate.ts) (linje 15)
 - [astro/src/pages/api/item-status.ts](astro/src/pages/api/item-status.ts) sin `ALLOWED_TYPES` (linje 9) mangler `'figure'` helt, så **"Got it"-knappen på Merchandise-siden feiler alltid** (returnerer 400) — brukt via `got-it.js`.
-- [astro/src/pages/api/figure-create.ts](astro/src/pages/api/figure-create.ts) og [scripts/import-figure-mfc.ts](scripts/import-figure-mfc.ts) skriver motsatt vei: de bruker det korrekte navnet «figure» i filnavn/kode, men lagrer faktisk dokumenter med `_type: 'merch'` — en type som ikke finnes i noe skjema og dermed er usynlig/ikke redigerbar i Sanity Studio.
+- Det *daværende* `astro/src/pages/api/figure-create.ts` (en annen fil enn dagens — se advarsel under) og [scripts/import-figure-mfc.ts](scripts/import-figure-mfc.ts) skrev motsatt vei: de brukte det korrekte navnet «figure» i filnavn/kode, men lagret faktisk dokumenter med `_type: 'merch'` — en type som ikke finnes i noe skjema og dermed er usynlig/ikke redigerbar i Sanity Studio.
 
 **Praktisk konsekvens:** en merch-vare lagt til via appen havner riktig i Sanity, men vises aldri i Wishlist, Spending, Export-CSV, Series-oversikten eller strekkode-dublett-sjekken, og kan ikke markeres «Got it» fra oversiktssiden.
 
@@ -43,10 +43,12 @@ Sanity-skjemaet for suvenirer/figurer heter `figure` (`sanity/schemaTypes/figure
 Sanity ble spurt før noe ble endret — 0 dokumenter hadde `_type == "merch"`, 80 hadde `_type == "figure"`, så ingen datamigrering var nødvendig. Følgende er rettet:
 - `"merch"` → `"figure"` i `wishlist.astro`, `series.astro`, `export.astro`, `spending.astro`, `check-duplicate.ts`.
 - `'figure'` lagt til i `item-status.ts` sin `ALLOWED_TYPES`.
-- `astro/src/pages/api/figure-create.ts` slettet (ubrukt, og skrev til feil `_type`).
+- Det daværende `astro/src/pages/api/figure-create.ts` slettet (ubrukt, og skrev til feil `_type`).
 - `scripts/import-figure-mfc.ts` rettet: `_type: "merch"` → `_type: "figure"` (både i dokumentopprettelsen og i dedup-sjekken mot eksisterende strekkoder), samt `_id`-prefiks `merch-jan-` → `figure-jan-`.
 
-Gjenstår: `merch-create.ts` er fortsatt feilnavngitt (skriver korrekt `_type: 'figure'`, men heter «merch-create»). Se **Gjenstående oppgaver** nederst i denne rapporten.
+> **Merk om navnegjenbruk:** filnavnet `astro/src/pages/api/figure-create.ts` er siden gjenbrukt — i en senere bolk (se **Gjenstående oppgaver**) ble den korrekte, men feilnavngitte `merch-create.ts` omdøpt til nettopp `figure-create.ts`. Lenkene over til «det daværende» `figure-create.ts` viser altså til en annen, slettet fil enn den som ligger på den stien i dag.
+
+~~Gjenstår: `merch-create.ts` er fortsatt feilnavngitt (skriver korrekt `_type: 'figure'`, men heter «merch-create»).~~ — **Gjennomført**, se **Gjenstående oppgaver** nederst i denne rapporten.
 
 ---
 
@@ -119,10 +121,10 @@ try { body = await request.json() } catch { return json(400, { error: 'Bad reque
 **Gjennomført.** Trukket ut til `astro/src/lib/api.ts` (`json()` og `parseJsonBody()`). Før sammenslåingen ble alle 14 filer gjennomgått: `json()`-hjelperen var ordrett identisk i samtlige, og 12 av 14 delte nøyaktig samme feilrespons ved ugyldig body (`json(400, { error: 'Bad request' })`), i to rene formateringsvarianter (flerlinjes vs. kompakt — ingen funksjonell forskjell). De 12 bruker nå `const body = await parseJsonBody(request); if (!body) return json(400, { error: 'Bad request' })`. To endepunkter avvek reelt og fikk kun `json()` importert, med egen parsing uendret: `upload-image.ts` (parser `request.formData()`, ikke JSON) og `check-duplicate.ts` (GET uten body). Bekreftet at alle 14 fortsatt returnerer nøyaktig samme feilrespons som før. `catch {}` vs. `catch (e)`-stilen (punkt 3.3) og `family-purchase-status.ts` sin rekkefølge-bug (punkt 3.4) ble bevisst ikke rørt.
 
 ### 2.8 De fire "create"-endepunktene deler nesten hele implementasjonen — ~~Gjennomført (bolk 9)~~
-`album-create.ts`, `book-create.ts`, `game-create.ts` og `merch-create.ts` (`figure-create.ts` slettet i bolk 1) hadde identisk skjelett utover selve feltlisten: samme `num()`/`str()`-konverteringshjelpere (kopiert i to litt ulike stilvarianter), samme `if (str(body.X)) doc.X = str(body.X)`-mønster per felt, og samme try/catch rundt `sanityWrite.create(doc)`.
+`album-create.ts`, `book-create.ts`, `game-create.ts` og `figure-create.ts` (den gang `merch-create.ts` — omdøpt i en senere bolk, se **Gjenstående oppgaver**; det urelaterte, opprinnelige `figure-create.ts` ble slettet i bolk 1) hadde identisk skjelett utover selve feltlisten: samme `num()`/`str()`-konverteringshjelpere (kopiert i to litt ulike stilvarianter), samme `if (str(body.X)) doc.X = str(body.X)`-mønster per felt, og samme try/catch rundt `sanityWrite.create(doc)`.
 
 **Status (bolk 8, gjennomført): felt-mapping-bugs funnet og rettet før uttrekket.**
-Før noe ble slått sammen, ble alle fire endepunktene sjekket felt for felt mot de faktiske Sanity-skjemaene (`sanity/schemaTypes/`). `album-create.ts` og `merch-create.ts` var korrekte. To reelle, tidligere ikke-oppdagede bugs ble funnet:
+Før noe ble slått sammen, ble alle fire endepunktene sjekket felt for felt mot de faktiske Sanity-skjemaene (`sanity/schemaTypes/`). `album-create.ts` og `merch-create.ts` (nå omdøpt til `figure-create.ts`) var korrekte. To reelle, tidligere ikke-oppdagede bugs ble funnet:
 - **`game-create.ts`** skrev `doc.creator`, et felt som ikke finnes i `game`-skjemaet (som har `developer`/`publisher`). `add-item.astro` sender UI-feltet «Publisher / Developer» som `creator` — verdien havnet i et usynlig, ikke-skjemadefinert felt. **Rettet:** `body.creator` → `doc.publisher`.
 - **`book-create.ts`** hadde tre feil: skrev `doc.creator` (finnes ikke — skjemaet har `author`, som er **påkrevd**, og separat `publisher`), skrev `doc.series` (finnes ikke i det hele tatt i `book`-skjemaet), og skrev `doc.barcode` (skjemaet kaller feltet `isbn`). Mest alvorlig: `author` — et påkrevd felt — ble aldri satt på bøker lagt til via appen. **Rettet:** `body.creator` → både `doc.author` og `doc.publisher` (samme verdi), `body.barcode` → `doc.isbn`, `series`-linjen fjernet helt (feltet finnes ikke i skjemaet).
 - `add-item.astro` sitt UI og feltnavnene i POST-bodyen (`creator`, `barcode`) er urørt — kun mappingen inne i endepunktene er rettet.
@@ -130,7 +132,7 @@ Før noe ble slått sammen, ble alle fire endepunktene sjekket felt for felt mot
 Sanity ble spurt etter fiksen (ikke for å migrere, bare for å sjekke skadeomfang): 0 av 74 `game`-dokumenter mangler `publisher`, 0 av 54 `book`-dokumenter mangler `author`. 8 bøker mangler `isbn` — alle er artbøker uten strekkode, forventet og ikke bug-relatert. Ingen manuell datarydding nødvendig; eksisterende data ser ut til å ha kommet inn via Studio/importskript, ikke via det buggede skjemaet.
 
 **Status (bolk 9, gjennomført): selve uttrekket.**
-Lagt til `buildDoc(base, body, fields)` i `astro/src/lib/api.ts` — hver `field` har `from` (nøkkel i body), valgfri `to` (én nøkkel eller en array av nøkler på doc-et, default samme som `from`) og valgfri `type: 'num'`. Dette dekket alle mappingene fra bolk 8 uten spesialtilfeller i selve hjelperen: `game-create.ts` bruker `{ from: 'creator', to: 'publisher' }`, `book-create.ts` bruker `{ from: 'creator', to: ['author', 'publisher'] }` og `{ from: 'barcode', to: 'isbn' }` (ingen `series`-felt). De tre unntakene som ikke passer en generisk feltliste er beholdt per endepunkt, rett over `buildDoc()`-kallet: `album-create.ts` sin hardkodede `format: 'cd'` og `merch-create.ts` sin `category`-whitelist + `needsInfo: false`, begge i `base`-objektet (første argument). Ren refaktorering — ingen felt, mapping eller unntak endret fra bolk 8. Verifisert ved å opprette ett ekte dokument av hver type i Studio: album (`format: cd`), spill (`publisher`), bok (`author` + `publisher` + `isbn`), merch (`category`) — alle riktige.
+Lagt til `buildDoc(base, body, fields)` i `astro/src/lib/api.ts` — hver `field` har `from` (nøkkel i body), valgfri `to` (én nøkkel eller en array av nøkler på doc-et, default samme som `from`) og valgfri `type: 'num'`. Dette dekket alle mappingene fra bolk 8 uten spesialtilfeller i selve hjelperen: `game-create.ts` bruker `{ from: 'creator', to: 'publisher' }`, `book-create.ts` bruker `{ from: 'creator', to: ['author', 'publisher'] }` og `{ from: 'barcode', to: 'isbn' }` (ingen `series`-felt). De tre unntakene som ikke passer en generisk feltliste er beholdt per endepunkt, rett over `buildDoc()`-kallet: `album-create.ts` sin hardkodede `format: 'cd'` og `figure-create.ts` (den gang `merch-create.ts`) sin `category`-whitelist + `needsInfo: false`, begge i `base`-objektet (første argument). Ren refaktorering — ingen felt, mapping eller unntak endret fra bolk 8. Verifisert ved å opprette ett ekte dokument av hver type i Studio: album (`format: cd`), spill (`publisher`), bok (`author` + `publisher` + `isbn`), merch (`category`) — alle riktige.
 
 ### 2.9 Mindre duplikasjon: strekkode-dublettsjekk og bilde-håndtering i `add.astro` vs. `add-item.astro`
 Begge sidene har sin egen kopi av `checkDuplicate()` (kall til `/api/check-duplicate`) og kamera/galleri-velgeren for foto. Én reell forskjell: `add-item.astro` kjører bildet gjennom `resize-image.js` før opplasting, `add.astro` gjør det ikke — sannsynligvis en inkonsekvens snarere enn et bevisst valg, verdt å rette samtidig som duplikasjonen fjernes.
@@ -184,7 +186,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 4. ~~Trekk ut bildeopplasting (2.2)~~ — **Gjennomført (bolk 4).**
 5. ~~Trekk ut API-json-hjelperen (2.7)~~ — **Gjennomført (bolk 5).**
 6. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
-7. Ta strekkodeskanneren (2.3) og skjema-duplikasjonen i add/edit-store (2.4) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig kan tas sammen med denne runden nå som 2.8 er ferdig.
+7. Ta strekkodeskanneren (2.3) og skjema-duplikasjonen i add/edit-store (2.4) som en egen runde. (Navnebyttet av `merch-create.ts` → `figure-create.ts`, tidligere planlagt sammen med denne runden, er allerede gjennomført — se **Gjenstående oppgaver**.)
 8. Vurder den store CSS/JS-duplikasjonen på oversiktssidene (2.6) som et eget, avgrenset refaktoreringsprosjekt til slutt.
 9. ~~Ta de tre punktene under **Funn under testing**~~ — **Alle tre gjennomført** (punkt 1 i bolk 6, punkt 2 i bolk 7, punkt 3 løste seg selv via bolk 7). Punkt 4 (album `year`-spøkelsesfelt, oppdaget senere) er også gjennomført, som egen sak utenfor bolk-nummereringen.
 
@@ -192,7 +194,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 
 ## Gjenstående oppgaver (sporet, ikke gjort ennå)
 
-- **Navnebytte `merch-create.ts` → `figure-create.ts`.** Endepunktet skriver korrekt til `_type: 'figure'`, men heter fortsatt «merch-create», noe som er misvisende nå som `merch`/`figure`-splitten (se øverst i rapporten) er rettet andre steder. Å bytte navn krever også å oppdatere referansen i `add-item.astro` (`CONFIG.merch.endpoint`). Bevisst utsatt til egen bolk for å holde denne endringen liten og lett å teste isolert.
+- ~~**Navnebytte `merch-create.ts` → `figure-create.ts`.**~~ — **Gjennomført.** Endepunktet skrev alltid korrekt til `_type: 'figure'`, men het misvisende «merch-create». Omdøpt med `git mv` (historikken følger med). `add-item.astro` sin `CONFIG.merch.endpoint` er oppdatert til `/api/figure-create` — kun endepunkt-URL-en ble endret, `merch`-nøkkelen i `CONFIG` og skjemaets `type=merch`-verdi er urørt (eget, separat spørsmål om det også bør ryddes). Søk gjennom hele prosjektet før omdøping bekreftet at dette var de to eneste kodereferansene til det gamle navnet. Det opprinnelige, urelaterte `figure-create.ts` (som skrev feil `_type: 'merch'`) ble slettet i bolk 1 — filnavnet er altså gjenbrukt for en annen, korrekt fil. Se merknaden i «Viktig sidefunn» øverst i rapporten.
 
 ---
 

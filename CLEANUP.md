@@ -11,7 +11,8 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 - [x] **Bolk 3 — `isNew()`-uttrekk til `astro/src/lib/dates.ts`.** Fullført og committet på `cleanup`-grena. (Opprinnelig planlagt sammen med punkt 2.5 (`wishlist.astro`/`got-it.js`), men det punktet ble i stedet flyttet til **Bevisst beholdt / ikke duplikasjon** etter at markup-forskjellen ble avdekket.)
 - [x] **Bolk 4 — bildeopplasting-uttrekk til `astro/src/scripts/image-upload.js`.** Fullført og committet på `cleanup`-grena. API-json-hjelperen (2.7) var bevisst utelatt fra denne bolken og gjenstår som egen oppgave.
 - [x] **Bolk 5 — delt `json()`/`parseJsonBody()` til `astro/src/lib/api.ts`.** Fullført og committet på `cleanup`-grena, på tvers av alle 14 gjenværende endepunkter. Under testingen ble tre urelaterte, eksisterende feil oppdaget — se **Funn under testing** nedenfor.
-- [ ] Bolk 6 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [ ] **Bolk 6 — `shop-note.ts` (opprettelse) lagrer nå `placeType`, `trips`, `openingHours` og `area` korrekt.** Klar for testing, ikke committet ennå. Se punkt 1 under **Funn under testing**.
+- [ ] Bolk 7 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -178,3 +179,17 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 ## Gjenstående oppgaver (sporet, ikke gjort ennå)
 
 - **Navnebytte `merch-create.ts` → `figure-create.ts`.** Endepunktet skriver korrekt til `_type: 'figure'`, men heter fortsatt «merch-create», noe som er misvisende nå som `merch`/`figure`-splitten (se øverst i rapporten) er rettet andre steder. Å bytte navn krever også å oppdatere referansen i `add-item.astro` (`CONFIG.merch.endpoint`). Bevisst utsatt til egen bolk for å holde denne endringen liten og lett å teste isolert.
+
+---
+
+## Funn under testing
+
+Oppdaget mens Bolk 5 ble testet manuelt. Ikke relatert til `json()`/`parseJsonBody()`-uttrekket — egne, eksisterende feil/opprydding, tatt som egne bolker senere.
+
+1. **`astro/src/pages/api/shop-note.ts` (opprettelse) lagret ikke `placeType`, `openingHours` eller `trips`.** Sammenlignet felt for felt med [astro/src/pages/api/shop-note-update.ts](astro/src/pages/api/shop-note-update.ts): opprettelses-endepunktet satte kun `shopName`, `area`, `note`, `priority`, `address`, `latitude`, `longitude` — `body.placeType`, `body.openingHours` og `body.tripIds` ble aldri lest, selv om `add-store.astro` sender alle tre. Underveis ble det også oppdaget at `area`-valideringen på API-nivå var strengere enn update sin (en fast 6-verdis whitelist i stedet for en fri, 60-tegns-kuttet streng) — noe som ville forkastet et egendefinert områdenavn valgt via «+ New area…» i skjemaet. **Status (bolk 6, klar for testing):** rettet ved å speile `shop-note-update.ts` nøyaktig for alle fire feltene (`placeType`-whitelist, `trips` som referanse-array med `_key`, `openingHours` trimmet/kuttet til 200 tegn, `area` fri streng kuttet til 60 tegn på API-nivå — ingen whitelist der, siden update alt er sånn). `num()`-hjelperen og resten av feltene er urørt.
+
+   **Oppfølging på `area` — Sanity-skjemaets forslagsliste (separat, committet):** i stedet for å stole på fri tekst alene, ble det besluttet å beholde en fast liste i `sanity/schemaTypes/shopNote.ts` (Studio sitt `options.list` for `area` — kun et forslagssett i Studio-UI-et, ikke en hard valideringsregel, så det står ikke i konflikt med at API-et tillater fri streng). En spørring mot Sanity viste 13 unike `area`-verdier i bruk på 66 `shopNote`-dokumenter, mot 10 i skjemaets liste — 5 manglet: `Tokyo Station` (5 stk.), `Ginza`, `Harajuku`, `Odawara`, `Yoyogi` (1 hver). Alle fem lagt til i listen, skrevet nøyaktig som de allerede lå lagret i dataene. De ti eksisterende (inkl. det ubrukte `Osaka`) er urørt. Deployet til Studio og verifisert.
+
+2. **Itinerary-siden: «Legg til stopp» gjør ingenting ved klikk, ingen konsoll- eller serverfeil.** I `astro/src/pages/itinerary.astro` sitt add-stop-flow (`.add-stop-btn` åpner `.add-form`, `.af-save` skal kalle `addShopStop()`/`addCustomStop()`) skjer det ingenting synlig, verken ved valg av butikk fra lista eller ved fritekst-alternativet (`.af-custom`, felt for egne stopp som frokost/reise/severdigheter) — begge veier er brutt. Siden ingen nettverksforespørsel til `/api/itinerary-save` observeres i noen av tilfellene, tyder det på én felles årsak (klikk/event-handler når trolig ikke fram) fremfor to separate feil. Fritekst-alternativet er en ønsket funksjon og skal **beholdes** — dette er feilsøking og fiks av hele flyten, ikke fjerning av noen del av den.
+
+3. **Itinerary-siden: to «legg til»-knapper der én er overflødig.** `.add-stop-btn` («+ Legg til stopp», åpner skjemaet) og `.af-save` («Legg til», inni skjemaet) fremstår som to overlappende «legg til»-handlinger i UI-et. Ren UI-opprydding — se nærmere på i samme bolk som punkt 2, siden begge angår samme skjema.

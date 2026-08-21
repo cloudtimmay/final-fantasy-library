@@ -16,7 +16,8 @@ export const POST: APIRoute = async ({ request }) => {
 
   const doc: any = { _type: 'game', title, status: 'owned' }
   if (str(body.platform)) doc.platform = str(body.platform)
-  if (str(body.creator)) doc.creator = str(body.creator)
+  // Client sends the "Publisher / Developer" field as `creator` — game schema only has `publisher`.
+  if (str(body.creator)) doc.publisher = str(body.creator)
   if (str(body.series)) doc.series = str(body.series)
   if (num(body.year) != null) doc.year = num(body.year)
   if (str(body.barcode)) doc.barcode = str(body.barcode)

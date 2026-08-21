@@ -12,7 +12,9 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 - [x] **Bolk 4 — bildeopplasting-uttrekk til `astro/src/scripts/image-upload.js`.** Fullført og committet på `cleanup`-grena. API-json-hjelperen (2.7) var bevisst utelatt fra denne bolken og gjenstår som egen oppgave.
 - [x] **Bolk 5 — delt `json()`/`parseJsonBody()` til `astro/src/lib/api.ts`.** Fullført og committet på `cleanup`-grena, på tvers av alle 14 gjenværende endepunkter. Under testingen ble tre urelaterte, eksisterende feil oppdaget — se **Funn under testing** nedenfor.
 - [x] **Bolk 6 — `shop-note.ts` (opprettelse) lagrer nå `placeType`, `trips`, `openingHours` og `area` korrekt.** Fullført og committet på `cleanup`-grena. Verifisert i Studio (type, tur, område og åpningstider lagres nå riktig ved opprettelse). Se punkt 1 under **Funn under testing**.
-- [ ] Bolk 7 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
+- [ ] Bolk 7 — itinerary «Legg til stopp»-CSS-fiks — under grundig testing, ikke committet ennå. Se punkt 2 under **Funn under testing**.
+- [x] **Bolk 8 — fikset felt-mapping-bugs i `game-create.ts`/`book-create.ts`.** Fullført og committet på `cleanup`-grena. Se punkt 2.8 nedenfor for detaljer.
+- [ ] Bolk 9 og videre — se **Anbefalt rekkefølge** nederst for foreslått neste steg.
 
 ---
 
@@ -115,8 +117,16 @@ try { body = await request.json() } catch { return json(400, { error: 'Bad reque
 ```
 **Gjennomført.** Trukket ut til `astro/src/lib/api.ts` (`json()` og `parseJsonBody()`). Før sammenslåingen ble alle 14 filer gjennomgått: `json()`-hjelperen var ordrett identisk i samtlige, og 12 av 14 delte nøyaktig samme feilrespons ved ugyldig body (`json(400, { error: 'Bad request' })`), i to rene formateringsvarianter (flerlinjes vs. kompakt — ingen funksjonell forskjell). De 12 bruker nå `const body = await parseJsonBody(request); if (!body) return json(400, { error: 'Bad request' })`. To endepunkter avvek reelt og fikk kun `json()` importert, med egen parsing uendret: `upload-image.ts` (parser `request.formData()`, ikke JSON) og `check-duplicate.ts` (GET uten body). Bekreftet at alle 14 fortsatt returnerer nøyaktig samme feilrespons som før. `catch {}` vs. `catch (e)`-stilen (punkt 3.3) og `family-purchase-status.ts` sin rekkefølge-bug (punkt 3.4) ble bevisst ikke rørt.
 
-### 2.8 De fem "create"-endepunktene deler nesten hele implementasjonen
-`album-create.ts`, `book-create.ts`, `game-create.ts`, `merch-create.ts` og `figure-create.ts` har identisk skjelett utover selve feltlisten: samme `num()`/`str()`-konverteringshjelpere (kopiert i to litt ulike stilvarianter — se `album-create.ts:16-17` vs. `merch-create.ts:22-23`), samme `if (str(body.X)) doc.X = str(body.X)`-mønster per felt, og samme try/catch rundt `sanityWrite.create(doc)`. God kandidat for en delt `createItem(type, fieldMap, body)`-hjelper — bygger videre på 2.7.
+### 2.8 De fire "create"-endepunktene deler nesten hele implementasjonen
+`album-create.ts`, `book-create.ts`, `game-create.ts` og `merch-create.ts` (`figure-create.ts` slettet i bolk 1) har identisk skjelett utover selve feltlisten: samme `num()`/`str()`-konverteringshjelpere (kopiert i to litt ulike stilvarianter), samme `if (str(body.X)) doc.X = str(body.X)`-mønster per felt, og samme try/catch rundt `sanityWrite.create(doc)`. God kandidat for en delt `buildDoc(base, body, fields)`-hjelper i `astro/src/lib/api.ts` — hvert endepunkt beholder sin egen, korte feltliste og eventuelle spesialtilfeller (f.eks. `merch-create.ts` sin `category`-whitelist, `album-create.ts` sin hardkodede `format: 'cd'`), fremfor én stor funksjon med fire grener. **Uttrekket er bevisst utsatt til bolk 9** — se **status under**.
+
+**Status (bolk 8, gjennomført): felt-mapping-bugs funnet og rettet før uttrekket.**
+Før noe ble slått sammen, ble alle fire endepunktene sjekket felt for felt mot de faktiske Sanity-skjemaene (`sanity/schemaTypes/`). `album-create.ts` og `merch-create.ts` var korrekte. To reelle, tidligere ikke-oppdagede bugs ble funnet:
+- **`game-create.ts`** skrev `doc.creator`, et felt som ikke finnes i `game`-skjemaet (som har `developer`/`publisher`). `add-item.astro` sender UI-feltet «Publisher / Developer» som `creator` — verdien havnet i et usynlig, ikke-skjemadefinert felt. **Rettet:** `body.creator` → `doc.publisher`.
+- **`book-create.ts`** hadde tre feil: skrev `doc.creator` (finnes ikke — skjemaet har `author`, som er **påkrevd**, og separat `publisher`), skrev `doc.series` (finnes ikke i det hele tatt i `book`-skjemaet), og skrev `doc.barcode` (skjemaet kaller feltet `isbn`). Mest alvorlig: `author` — et påkrevd felt — ble aldri satt på bøker lagt til via appen. **Rettet:** `body.creator` → både `doc.author` og `doc.publisher` (samme verdi), `body.barcode` → `doc.isbn`, `series`-linjen fjernet helt (feltet finnes ikke i skjemaet).
+- `add-item.astro` sitt UI og feltnavnene i POST-bodyen (`creator`, `barcode`) er urørt — kun mappingen inne i endepunktene er rettet.
+
+Sanity ble spurt etter fiksen (ikke for å migrere, bare for å sjekke skadeomfang): 0 av 74 `game`-dokumenter mangler `publisher`, 0 av 54 `book`-dokumenter mangler `author`. 8 bøker mangler `isbn` — alle er artbøker uten strekkode, forventet og ikke bug-relatert. Ingen manuell datarydding nødvendig; eksisterende data ser ut til å ha kommet inn via Studio/importskript, ikke via det buggede skjemaet.
 
 ### 2.9 Mindre duplikasjon: strekkode-dublettsjekk og bilde-håndtering i `add.astro` vs. `add-item.astro`
 Begge sidene har sin egen kopi av `checkDuplicate()` (kall til `/api/check-duplicate`) og kamera/galleri-velgeren for foto. Én reell forskjell: `add-item.astro` kjører bildet gjennom `resize-image.js` før opplasting, `add.astro` gjør det ikke — sannsynligvis en inkonsekvens snarere enn et bevisst valg, verdt å rette samtidig som duplikasjonen fjernes.
@@ -170,7 +180,7 @@ Rangert fra tryggest å fjerne til de som er mer en logikkfeil enn opprydding.
 4. ~~Trekk ut bildeopplasting (2.2)~~ — **Gjennomført (bolk 4).**
 5. ~~Trekk ut API-json-hjelperen (2.7)~~ — **Gjennomført (bolk 5).**
 6. Avklar skjebnen til `import-places.astro`, `export-shops.astro` og `vgmdb.astro` (lenke dem inn, eller fjern).
-7. Ta strekkodeskanneren (2.3), skjema-duplikasjonen i add/edit-store (2.4) og create-endepunktene (2.8) som en egen runde — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.
+7. Ta strekkodeskanneren (2.3) og skjema-duplikasjonen i add/edit-store (2.4) som en egen runde. Create-endepunktenes felt-mapping-bugs er rettet (bolk 8); selve `buildDoc()`-uttrekket (2.8) gjenstår som bolk 9 — se også navnebyttet av `merch-create.ts` under **Gjenstående oppgaver**, som naturlig hører sammen med 2.8.
 8. Vurder den store CSS/JS-duplikasjonen på oversiktssidene (2.6) som et eget, avgrenset refaktoreringsprosjekt til slutt.
 9. ~~Ta de tre punktene under **Funn under testing** ...~~ Punkt 1 (`shop-note.ts`-bugen) — **Gjennomført (bolk 6).** Gjenstår: punkt 2 (itinerary «Legg til stopp» er brutt) og punkt 3 (UI-opprydding, to «legg til»-knapper) — egne, små bolker.
 

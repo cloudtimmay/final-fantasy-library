@@ -15,10 +15,12 @@ export const POST: APIRoute = async ({ request }) => {
   const str = (v: any) => { const s = String(v ?? '').trim(); return s || undefined }
 
   const doc: any = { _type: 'book', title, status: 'owned' }
-  if (str(body.creator)) doc.creator = str(body.creator)
-  if (str(body.series)) doc.series = str(body.series)
+  // Client sends the "Author / Publisher" field as `creator` — book schema has separate `author`
+  // (required) and `publisher` fields, so the same value goes to both.
+  if (str(body.creator)) { doc.author = str(body.creator); doc.publisher = str(body.creator) }
   if (num(body.year) != null) doc.year = num(body.year)
-  if (str(body.barcode)) doc.barcode = str(body.barcode)
+  // Client sends the scanned code as `barcode` — book schema calls it `isbn`.
+  if (str(body.barcode)) doc.isbn = str(body.barcode)
   if (num(body.purchasePriceYen) != null) doc.purchasePriceYen = num(body.purchasePriceYen)
   if (num(body.purchasePrice) != null) doc.purchasePrice = num(body.purchasePrice)
   if (str(body.acquiredDate)) doc.acquiredDate = str(body.acquiredDate)

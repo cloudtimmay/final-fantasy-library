@@ -240,6 +240,38 @@ const PLAN = [
       return { lat, lng }
     }
 
+    // Parses a "HH:MM–HH:MM" (or "HH:MM-HH:MM") range out of a free-text opening-hours
+    // string. Returns { start, end } in minutes since midnight, or null if nothing usable
+    // was found. Never throws — worst case is "couldn't tell", not a crash.
+    // Overnight ranges (e.g. "22:00-02:00") are only recognized when the end time is
+    // before 06:00; anything else with end < start is treated as unparseable, since it's
+    // more likely bad data (e.g. a typo) than a genuine overnight opening.
+    function parseOpeningHours(text) {
+      const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(String(text || ''))
+      if (!m) return null
+      const h1 = +m[1], min1 = +m[2], h2 = +m[3], min2 = +m[4]
+      if (h1 > 23 || h2 > 23 || min1 > 59 || min2 > 59) return null
+      const start = h1 * 60 + min1
+      let end = h2 * 60 + min2
+      if (end < start) {
+        if (end < 360) end += 1440 // genuine overnight, e.g. 22:00-02:00 -> end becomes 26:00
+        else return null // ambiguous / likely bad data
+      }
+      return { start, end }
+    }
+
+    // True if plannedMinutes falls outside the parsed opening hours. Silent (false) if
+    // hoursText doesn't parse — "couldn't tell" is not the same as "closed".
+    function looksClosed(hoursText, plannedMinutes) {
+      const range = parseOpeningHours(hoursText)
+      if (!range) return false
+      const p = ((Math.round(plannedMinutes) % 1440) + 1440) % 1440
+      const isOpen = range.end > 1440
+        ? (p >= range.start || p <= range.end - 1440)
+        : (p >= range.start && p <= range.end)
+      return !isOpen
+    }
+
     function defaultDur(s) {
       if (s.tag === 'mat') return 60
       if (s.tag === 'MUST') return 75
@@ -289,6 +321,16 @@ const PLAN = [
         clock += walkMin(s, dest)
       })
       return { baseStart, times, baseEnd: clock }
+    }
+
+    // What time would a not-yet-added stop land at, if appended to the end of this day?
+    // Reuses computeTimes itself (on a throwaway copy of the day) rather than
+    // re-deriving the arrival-time math separately.
+    function previewArrivalTime(di, tentativeStop) {
+      const day = state[di]
+      const projected = { ...day, stops: [...day.stops, tentativeStop] }
+      const { times } = computeTimes(projected)
+      return times[times.length - 1]
     }
 
     function resortDay(di) {
@@ -423,6 +465,7 @@ const PLAN = [
                 ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
                 ${slotBadge(s.slot)}
                 ${noCoord ? '<span class="nocoord">📍 mangler koordinater</span>' : ''}
+                ${looksClosed(s.hours, t) ? `<span class="closed-warn">⚠️ stengt ~${fmt(t)}?</span>` : ''}
               </span>
             </span>
             ${tagHtml}
@@ -599,9 +642,24 @@ const PLAN = [
           if (val === '__custom__') {
             const name = form.querySelector('.af-name').value.trim()
             if (!name) return
-            addCustomStop(di, name, form.querySelector('.af-hours').value.trim())
+            const hours = form.querySelector('.af-hours').value.trim()
+            const arrival = previewArrivalTime(di, { name, hours, tag: '', slot: '', lat: null, lng: null })
+            if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+            addCustomStop(di, name, hours)
           } else if (val !== '') {
-            addShopStop(di, +val)
+            const shopIdx = +val
+            const shop = shops[shopIdx]
+            if (shop) {
+              const hours = shop.openingHours || ''
+              const tentative = {
+                name: shop.shopName, hours, tag: shop.placeType === 'restaurant' ? 'mat' : '', slot: '',
+                lat: (typeof shop.latitude === 'number') ? shop.latitude : null,
+                lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
+              }
+              const arrival = previewArrivalTime(di, tentative)
+              if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+            }
+            addShopStop(di, shopIdx)
           }
         })
       })
@@ -718,6 +776,11 @@ const PLAN = [
       font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
       font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
       background: rgba(231,76,60,0.15); color: #ff9b8f;
+    }
+    .closed-warn {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+      background: rgba(243,156,18,0.18); color: #f5c542;
     }
     .stop-tag {
       flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;

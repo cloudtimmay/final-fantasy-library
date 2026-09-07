@@ -439,6 +439,7 @@ const PLAN = [
               <div class="mc-coord-row">
                 <label>📍 Koordinater <input type="text" class="mc-coord" placeholder="lat, lng (fra Google Maps)" /></label>
                 <button class="mc-coord-save" type="button">Lagre</button>
+                ${s.shopId ? `<button class="mc-coord-fetch" type="button">🔄 Hent koordinater fra butikken</button>` : ''}
               </div>
               <p class="mc-coord-msg" hidden></p>
             ` : ''}
@@ -518,6 +519,26 @@ const PLAN = [
       setTimeout(render, 1400)
     }
 
+    async function fetchShopCoords(di, idx, panel) {
+      const s = state[di].stops[idx]
+      const msg = panel.querySelector('.mc-coord-msg')
+      if (!s.shopId) return
+      coordMsg(msg, 'Henter fra butikken…', 'var(--muted)')
+      try {
+        const res = await fetch('/api/shop-coords?id=' + encodeURIComponent(s.shopId))
+        const data = await res.json()
+        if (!res.ok || !data.ok) { coordMsg(msg, 'Henting feilet.', '#e74c3c'); return }
+        if (!data.found) { coordMsg(msg, 'Fant ikke butikken i Sanity.', '#e74c3c'); return }
+        if (!data.hasCoords) { coordMsg(msg, 'Butikken har ingen koordinater ennå.', '#e74c3c'); return }
+        s.lat = data.latitude; s.lng = data.longitude
+        saveState()
+        coordMsg(msg, 'Hentet ✓ — koordinater satt fra butikken', '#2ecc71')
+        setTimeout(render, 1400)
+      } catch (e) {
+        coordMsg(msg, 'Nettverksfeil ved henting.', '#e74c3c')
+      }
+    }
+
     function attachEvents() {
       document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
         state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
@@ -534,6 +555,10 @@ const PLAN = [
       document.querySelectorAll('.mc-coord-save').forEach((btn) => btn.addEventListener('click', () => {
         const panel = btn.closest('.mc-panel')
         saveCoords(+panel.dataset.day, +panel.dataset.idx, panel)
+      }))
+      document.querySelectorAll('.mc-coord-fetch').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = btn.closest('.mc-panel')
+        fetchShopCoords(+panel.dataset.day, +panel.dataset.idx, panel)
       }))
       document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
@@ -730,6 +755,11 @@ const PLAN = [
       background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.8rem;
       border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
     }
+    .mc-coord-fetch {
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent); padding: 0.4rem 0.8rem;
+      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+    }
+    .mc-coord-fetch:hover { background: rgba(244,162,76,0.1); }
     .mc-coord-msg { font-size: 0.75rem; margin: 0; }
 
     .walk-row { padding: 0.05rem 0 0.05rem 3.4rem; }

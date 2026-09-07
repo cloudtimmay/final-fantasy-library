@@ -1,8 +1,31 @@
 import type { APIRoute } from 'astro'
-import { sanityWrite } from '../../lib/sanity'
+import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
 
 export const prerender = false
+
+// Live lookup of a single shop's coordinates — used by the itinerary's
+// "fetch from shop" button, since the page's own shop list is only as
+// fresh as its last load and the shop may have been fixed up since.
+export const GET: APIRoute = async ({ url }) => {
+  const id = (url.searchParams.get('id') || '').trim()
+  if (!id) return json(400, { error: 'Missing id' })
+
+  try {
+    const doc = await sanity.fetch(
+      `*[_type == "shopNote" && _id == $id][0]{ latitude, longitude }`,
+      { id }
+    )
+    if (!doc) return json(200, { ok: true, found: false })
+
+    const hasCoords = typeof doc.latitude === 'number' && typeof doc.longitude === 'number'
+    if (!hasCoords) return json(200, { ok: true, found: true, hasCoords: false })
+
+    return json(200, { ok: true, found: true, hasCoords: true, latitude: doc.latitude, longitude: doc.longitude })
+  } catch {
+    return json(500, { error: 'Lookup failed' })
+  }
+}
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)

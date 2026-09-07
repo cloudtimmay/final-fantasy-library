@@ -139,8 +139,8 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
 
     function setCoords(la, lo) {
       lat = la; lng = lo
-      latInput.value = (typeof la === 'number') ? la.toFixed(6) : ''
-      lngInput.value = (typeof lo === 'number') ? lo.toFixed(6) : ''
+      latInput.value = (typeof la === 'number') ? la.toFixed(5) : ''
+      lngInput.value = (typeof lo === 'number') ? lo.toFixed(5) : ''
       renderCoords()
       updateMapLink()
     }

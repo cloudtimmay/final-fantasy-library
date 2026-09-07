@@ -170,8 +170,8 @@ const currentTripIds: string[] = shop?.tripIds || []
 
       function setCoords(la, lo) {
         lat = la; lng = lo
-        latInput.value = (typeof la === 'number') ? la.toFixed(6) : ''
-        lngInput.value = (typeof lo === 'number') ? lo.toFixed(6) : ''
+        latInput.value = (typeof la === 'number') ? la.toFixed(5) : ''
+        lngInput.value = (typeof lo === 'number') ? lo.toFixed(5) : ''
         renderCoords()
         updateMapLink()
       }
@@ -203,7 +203,7 @@ const currentTripIds: string[] = shop?.tripIds || []
 
       // Prefill the fields from existing coords.
       if (typeof lat === 'number' && typeof lng === 'number') {
-        latInput.value = lat.toFixed(6); lngInput.value = lng.toFixed(6)
+        latInput.value = lat.toFixed(5); lngInput.value = lng.toFixed(5)
       }
       renderCoords()
       updateMapLink()

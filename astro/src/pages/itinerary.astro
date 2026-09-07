@@ -451,6 +451,7 @@ const PLAN = [
           const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
           const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
           const gmap = (s.lat != null) ? `https://www.google.com/maps?q=${s.lat},${s.lng}` : ''
+          const editUrl = s.shopId ? `/edit-store?id=${esc(encodeURIComponent(s.shopId))}` : ''
           const durVal = (s.dur != null ? s.dur : defaultDur(s))
           li.innerHTML = `
             <span class="stop-time">${fmt(t)}${s.fixedTime ? ' 📌' : ''}</span>
@@ -460,7 +461,11 @@ const PLAN = [
               <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
             </div>
             <span class="stop-body">
-              <span class="stop-name">${gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${s.name}</a>` : s.name}</span>
+              <span class="stop-name">${
+                editUrl ? `<a href="${editUrl}">${s.name}</a>`
+                : gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${s.name}</a>`
+                : s.name
+              }</span>
               <span class="stop-sub">
                 ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
                 ${slotBadge(s.slot)}

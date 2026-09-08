@@ -229,10 +229,10 @@ Stor omlegging: itinerary-planen skal bygges fra `shopNote`-lista i stedet for e
 - Ny gren `itinerary-from-shops` opprettet fra `main`.
 - Fersk full backup: `production-backup-2026-09-07-pre-itinerary-rebuild.tar.gz` (≈142,7 MB, 545 dokumenter + 165 assets), i `../sanity-backups/`.
 
-### Steg 1 — få alle PLAN-steder inn i shops-lista (gjennomført, ikke committet ennå)
-Kartla alle 55 faste PLAN-stopp mot `shopNote` på koordinater (eksakt match, «dobbeltsjekk» innen 50 m, eller ingen match). 48 eksakte treff, 2 nær-treff forkastet som falske positiver (ulik stedstype), 3 fantes i shop-lista uten koordinater, 5 fantes ikke i det hele tatt (rene restauranter).
+### Steg 1 — få alle PLAN-steder inn i shops-lista (gjennomført)
+Kartla alle 52 faste PLAN-stopp mot `shopNote` på koordinater (eksakt match, «dobbeltsjekk» innen 50 m, eller ingen match). 3 fantes i shop-lista uten koordinater, 6 fantes ikke i det hele tatt (rene restauranter), resten matchet allerede eksakt.
 
-Kjørt via `scripts/backfill-itinerary-shops.ts` (dry-run + `--live`, samme mønster som year-ryddingen) — **skriptet er ikke committet ennå**, bruker verifiserer i Studio først.
+Kjørt via `scripts/backfill-itinerary-shops.ts` (dry-run + `--live`, samme mønster som year-ryddingen). Verifisert i Studio og godkjent av bruker.
 
 **Del A — koordinater fylt inn på 3 eksisterende `shopNote`-dokumenter** (var `null`/`null` fra før):
 | `_id` | Butikk | Nye koordinater |
@@ -251,6 +251,13 @@ Kjørt via `scripts/backfill-itinerary-shops.ts` (dry-run + `--live`, samme møn
 | Uobei | `xcNFYqDbvgwSZNlsstJYEX` | Shibuya (PLAN sin dag hadde sammensatt `Shibuya + Harajuku` — «Shibuya» valgt siden det stemmer med koordinatene) | transportbånd-sushi, rett ved PARCO |
 | Yang Guo Fu Mala Tang | `ThE87wkuJDLOFIslBjfKXZ` | Nakano | nær Broadway |
 
-**Gjenstår i Steg 1:** brukerens verifisering i Studio, deretter commit av `scripts/backfill-itinerary-shops.ts` på `itinerary-from-shops`-grenen.
+### Steg 2 — render slår opp via shopId, deretter migrer lagret plan (gjennomført)
+Render-koden i `itinerary.astro` fikk en `resolveStop()`-funksjon: slår opp `shopId` i shops-lista for `name`/`lat`/`lng`, med trygg fallback til stoppets egne felt (butikk slettet, butikk uten koordinater, eller shops-lista ikke lastet). Alle steder som brukte `s.name`/`s.lat`/`s.lng` (kartpins, gangtid, rutelenker, «mangler koordinater»-merket, butikk-lenken) bruker nå samme oppslag. 100 % bakoverkompatibelt — ingen synlig endring da dagens stopp fortsatt hadde alle feltene.
 
-**Neste (Steg 2, ikke startet):** selve migreringen — bygge `PLAN` sine `stops`-lister fra `shopNote`-spørringen (via `shopId`) i stedet for hardkodede `lat`/`lng`/`name`-objekter, med de nylig kartlagte `_id`-ene over som fasit.
+Deretter migrert den lagrede planen (`itineraryState`, Sanity-dokumentet bak «din faktiske reiseplan»): av 56 lagrede stopp hadde kun 4 allerede `shopId` (lagt til via nedtrekksmenyen) — de resterende 51 ble automatisk koblet til riktig `shopNote` via samme eksakte koordinat-match (0 umatchede), og deretter slanket (`name`/`lat`/`lng` fjernet, `hours`/`tag`/`slot`/`fixedTime`/`dur` bevart uendret). «Test shop»-stoppet på dag 7 ble fjernet fra planen (shopNote-dokumentet `EncRux1Khyhm1n5v2lUqiX` er urørt). Resultat: 6904 → 5145 bytes (−25,5 %). Punktsikring av `itineraryState` tatt før kjøring (`itinerarystate-backup-2026-09-08.json` i `../sanity-backups/`).
+
+**Driftsuhell og fiks:** render-oppslaget og datamigreringen ble først kun committet på en egen gren (`itinerary-from-shops`), mens `--live`-migreringen skrev direkte til det delte produksjons-Sanity-datasettet (Sanity-skriving er uavhengig av git-gren). Dette gjorde produksjonssiden midlertidig ødelagt for alle besøkende (gammel render-kode + nytt slankt dataformat = «undefined»-navn og manglende koordinater), inntil grenen ble merget til `main` og pushet. Lærdom: en Sanity-migrering som forutsetter ny kode må ikke kjøres `--live` mot produksjon før koden som leser det nye formatet faktisk er deployet dit, ikke bare committet lokalt.
+
+**Ikke gjort (bevisst utsatt):** selve `PLAN`-literalen i `itinerary.astro` (de 52 hardkodede stoppene) er ikke konvertert til `shopId`-format. Kartlegging viste at `PLAN.stops` fortsatt er i aktiv bruk to steder — fallback i `buildState()` for enhver dag uten lagret plan, og «↺ Tilbakestill»-knappen, som bygger hele planen på nytt fra `PLAN` — så en full tømming til `[]` ville vært utrygt. En fullstendig konvertering til `shopId`-format ble kartlagt og godkjent (52/52 eksakt match, samme tabell som over), men er ikke utført. Lav prioritet: i praksis rammer `PLAN.stops` nå kun et helt tomt Sanity-datasett eller et Tilbakestill-klikk, siden `itineraryState` alltid finnes og alltid vinner.
+
+**Opprydding etter merge:** `itinerary-from-shops` merget til `main` (fast-forward) og slettet. Engangsskriptene (`backfill-itinerary-shops.ts`, `match-itinerary-stops.ts`, `migrate-itinerary-to-shops.ts`) har gjort jobben sin og er slettet. Backup-filene i `../sanity-backups/` er beholdt.

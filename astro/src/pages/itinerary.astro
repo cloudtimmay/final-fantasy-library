@@ -151,6 +151,7 @@ const PLAN = [
     const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     const { plan, areaMin, base, shops, savedState } = JSON.parse(raw)
+    const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
     const saveStatusEl = document.querySelector('#save-status')
@@ -240,6 +241,24 @@ const PLAN = [
       return { lat, lng }
     }
 
+    // Resolves the *effective* name/lat/lng for a stop: if it has a shopId, prefer the
+    // linked shop's current data, but only for fields the shop actually has — falls back
+    // to whatever's stored on the stop itself. This covers all three edge cases safely:
+    // shop deleted (shopById lookup misses -> falls back to stop's own fields), shop
+    // missing coords (falls back per-field), and the shops list failing to load at all,
+    // e.g. offline (shopById is empty -> every lookup misses -> falls back to stop's own
+    // fields). Never returns a null/undefined name.
+    function resolveStop(s) {
+      let name = s.name, lat = s.lat, lng = s.lng
+      const shop = s.shopId ? shopById.get(s.shopId) : null
+      if (shop) {
+        if (shop.shopName) name = shop.shopName
+        if (typeof shop.latitude === 'number') lat = shop.latitude
+        if (typeof shop.longitude === 'number') lng = shop.longitude
+      }
+      return { name: name != null ? name : 'Ukjent butikk', lat: lat != null ? lat : null, lng: lng != null ? lng : null }
+    }
+
     // Parses a "HH:MM–HH:MM" (or "HH:MM-HH:MM") range out of a free-text opening-hours
     // string. Returns { start, end } in minutes since midnight, or null if nothing usable
     // was found. Never throws — worst case is "couldn't tell", not a crash.
@@ -309,7 +328,8 @@ const PLAN = [
     function computeTimes(day) {
       let clock = parseT(day.startTime)
       if (clock == null) clock = parseT(DEFAULT_START)
-      const first = day.stops[0]
+      const pts = day.stops.map(resolveStop)
+      const first = pts[0]
       const baseStart = clock
       if (first) clock += walkMin(base, first)
       const times = []
@@ -317,8 +337,8 @@ const PLAN = [
         if (s.fixedTime) { const p = parseT(s.fixedTime); if (p != null) clock = p }
         times.push(clock)
         clock += (s.dur != null ? s.dur : defaultDur(s))
-        const dest = day.stops[si + 1] || base
-        clock += walkMin(s, dest)
+        const dest = pts[si + 1] || base
+        clock += walkMin(pts[si], dest)
       })
       return { baseStart, times, baseEnd: clock }
     }
@@ -345,7 +365,7 @@ const PLAN = [
     }
 
     function dayRouteUrls(day) {
-      const pts = day.stops.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
+      const pts = day.stops.map(resolveStop).filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
       const baseP = `${base.lat},${base.lng}`
       const full = [baseP, ...pts, baseP]
       if (full.length < 2) return []
@@ -383,10 +403,11 @@ const PLAN = [
       const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
       L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base')
       day.stops.forEach((s, i) => {
-        if (s.lat == null || s.lng == null) return
+        const r = resolveStop(s)
+        if (r.lat == null || r.lng == null) return
         const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
-        L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${s.name}`)
-        latlngs.push([s.lat, s.lng])
+        L.marker([r.lat, r.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${r.name}`)
+        latlngs.push([r.lat, r.lng])
       })
       latlngs.push([base.lat, base.lng])
       L.polyline(latlngs, { color: '#f4a24c', weight: 3, opacity: 0.85, dashArray: '6 6' }).addTo(map)
@@ -440,17 +461,18 @@ const PLAN = [
         `
         const ul = card.querySelector('.stop-list')
         ul.insertAdjacentHTML('beforeend', baseRow('Start: base', fmt(baseStart)))
-        const firstStop = day.stops[0]
+        const firstStop = day.stops[0] ? resolveStop(day.stops[0]) : null
         if (firstStop) { const wt = walkText(base, firstStop); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
 
         day.stops.forEach((s, si) => {
+          const r = resolveStop(s)
           const t = times[si]
-          const noCoord = (s.lat == null || s.lng == null)
+          const noCoord = (r.lat == null || r.lng == null)
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
           const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
           const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
-          const gmap = (s.lat != null) ? `https://www.google.com/maps?q=${s.lat},${s.lng}` : ''
+          const gmap = (r.lat != null) ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : ''
           const editUrl = s.shopId ? `/edit-store?id=${esc(encodeURIComponent(s.shopId))}` : ''
           const durVal = (s.dur != null ? s.dur : defaultDur(s))
           li.innerHTML = `
@@ -462,9 +484,9 @@ const PLAN = [
             </div>
             <span class="stop-body">
               <span class="stop-name">${
-                editUrl ? `<a href="${editUrl}">${s.name}</a>`
-                : gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${s.name}</a>`
-                : s.name
+                editUrl ? `<a href="${editUrl}">${r.name}</a>`
+                : gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${r.name}</a>`
+                : r.name
               }</span>
               <span class="stop-sub">
                 ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
@@ -500,11 +522,11 @@ const PLAN = [
           `
           ul.appendChild(panel)
 
-          const next = day.stops[si + 1]
-          if (next) { const wt = walkText(s, next); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
+          const next = day.stops[si + 1] ? resolveStop(day.stops[si + 1]) : null
+          if (next) { const wt = walkText(r, next); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
         })
 
-        const lastStop = day.stops[day.stops.length - 1]
+        const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1]) : null
         if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
         ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base', fmt(baseEnd)))
         daysEl.appendChild(card)

@@ -215,3 +215,42 @@ Oppdaget mens Bolk 5 ble testet manuelt. Ikke relatert til `json()`/`parseJsonBo
 3. ~~**Itinerary-siden: to «legg til»-knapper der én er overflødig.**~~ — **Løst via bolk 7, ingen egen endring nødvendig.** `.add-stop-btn` («+ Legg til stopp», åpner skjemaet) og `.af-save` («Legg til», inni skjemaet) fremsto som to overlappende «legg til»-handlinger — men det viste seg å være samme rotårsak som punkt 2: så lenge `[hidden]`-CSS-buggen gjorde at skjemaet alltid sto åpent, virket «+ Legg til stopp» som en overflødig, gjentatt knapp ved siden av «Legg til». Etter CSS-fiksen i bolk 7 veksler «+ Legg til stopp» korrekt skjemaet av/på, og «Legg til» sender inn — to tydelig separate, ikke-overlappende handlinger (samme mønster som en «+»-knapp som åpner et skjema, og en «Send»-knapp inni det). Ingen egen UI-opprydding trengs.
 
 4. ~~**258 album-dokumenter hadde et spøkelses-`year`-felt som ikke finnes i album-skjemaet** (Studio viste «Unknown field found: year»).~~ — **Gjennomført.** Oppdaget under testing av Bolk 9 (`buildDoc()`-uttrekket for create-endepunktene). Album-skjemaet bruker `releaseDate` (streng), ikke `year` — verifisert at ingen aktiv kode (`album-create.ts`, `import-vgmdb-wishlist.ts`, `update-vgmdb-album-details.ts`) skriver `year`. Kilden ble sporet i git-historikken til et nå **slettet** skript (`scripts/scrape-vgmdb.ts`, fjernet i commit `9b9f5be`), som regnet ut `year` fra det skrapede `releaseDate` og lagret det. Da skriptet senere ble skrevet om til dagens `update-vgmdb-album-details.ts` (kun `releaseDate`), ble de gamle `year`-verdiene stående igjen — Sanity-patcher er additive og fjerner ikke felt som ikke nevnes. Ryddet med et engangsskript (`scripts/cleanup-album-year-field.ts`, dry-run + `--live`-modus, kun `.unset(['year'])` på `_type == "album"`), etter full backup av production-datasettet (`sanity dataset export`, verifisert og kopiert til varig lagring utenfor repoet). Kjørte først med feil token (`SANITY_TOKEN`, kun lesetilgang) som feilet på dokument 0 uten å skrive noe; rettet til `SANITY_WRITE_TOKEN` og kjørte på nytt. Alle 258 oppdatert, `releaseDate` og øvrige felt urørt, totalt antall album-dokumenter uendret (266). Verifisert i Studio og med spørring etterpå. Engangsskriptet er slettet igjen etter bruk — samme mønster som andre engangsskript i denne rapporten.
+
+---
+
+## Itinerary-rebuild (egen gren: `itinerary-from-shops`)
+
+Stor omlegging: itinerary-planen skal bygges fra `shopNote`-lista i stedet for en hardkodet `PLAN`-array i `itinerary.astro` (de to har i praksis vært dobbeltregistreringer av de samme ~55 stedene, uten noen delt `_id`). Gjennomføres trinnvis, med full `sanity dataset export`-backup til `../sanity-backups/` (utenfor repoet) før hvert steg som skriver til produksjonsdata.
+
+**Nøkkelfunn før ombyggingen startet (flettelogikken i `buildState()`/`loadSaved()`):** en allerede lagret plan (`itineraryState` i Sanity, eller `localStorage`) overlever ombyggingen uendret, fordi `saved[di].stops` alltid vinner over `plan[di].stops` når det finnes lagret data for den dagindeksen. Eneste harde krav: **antall dager og rekkefølge må holdes identisk (7 dager, samme rekkefølge)**, siden koblingen mellom lagret data og ny plan-kilde er indeks-basert, ikke navn/dato-basert. `date`/`area`/`note` hentes derimot friskt fra plan-kilden hver gang (aldri lagret).
+
+### Steg 0 — grunnmur (gjennomført)
+- Bekreftet `main` ren, Bolk/forbedring B (`764519f`) committet.
+- Ny gren `itinerary-from-shops` opprettet fra `main`.
+- Fersk full backup: `production-backup-2026-09-07-pre-itinerary-rebuild.tar.gz` (≈142,7 MB, 545 dokumenter + 165 assets), i `../sanity-backups/`.
+
+### Steg 1 — få alle PLAN-steder inn i shops-lista (gjennomført, ikke committet ennå)
+Kartla alle 55 faste PLAN-stopp mot `shopNote` på koordinater (eksakt match, «dobbeltsjekk» innen 50 m, eller ingen match). 48 eksakte treff, 2 nær-treff forkastet som falske positiver (ulik stedstype), 3 fantes i shop-lista uten koordinater, 5 fantes ikke i det hele tatt (rene restauranter).
+
+Kjørt via `scripts/backfill-itinerary-shops.ts` (dry-run + `--live`, samme mønster som year-ryddingen) — **skriptet er ikke committet ennå**, bruker verifiserer i Studio først.
+
+**Del A — koordinater fylt inn på 3 eksisterende `shopNote`-dokumenter** (var `null`/`null` fra før):
+| `_id` | Butikk | Nye koordinater |
+|---|---|---|
+| `oe2xO1065MW4Af28laSHJP` | Ōimachi Station Market | `35.606832, 139.734280` |
+| `YWIgmQJfYTHI3k7jIzNuO3` | Soranoiro - Nippon | `35.680810, 139.769230` |
+| `XXZOGBYEpTVG0uv9djGrxN` | BOOKOFF AEON Honmoku Store | `35.417500, 139.660800` |
+
+**Del B — 6 nye `shopNote`-dokumenter opprettet** (`placeType: 'restaurant'`, `note` renset fra PLAN sin `hours`-tekst):
+| Navn | `_id` | Område | Note |
+|---|---|---|---|
+| Tsujita Akihabara | `ThE87wkuJDLOFIslBjfJkX` | Akihabara | tsukemen |
+| Ramen Hayashida | `fSb1d0FWnzqgPYhEtAN5RF` | Shinjuku | kontant |
+| Sushi Hatsume | `xcNFYqDbvgwSZNlsstJXtN` | Shinjuku | omakase, bestill bord |
+| Gyumon | `fSb1d0FWnzqgPYhEtAN5iG` | Ikebukuro | wagyu ramen, 4.8★ |
+| Uobei | `xcNFYqDbvgwSZNlsstJYEX` | Shibuya (PLAN sin dag hadde sammensatt `Shibuya + Harajuku` — «Shibuya» valgt siden det stemmer med koordinatene) | transportbånd-sushi, rett ved PARCO |
+| Yang Guo Fu Mala Tang | `ThE87wkuJDLOFIslBjfKXZ` | Nakano | nær Broadway |
+
+**Gjenstår i Steg 1:** brukerens verifisering i Studio, deretter commit av `scripts/backfill-itinerary-shops.ts` på `itinerary-from-shops`-grenen.
+
+**Neste (Steg 2, ikke startet):** selve migreringen — bygge `PLAN` sine `stops`-lister fra `shopNote`-spørringen (via `shopId`) i stedet for hardkodede `lat`/`lng`/`name`-objekter, med de nylig kartlagte `_id`-ene over som fasit.

@@ -23,6 +23,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
   <div class="vgmdb-lookup">
     <input id="vgmdb-search" type="search" placeholder="Slå opp album på VGMdb..." />
     <button id="vgmdb-go">Søk VGMdb ↗</button>
+    <a href="https://vgmdb.net/search?q=Final+Fantasy" target="_blank" rel="noopener">Final Fantasy</a>
   </div>
 
   <div class="album-tools">
@@ -106,6 +107,8 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
     .vgmdb-lookup input:focus { outline: none; border-color: var(--accent); }
     .vgmdb-lookup button { background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
     .vgmdb-lookup button:hover { box-shadow: 0 0 12px rgba(244,162,76,0.35); }
+    .vgmdb-lookup a { display: inline-flex; align-items: center; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.95rem; text-decoration: none; white-space: nowrap; }
+    .vgmdb-lookup a:hover { border-color: var(--accent); }
 
     .album-tools { display: flex; gap: 0.75rem; margin: 0 0 1.5rem; flex-wrap: wrap; }
     .album-tools input, .album-tools select { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }

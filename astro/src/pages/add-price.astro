@@ -28,6 +28,23 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     </div>
 
     <div class="field">
+      <label>Photo</label>
+      <div class="photo-buttons">
+        <label class="upload-btn">
+          📷 Take photo
+          <input id="p-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn">
+          🖼️ Choose from gallery
+          <input id="p-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+      <span id="p-photo-name" class="photo-name" hidden></span>
+      <img id="p-preview" class="photo-preview" hidden alt="Preview" />
+      <button id="p-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
+    </div>
+
+    <div class="field">
       <label>Japanese name</label>
       <input id="p-name-jp" type="text" placeholder="日本語名（任意）" />
     </div>
@@ -138,8 +155,16 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     <a href="/add-menu" class="back-link">← Back</a>
   </div>
 
+  <script is:inline src="/resize-image.js"></script>
+
   <script>
     const nameInput = document.querySelector('#p-name')
+    const photoCamera = document.querySelector('#p-photo-camera')
+    const photoGallery = document.querySelector('#p-photo-gallery')
+    const photoName = document.querySelector('#p-photo-name')
+    const preview = document.querySelector('#p-preview')
+    const photoRemoveBtn = document.querySelector('#p-photo-remove')
+    let selectedPhoto = null
     const nameJpInput = document.querySelector('#p-name-jp')
     const janInput = document.querySelector('#p-jan')
     const categorySel = document.querySelector('#p-category')
@@ -181,6 +206,39 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     }
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
+
+    async function handlePhoto(fileInput) {
+      const file = fileInput.files && fileInput.files[0]
+      if (!file) return
+      photoName.hidden = false
+      photoName.textContent = 'Processing photo…'
+      let chosen = file
+      try {
+        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+      } catch (e) { chosen = file }
+      selectedPhoto = chosen
+      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      preview.hidden = false
+      preview.src = URL.createObjectURL(chosen)
+      photoName.textContent = file.name || 'photo'
+      photoRemoveBtn.hidden = false
+      fileInput.value = ''
+    }
+    photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
+    photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
+
+    function resetPhoto() {
+      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      selectedPhoto = null
+      photoCamera.value = ''
+      photoGallery.value = ''
+      photoName.hidden = true
+      photoName.textContent = ''
+      preview.hidden = true
+      preview.src = ''
+      photoRemoveBtn.hidden = true
+    }
+    photoRemoveBtn.addEventListener('click', resetPhoto)
 
     function showMsg(text, ok) {
       msg.hidden = false
@@ -229,7 +287,27 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
           return
         }
 
-        showMsg('Saved ✓ — ready for the next one.', true)
+        // Upload the photo (if any) after the entry exists, so a failed upload never
+        // costs you the price entry itself.
+        let photoFailed = false
+        if (selectedPhoto && data.id) {
+          saveBtn.textContent = 'Uploading photo…'
+          try {
+            const form = new FormData()
+            form.append('file', selectedPhoto)
+            form.append('docId', data.id)
+            form.append('field', 'image')
+            const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
+            if (!upRes.ok) photoFailed = true
+          } catch (e) {
+            photoFailed = true
+          }
+        }
+
+        showMsg(
+          photoFailed ? 'Price saved, but the photo upload failed — saved without it.' : 'Saved ✓ — ready for the next one.',
+          !photoFailed
+        )
 
         // Keep shop/category/source/currency/condition selected — logging several prices
         // in the same shop is the common case. Status resets since "bought" shouldn't
@@ -241,6 +319,7 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
         extraInput.value = ''
         noteInput.value = ''
         statusSel.value = 'considering'
+        resetPhoto()
         nameInput.focus()
       } catch (e) {
         showMsg('Network error.', false)
@@ -266,6 +345,24 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
       border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
       font-family: inherit; box-sizing: border-box;
     }
+    .photo-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .upload-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem;
+    }
+    .upload-btn:hover { background: #241826; }
+    .photo-name { font-size: 0.85rem; color: var(--muted); display: block; margin-top: 0.5rem; }
+    .photo-name[hidden] { display: none; }
+    .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+    .photo-preview[hidden] { display: none; }
+    .photo-remove-btn {
+      display: inline-block; margin-top: 0.5rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.85rem;
+    }
+    .photo-remove-btn[hidden] { display: none; }
+    .photo-remove-btn:hover { border-color: var(--accent); }
     .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
     .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
     .radio-opt input { width: auto; margin: 0; }

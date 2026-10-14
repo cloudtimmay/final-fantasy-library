@@ -4,7 +4,7 @@ import { json } from '../../lib/api'
 
 export const prerender = false
 
-const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase']
+const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase', 'priceEntry']
 
 export const POST: APIRoute = async ({ request }) => {
   let form: FormData

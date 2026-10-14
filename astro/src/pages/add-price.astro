@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { fetchProducts } from '../lib/price-products'
 
 type Shop = { _id: string; shopName: string; area?: string; placeType?: string }
 
@@ -17,68 +18,7 @@ for (const s of shopsRaw) {
 }
 const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
 
-type PriceDoc = {
-  productName?: string
-  productNameJp?: string
-  jan?: string
-  category?: string
-  image?: { assetId?: string; url?: string } | null
-  price?: number
-  currency?: string
-  sourceType?: string
-  shopName?: string
-  sourceName?: string
-  seenAt?: string
-}
-type ProductPrice = { source: string; price: number; currency: string }
-type Product = {
-  key: string
-  productName: string
-  productNameJp?: string
-  jan?: string
-  category?: string
-  image: { assetId: string; url: string } | null
-  prices: ProductPrice[]
-}
-
-// Newest first, so the first time we see a product's key is its most recent entry —
-// that entry's productName/productNameJp/jan/category/image become the product's.
-const priceDocs: PriceDoc[] = await sanity.fetch(`
-  *[_type == "priceEntry" && !(_id in path("drafts.**"))] | order(seenAt desc) {
-    productName, productNameJp, jan, category,
-    "image": image{ "assetId": asset->_id, "url": asset->url },
-    price, currency, sourceType,
-    "shopName": shop->shopName,
-    sourceName, seenAt
-  }
-`)
-
-const productMap = new Map<string, Product>()
-for (const d of priceDocs) {
-  const name = String(d.productName || '').trim()
-  if (!name) continue
-  const jan = String(d.jan || '').trim()
-  const key = jan || name.toLowerCase()
-  const sourceLabel =
-    d.sourceType === 'japanStore' ? (d.shopName || 'Shop') : d.sourceName || (d.sourceType === 'norway' ? 'Norway' : 'Online')
-  const priceRow: ProductPrice = { source: sourceLabel, price: d.price ?? 0, currency: d.currency || 'JPY' }
-
-  let product = productMap.get(key)
-  if (!product) {
-    product = {
-      key,
-      productName: name,
-      productNameJp: d.productNameJp || undefined,
-      jan: jan || undefined,
-      category: d.category || undefined,
-      image: d.image && d.image.assetId && d.image.url ? { assetId: d.image.assetId, url: d.image.url } : null,
-      prices: [],
-    }
-    productMap.set(key, product)
-  }
-  product.prices.push(priceRow)
-}
-const products = [...productMap.values()].sort((a, b) => a.productName.localeCompare(b.productName))
+const products = await fetchProducts()
 ---
 <Base title="Add price">
   <div class="add-wrap">
@@ -103,6 +43,7 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
     <div class="field">
       <label>Product name *</label>
       <input id="p-name" type="text" placeholder="What is it?" />
+      <div id="p-name-warning" class="name-warning" hidden></div>
     </div>
 
     <div class="field">
@@ -247,6 +188,8 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
     } catch (e) { PRODUCTS = [] }
 
     const nameInput = document.querySelector('#p-name')
+    const nameWarning = document.querySelector('#p-name-warning')
+    const CATEGORY_LABELS = { album: 'Album', game: 'Game', book: 'Book', figure: 'Merchandise', other: 'Other' }
     const photoCamera = document.querySelector('#p-photo-camera')
     const photoGallery = document.querySelector('#p-photo-gallery')
     const photoName = document.querySelector('#p-photo-name')
@@ -383,9 +326,61 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
       })
     }
 
+    function hideNameWarning() {
+      nameWarning.hidden = true
+      nameWarning.replaceChildren()
+    }
+
+    function renderNameWarning(matches) {
+      nameWarning.replaceChildren()
+      matches.forEach(({ product, idx }) => {
+        const row = document.createElement('div')
+        row.className = 'name-warning-row'
+
+        const text = document.createElement('span')
+        const catLabel = CATEGORY_LABELS[product.category] || product.category || 'Other'
+        const n = product.prices.length
+        text.textContent = `${product.productName} already exists (${catLabel}, ${n} price${n === 1 ? '' : 's'})`
+
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'use-existing-btn'
+        btn.textContent = 'Use existing'
+        btn.addEventListener('click', () => {
+          productSel.value = String(idx)
+          applyProduct()
+        })
+
+        row.appendChild(text)
+        row.appendChild(btn)
+        nameWarning.appendChild(row)
+      })
+      nameWarning.hidden = false
+    }
+
+    // Only relevant while creating a brand-new product — once an existing one is
+    // selected there's nothing to warn about.
+    function checkNameDuplicate() {
+      if (productSel.value !== '') { hideNameWarning(); return }
+      const typed = nameInput.value.trim().toLowerCase()
+      if (!typed) { hideNameWarning(); return }
+      const matches = PRODUCTS
+        .map((product, idx) => ({ product, idx }))
+        .filter(({ product }) => product.productName.trim().toLowerCase() === typed)
+      if (matches.length === 0) { hideNameWarning(); return }
+      renderNameWarning(matches)
+    }
+    let nameCheckTimer = null
+    nameInput.addEventListener('input', () => {
+      clearTimeout(nameCheckTimer)
+      nameCheckTimer = setTimeout(checkNameDuplicate, 300)
+    })
+    nameInput.addEventListener('blur', checkNameDuplicate)
+
     function applyProduct() {
       const idx = productSel.value
       resetPhoto()
+      hideNameWarning()
       if (idx === '') {
         nameInput.value = ''
         nameJpInput.value = ''
@@ -407,6 +402,17 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
       }
     }
     productSel.addEventListener('change', applyProduct)
+
+    // Arriving from /prices via "+ Add price" — preselect that product exactly as if
+    // it had been chosen in the select itself.
+    const preselectKey = new URLSearchParams(window.location.search).get('product')
+    if (preselectKey) {
+      const preselectIdx = PRODUCTS.findIndex((p) => p.key === preselectKey)
+      if (preselectIdx >= 0) {
+        productSel.value = String(preselectIdx)
+        applyProduct()
+      }
+    }
 
     function showMsg(text, ok) {
       msg.hidden = false
@@ -550,6 +556,7 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
         productSel.value = ''
         renderSeenList([])
         resetPhoto()
+        hideNameWarning()
         nameInput.focus()
       } catch (e) {
         showMsg('Network error.', false)
@@ -597,6 +604,18 @@ const products = [...productMap.values()].sort((a, b) => a.productName.localeCom
     .seen-list li { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
     .seen-source { color: var(--text); }
     .seen-price { color: var(--accent); font-weight: 600; white-space: nowrap; }
+    .name-warning { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+    .name-warning[hidden] { display: none; }
+    .name-warning-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;
+      font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem;
+      background: rgba(243,156,18,0.1); border: 1px solid rgba(243,156,18,0.4); border-radius: 6px;
+    }
+    .use-existing-btn {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+    }
+    .use-existing-btn:hover { background: #241826; }
     .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
     .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
     .radio-opt input { width: auto; margin: 0; }

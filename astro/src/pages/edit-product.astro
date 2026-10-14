@@ -1,0 +1,351 @@
+---
+import Base from '../layouts/Base.astro'
+import { fetchProducts } from '../lib/price-products'
+
+const key = Astro.url.searchParams.get('product') || ''
+const products = await fetchProducts()
+const product = products.find((p) => p.key === key) || null
+const otherProducts = products.filter((p) => p.key !== key)
+---
+<Base title="Edit product">
+  <div class="add-wrap">
+    <h1>Edit product</h1>
+
+    {!product ? (
+      <>
+        <p class="hint">Product not found — it may have been renamed or removed.</p>
+        <a href="/prices" class="back-link">← Back to prices</a>
+      </>
+    ) : (
+      <>
+        <p class="hint">
+          Changes apply to all {product.prices.length} price{product.prices.length === 1 ? '' : 's'} for this product.
+        </p>
+
+        <div class="field">
+          <label>Product name *</label>
+          <input id="p-name" type="text" value={product.productName} placeholder="What is it?" />
+          <div id="p-name-note" class="name-note" hidden></div>
+        </div>
+
+        <div class="field">
+          <label>Photo</label>
+          <div class="photo-buttons">
+            <label class="upload-btn">
+              📷 Take photo
+              <input id="p-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+            </label>
+            <label class="upload-btn">
+              🖼️ Choose from gallery
+              <input id="p-photo-gallery" type="file" accept="image/*" hidden />
+            </label>
+          </div>
+          <span id="p-photo-name" class="photo-name" hidden></span>
+          <img id="p-preview" class="photo-preview" hidden alt="Preview" />
+          <button id="p-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
+        </div>
+
+        <div class="field">
+          <label>Japanese name</label>
+          <input id="p-name-jp" type="text" value={product.productNameJp || ''} placeholder="日本語名（任意）" />
+        </div>
+
+        <div class="field">
+          <label>JAN / barcode</label>
+          <input id="p-jan" type="text" inputmode="numeric" value={product.jan || ''} placeholder="8, 12 or 13 digits (optional)" />
+        </div>
+
+        <div class="field">
+          <label>Category *</label>
+          <select id="p-category">
+            <option value="">Select category…</option>
+            <option value="album" selected={product.category === 'album'}>Album</option>
+            <option value="game" selected={product.category === 'game'}>Game</option>
+            <option value="book" selected={product.category === 'book'}>Book</option>
+            <option value="figure" selected={product.category === 'figure'}>Merchandise</option>
+            <option value="other" selected={product.category === 'other'}>Other</option>
+          </select>
+        </div>
+
+        <button id="p-save" type="button" class="save-btn">Save changes</button>
+        <p id="p-msg" class="save-msg" hidden></p>
+
+        <a href="/prices" class="back-link">← Back to prices</a>
+
+        <script
+          type="application/json"
+          id="edit-data"
+          set:html={JSON.stringify({
+            key: product.key,
+            mostRecentId: product.prices[0]?._id || '',
+            image: product.image,
+            otherProducts: otherProducts.map((p) => ({ key: p.key, productName: p.productName, category: p.category, count: p.prices.length })),
+          })}
+        />
+      </>
+    )}
+  </div>
+
+  <script is:inline src="/resize-image.js"></script>
+
+  <script>
+    const dataEl = document.querySelector('#edit-data')
+    if (dataEl) {
+      const DATA = JSON.parse(dataEl.textContent || '{}')
+      const ORIGINAL_KEY = DATA.key
+      const MOST_RECENT_ID = DATA.mostRecentId
+      const OTHER_PRODUCTS = DATA.otherProducts || []
+      let currentImage = DATA.image
+
+      const nameInput = document.querySelector('#p-name')
+      const nameJpInput = document.querySelector('#p-name-jp')
+      const janInput = document.querySelector('#p-jan')
+      const categorySel = document.querySelector('#p-category')
+      const photoCamera = document.querySelector('#p-photo-camera')
+      const photoGallery = document.querySelector('#p-photo-gallery')
+      const photoName = document.querySelector('#p-photo-name')
+      const preview = document.querySelector('#p-preview')
+      const photoRemoveBtn = document.querySelector('#p-photo-remove')
+      const saveBtn = document.querySelector('#p-save')
+      const msg = document.querySelector('#p-msg')
+
+      let selectedPhoto = null
+      let imageRemoved = false
+
+      function revokeIfBlob() {
+        if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      }
+
+      // A freshly taken/chosen photo always wins; otherwise show the product's current
+      // photo unless it's been explicitly removed; otherwise nothing.
+      function updatePhotoPreview() {
+        if (selectedPhoto) {
+          preview.hidden = false
+          photoRemoveBtn.hidden = false
+          return
+        }
+        if (!imageRemoved && currentImage && currentImage.url) {
+          revokeIfBlob()
+          preview.src = currentImage.url
+          preview.hidden = false
+          photoName.hidden = false
+          photoName.textContent = 'Current photo'
+          photoRemoveBtn.hidden = false
+          return
+        }
+        preview.hidden = true
+        preview.src = ''
+        photoName.hidden = true
+        photoRemoveBtn.hidden = true
+      }
+      updatePhotoPreview()
+
+      async function handlePhoto(fileInput) {
+        const file = fileInput.files && fileInput.files[0]
+        if (!file) return
+        imageRemoved = false
+        photoName.hidden = false
+        photoName.textContent = 'Processing photo…'
+        let chosen = file
+        try {
+          if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+        } catch (e) { chosen = file }
+        selectedPhoto = chosen
+        revokeIfBlob()
+        preview.src = URL.createObjectURL(chosen)
+        photoName.textContent = file.name || 'photo'
+        updatePhotoPreview()
+        fileInput.value = ''
+      }
+      photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
+      photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
+
+      photoRemoveBtn.addEventListener('click', () => {
+        revokeIfBlob()
+        selectedPhoto = null
+        imageRemoved = true
+        photoCamera.value = ''
+        photoGallery.value = ''
+        photoName.textContent = ''
+        updatePhotoPreview()
+      })
+
+      function productKey(jan, name) {
+        const j = (jan || '').trim()
+        if (j) return j
+        return String(name || '').trim().toLowerCase()
+      }
+
+      const nameNote = document.querySelector('#p-name-note')
+      const CATEGORY_LABELS = { album: 'Album', game: 'Game', book: 'Book', figure: 'Merchandise', other: 'Other' }
+
+      function hideNameNote() {
+        nameNote.hidden = true
+        nameNote.replaceChildren()
+      }
+
+      // Purely informational: a name match that does NOT also collide on key isn't a
+      // merge (that's handled separately, at save time) — just worth knowing about,
+      // since different editions legitimately share a name but have different JANs.
+      function checkNameNote() {
+        const typedName = nameInput.value.trim()
+        if (!typedName) { hideNameNote(); return }
+        const typed = typedName.toLowerCase()
+        const newKey = productKey(janInput.value.trim(), typedName)
+        const matches = OTHER_PRODUCTS.filter(
+          (p) => p.productName.trim().toLowerCase() === typed && p.key !== newKey
+        )
+        if (matches.length === 0) { hideNameNote(); return }
+
+        nameNote.replaceChildren()
+        matches.forEach((p) => {
+          const row = document.createElement('div')
+          row.className = 'name-note-row'
+          const catLabel = CATEGORY_LABELS[p.category] || p.category || 'Other'
+          row.textContent =
+            `Another product with this name exists (${catLabel}, ${p.count} price${p.count === 1 ? '' : 's'}). ` +
+            'They will stay separate unless they share the same JAN.'
+          nameNote.appendChild(row)
+        })
+        nameNote.hidden = false
+      }
+      let nameNoteTimer = null
+      function scheduleNameNoteCheck() {
+        clearTimeout(nameNoteTimer)
+        nameNoteTimer = setTimeout(checkNameNote, 300)
+      }
+      nameInput.addEventListener('input', scheduleNameNoteCheck)
+      nameInput.addEventListener('blur', checkNameNote)
+      janInput.addEventListener('input', scheduleNameNoteCheck)
+      janInput.addEventListener('blur', checkNameNote)
+      checkNameNote()
+
+      function showMsg(text, ok) {
+        msg.hidden = false
+        msg.textContent = text
+        msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+      }
+
+      async function save() {
+        const productName = nameInput.value.trim()
+        if (!productName) return showMsg('Please enter a product name.', false)
+        if (!categorySel.value) return showMsg('Please select a category.', false)
+        const jan = janInput.value.trim()
+
+        const newKey = productKey(jan, productName)
+        if (newKey !== ORIGINAL_KEY) {
+          const collision = OTHER_PRODUCTS.find((p) => p.key === newKey)
+          if (collision) {
+            const ok = window.confirm(
+              `"${collision.productName}" already exists (${collision.count} price${collision.count === 1 ? '' : 's'}). ` +
+              'Saving will merge this product into it. Continue?'
+            )
+            if (!ok) return
+          }
+        }
+
+        saveBtn.disabled = true
+        saveBtn.textContent = 'Saving…'
+
+        try {
+          let imageAssetId
+          let removeImage
+
+          if (selectedPhoto) {
+            saveBtn.textContent = 'Uploading photo…'
+            const form = new FormData()
+            form.append('file', selectedPhoto)
+            form.append('docId', MOST_RECENT_ID)
+            form.append('field', 'image')
+            const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
+            if (!upRes.ok) {
+              showMsg('Photo upload failed — product was not updated.', false)
+              return
+            }
+            const upData = await upRes.json().catch(() => null)
+            if (!upData || !upData.assetId) {
+              showMsg('Photo upload failed — product was not updated.', false)
+              return
+            }
+            imageAssetId = upData.assetId
+            saveBtn.textContent = 'Saving…'
+          } else if (imageRemoved) {
+            removeImage = true
+          }
+
+          const res = await fetch('/api/price-product-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key: ORIGINAL_KEY,
+              productName,
+              productNameJp: nameJpInput.value.trim() || undefined,
+              jan: jan || undefined,
+              category: categorySel.value,
+              imageAssetId,
+              removeImage,
+            }),
+          })
+          const data = await res.json()
+          if (!res.ok) {
+            showMsg(data.error || 'Save failed.', false)
+            return
+          }
+
+          window.location.href = '/prices'
+        } catch (e) {
+          showMsg('Network error.', false)
+        } finally {
+          saveBtn.disabled = false
+          saveBtn.textContent = 'Save changes'
+        }
+      }
+
+      saveBtn.addEventListener('click', save)
+    }
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .photo-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .upload-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem;
+    }
+    .upload-btn:hover { background: #241826; }
+    .photo-name { font-size: 0.85rem; color: var(--muted); display: block; margin-top: 0.5rem; }
+    .photo-name[hidden] { display: none; }
+    .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+    .photo-preview[hidden] { display: none; }
+    .photo-remove-btn {
+      display: inline-block; margin-top: 0.5rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.85rem;
+    }
+    .photo-remove-btn[hidden] { display: none; }
+    .photo-remove-btn:hover { border-color: var(--accent); }
+    .name-note { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+    .name-note[hidden] { display: none; }
+    .name-note-row {
+      font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem;
+      background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;
+    }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

@@ -1,4 +1,5 @@
 import { defineType, defineField } from 'sanity'
+import { peopleList } from './peopleList'
 
 export const priceEntry = defineType({
   name: 'priceEntry',
@@ -9,6 +10,7 @@ export const priceEntry = defineType({
     { name: 'product', title: 'Product' },
     { name: 'source', title: 'Where' },
     { name: 'pricing', title: 'Price' },
+    { name: 'purchase', title: 'Purchase' },
   ],
   fields: [
     // ── Product ─────────────────────────────────────────────
@@ -176,6 +178,42 @@ export const priceEntry = defineType({
         layout: 'radio',
       },
       initialValue: 'considering',
+    }),
+    defineField({
+      name: 'buyer',
+      title: 'Who buys it',
+      description: 'Can be set while considering (planned) or when bought.',
+      type: 'string',
+      fieldset: 'purchase',
+      options: { list: peopleList },
+    }),
+    defineField({
+      name: 'trip',
+      title: 'Trip',
+      type: 'reference',
+      to: [{ type: 'tripSettings' }],
+      weak: true,
+      fieldset: 'purchase',
+    }),
+    defineField({
+      name: 'createdItem',
+      title: 'Collection item created/updated',
+      description: 'Set automatically when the owner marks this as bought. Never cleared.',
+      type: 'reference',
+      to: [{ type: 'album' }, { type: 'game' }, { type: 'book' }, { type: 'figure' }],
+      weak: true,
+      readOnly: true,
+      fieldset: 'purchase',
+    }),
+    defineField({
+      name: 'createdFamilyPurchase',
+      title: 'Family purchase created',
+      description: 'Set automatically when this is marked as bought. Never cleared.',
+      type: 'reference',
+      to: [{ type: 'familyPurchase' }],
+      weak: true,
+      readOnly: true,
+      fieldset: 'purchase',
     }),
     defineField({
       name: 'seenAt',

@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { fetchProducts, fetchShopGroups, productKey } from '../lib/price-products'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 type EntryDoc = {
   _id: string
@@ -21,8 +22,12 @@ type EntryDoc = {
   extraCost?: number
   condition?: string
   status?: string
+  buyer?: string
+  tripId?: string
   note?: string
   seenAt?: string
+  createdFamilyPurchaseInfo?: { name?: string; person?: string } | null
+  createdItemInfo?: { title?: string } | null
 }
 
 const id = Astro.url.searchParams.get('id') || ''
@@ -35,7 +40,11 @@ if (id) {
       "image": image{ "assetId": asset->_id, "url": asset->url },
       price, currency, sourceType,
       "shop": shop->{ _id, shopName },
-      sourceName, url, taxIncluded, extraCost, condition, status, note, seenAt
+      sourceName, url, taxIncluded, extraCost, condition, status,
+      buyer, "tripId": trip._ref,
+      note, seenAt,
+      "createdFamilyPurchaseInfo": createdFamilyPurchase->{ name, person },
+      "createdItemInfo": createdItem->{ title }
     }`,
     { id }
   )
@@ -45,11 +54,13 @@ const notFound = !entry || entry._type !== 'priceEntry'
 const key = entry ? productKey(entry.jan, entry.productName) : ''
 let hasOtherPrices = false
 let shopGroups: Awaited<ReturnType<typeof fetchShopGroups>> = []
+let trips: { _id: string; label?: string }[] = []
 if (!notFound && entry) {
   shopGroups = await fetchShopGroups()
   const products = await fetchProducts()
   const product = products.find((p) => p.key === key)
   hasOtherPrices = !!product && product.prices.length > 1
+  trips = await sanity.fetch(`*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`)
 }
 
 function formatSeenAt(iso: string | undefined): string {
@@ -94,6 +105,35 @@ const sourceLabel =
             <option value="bought" selected={entry.status === 'bought'}>Bought</option>
           </select>
         </div>
+
+        <div id="p-frozen-note" class="frozen-note" hidden>
+          Changes here do not update the family purchase or collection item.
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Who buys it</label>
+            <select id="p-buyer">
+              {PEOPLE_LIST.map((person) => (
+                <option value={person} selected={(entry.buyer || OWNER) === person}>{person}</option>
+              ))}
+            </select>
+          </div>
+          <div class="field">
+            <label>Trip</label>
+            {trips.length > 0 ? (
+              <select id="p-trip">
+                <option value="">Select trip…</option>
+                {trips.map((t) => <option value={t._id} selected={entry.tripId === t._id}>{t.label || 'Trip'}</option>)}
+              </select>
+            ) : (
+              <select id="p-trip"><option value="">No trips set up yet</option></select>
+            )}
+          </div>
+        </div>
+        <p class="hint buyer-trip-hint">Required to mark as Bought. Can be set now even while Considering — counts as planned spend.</p>
+
+        <div id="p-revert-warning" class="revert-warning" hidden></div>
 
         <div class="field">
           <label>Source</label>
@@ -201,6 +241,10 @@ const sourceLabel =
             price: entry.price,
             currency: entry.currency,
             hasOtherPrices,
+            owner: OWNER,
+            tripAlreadySet: !!entry.tripId,
+            createdFamilyPurchaseInfo: entry.createdFamilyPurchaseInfo || null,
+            createdItemInfo: entry.createdItemInfo || null,
           })}
         />
       </>
@@ -213,6 +257,10 @@ const sourceLabel =
       const DATA = JSON.parse(dataEl.textContent || '{}')
 
       const statusSel = document.querySelector('#p-status')
+      const frozenNote = document.querySelector('#p-frozen-note')
+      const buyerSel = document.querySelector('#p-buyer')
+      const tripSel = document.querySelector('#p-trip')
+      const revertWarning = document.querySelector('#p-revert-warning')
       const sourceRadios = document.querySelectorAll('input[name="p-source"]')
       const shopSel = document.querySelector('#p-shop')
       const sourceNameInput = document.querySelector('#p-source-name')
@@ -252,6 +300,43 @@ const sourceLabel =
       currencySel.addEventListener('change', applyCurrency)
       applyCurrency()
 
+      const LAST_TRIP_KEY = 'ff-last-trip'
+      if (!DATA.tripAlreadySet && tripSel) {
+        try {
+          const remembered = localStorage.getItem(LAST_TRIP_KEY)
+          if (remembered && tripSel.querySelector('option[value="' + CSS.escape(remembered) + '"]')) {
+            tripSel.value = remembered
+          }
+        } catch (e) {}
+      }
+      function rememberTrip() {
+        try { localStorage.setItem(LAST_TRIP_KEY, tripSel.value) } catch (e) {}
+      }
+
+      function updateFrozenNote() {
+        frozenNote.hidden = statusSel.value !== 'bought'
+      }
+      statusSel.addEventListener('change', updateFrozenNote)
+      updateFrozenNote()
+
+      function updateRevertWarning() {
+        const reverting = statusSel.value !== 'bought' && (DATA.createdFamilyPurchaseInfo || DATA.createdItemInfo)
+        if (!reverting) { revertWarning.hidden = true; revertWarning.textContent = ''; return }
+        const parts = []
+        if (DATA.createdFamilyPurchaseInfo) {
+          parts.push(`family purchase "${DATA.createdFamilyPurchaseInfo.name || ''}" for ${DATA.createdFamilyPurchaseInfo.person || ''}`)
+        }
+        if (DATA.createdItemInfo) {
+          parts.push(`collection item "${DATA.createdItemInfo.title || ''}"`)
+        }
+        revertWarning.textContent =
+          `This was already marked Bought and created the ${parts.join(' and the ')}. ` +
+          'Switching back to Considering will NOT undo or remove that — edit or delete it separately if needed.'
+        revertWarning.hidden = false
+      }
+      statusSel.addEventListener('change', updateRevertWarning)
+      updateRevertWarning()
+
       function showMsg(text, ok) {
         msg.hidden = false
         msg.textContent = text
@@ -269,6 +354,15 @@ const sourceLabel =
           return showMsg('Please enter a valid price.', false)
         }
         const source = currentSource()
+        const markingBought = statusSel.value === 'bought'
+
+        if (markingBought) {
+          if (currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
+            return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
+          }
+          if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
+          if (!tripSel.value) return showMsg('Please choose a trip.', false)
+        }
 
         saveBtn.disabled = true
         saveBtn.textContent = 'Saving…'
@@ -280,6 +374,8 @@ const sourceLabel =
             body: JSON.stringify({
               id: DATA.id,
               status: statusSel.value,
+              buyer: buyerSel.value || undefined,
+              tripId: tripSel.value || undefined,
               sourceType: source,
               shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
               sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
@@ -297,6 +393,7 @@ const sourceLabel =
             showMsg(data.error || 'Save failed.', false)
             return
           }
+          if (tripSel.value) rememberTrip()
           window.location.href = '/prices?open=' + encodeURIComponent(DATA.key)
         } catch (e) {
           showMsg('Network error.', false)
@@ -309,9 +406,18 @@ const sourceLabel =
 
       deleteBtn.addEventListener('click', async () => {
         const priceText = formatPrice(DATA.price, DATA.currency)
-        const ok = window.confirm(
-          `Delete this price for "${DATA.productName}" — ${priceText} at ${DATA.sourceLabel}? This cannot be undone.`
-        )
+        let confirmText = `Delete this price for "${DATA.productName}" — ${priceText} at ${DATA.sourceLabel}? This cannot be undone.`
+        const leftBehind = []
+        if (DATA.createdFamilyPurchaseInfo) {
+          leftBehind.push(`the family purchase "${DATA.createdFamilyPurchaseInfo.name || ''}" for ${DATA.createdFamilyPurchaseInfo.person || ''}`)
+        }
+        if (DATA.createdItemInfo) {
+          leftBehind.push(`the collection item "${DATA.createdItemInfo.title || ''}"`)
+        }
+        if (leftBehind.length) {
+          confirmText += ` This will NOT delete ${leftBehind.join(' or ')} — remove that separately if needed.`
+        }
+        const ok = window.confirm(confirmText)
         if (!ok) return
 
         deleteBtn.disabled = true
@@ -374,6 +480,18 @@ const sourceLabel =
     .edit-product-inline-link:hover { text-decoration: underline; }
 
     .readonly-value { margin: 0; padding: 0.7rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; color: var(--muted); }
+
+    .buyer-trip-hint { margin: -0.5rem 0 1rem; }
+    .frozen-note {
+      display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin-bottom: 1rem;
+      background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;
+    }
+    .frozen-note[hidden] { display: none; }
+    .revert-warning {
+      display: block; font-size: 0.82rem; color: var(--text); padding: 0.6rem 0.75rem; margin: -0.5rem 0 1rem;
+      background: rgba(243,156,18,0.1); border: 1px solid rgba(243,156,18,0.4); border-radius: 6px;
+    }
+    .revert-warning[hidden] { display: none; }
 
     .save-btn {
       width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;

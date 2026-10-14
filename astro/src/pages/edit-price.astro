@@ -1,0 +1,396 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+import { fetchProducts, fetchShopGroups, productKey } from '../lib/price-products'
+
+type EntryDoc = {
+  _id: string
+  _type: string
+  productName?: string
+  productNameJp?: string
+  jan?: string
+  category?: string
+  image?: { assetId?: string; url?: string } | null
+  price?: number
+  currency?: string
+  sourceType?: string
+  shop?: { _id: string; shopName: string } | null
+  sourceName?: string
+  url?: string
+  taxIncluded?: boolean
+  extraCost?: number
+  condition?: string
+  status?: string
+  note?: string
+  seenAt?: string
+}
+
+const id = Astro.url.searchParams.get('id') || ''
+
+let entry: EntryDoc | null = null
+if (id) {
+  entry = await sanity.fetch(
+    `*[_id == $id][0]{
+      _id, _type, productName, productNameJp, jan, category,
+      "image": image{ "assetId": asset->_id, "url": asset->url },
+      price, currency, sourceType,
+      "shop": shop->{ _id, shopName },
+      sourceName, url, taxIncluded, extraCost, condition, status, note, seenAt
+    }`,
+    { id }
+  )
+}
+const notFound = !entry || entry._type !== 'priceEntry'
+
+const key = entry ? productKey(entry.jan, entry.productName) : ''
+let hasOtherPrices = false
+let shopGroups: Awaited<ReturnType<typeof fetchShopGroups>> = []
+if (!notFound && entry) {
+  shopGroups = await fetchShopGroups()
+  const products = await fetchProducts()
+  const product = products.find((p) => p.key === key)
+  hasOtherPrices = !!product && product.prices.length > 1
+}
+
+function formatSeenAt(iso: string | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const sourceLabel =
+  entry && entry.sourceType === 'japanStore'
+    ? entry.shop?.shopName || 'a shop'
+    : entry?.sourceName || (entry?.sourceType === 'norway' ? 'Norway' : 'Online')
+---
+<Base title="Edit price">
+  <div class="add-wrap">
+    <h1>Edit price</h1>
+
+    {notFound || !entry ? (
+      <>
+        <p class="hint">Price entry not found.</p>
+        <a href="/prices" class="back-link">← Back to prices</a>
+      </>
+    ) : (
+      <>
+        <div class="product-header">
+          {entry.image && entry.image.url ? (
+            <img class="thumb" src={`${entry.image.url}?w=100`} alt={entry.productName} />
+          ) : (
+            <div class="thumb thumb-placeholder">🏷️</div>
+          )}
+          <div class="product-header-info">
+            <div class="product-header-name">{entry.productName}</div>
+            <a href={`/edit-product?product=${encodeURIComponent(key)}`} class="edit-product-inline-link">✏️ Edit product</a>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Status</label>
+          <select id="p-status">
+            <option value="considering" selected={entry.status !== 'bought'}>Considering</option>
+            <option value="bought" selected={entry.status === 'bought'}>Bought</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Source</label>
+          <div class="radio-row">
+            <label class="radio-opt">
+              <input type="radio" name="p-source" value="japanStore" checked={entry.sourceType !== 'online' && entry.sourceType !== 'norway'} /> 🇯🇵 Shop in Japan
+            </label>
+            <label class="radio-opt">
+              <input type="radio" name="p-source" value="online" checked={entry.sourceType === 'online'} /> 🌐 Online
+            </label>
+            <label class="radio-opt">
+              <input type="radio" name="p-source" value="norway" checked={entry.sourceType === 'norway'} /> 🇳🇴 Norway
+            </label>
+          </div>
+        </div>
+
+        <div class="field" data-source-for="japanStore">
+          <label>Shop</label>
+          {shopGroups.length > 0 ? (
+            <select id="p-shop">
+              <option value="">Select shop…</option>
+              {shopGroups.map((g) => (
+                <optgroup label={g.area}>
+                  {g.shops.map((s) => <option value={s._id} selected={entry.shop?._id === s._id}>{s.shopName}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          ) : (
+            <select id="p-shop"><option value="">No shops saved yet</option></select>
+          )}
+        </div>
+
+        <div class="field-row" data-source-for="online norway">
+          <div class="field">
+            <label>Store / site name</label>
+            <input id="p-source-name" type="text" value={entry.sourceName || ''} placeholder="e.g. CDJapan, Amiami, Outland" />
+          </div>
+          <div class="field">
+            <label>Link</label>
+            <input id="p-url" type="url" value={entry.url || ''} placeholder="https://…" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Price *</label>
+            <input id="p-price" type="number" inputmode="decimal" min="0" step="any" value={entry.price ?? ''} />
+          </div>
+          <div class="field">
+            <label>Currency</label>
+            <select id="p-currency">
+              <option value="JPY" selected={entry.currency === 'JPY'}>JPY</option>
+              <option value="NOK" selected={entry.currency === 'NOK'}>NOK</option>
+              <option value="USD" selected={entry.currency === 'USD'}>USD</option>
+              <option value="EUR" selected={entry.currency === 'EUR'}>EUR</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field checkbox-field" data-currency-for="JPY">
+          <label class="checkbox-label"><input id="p-tax" type="checkbox" checked={entry.taxIncluded !== false} /> Price includes consumption tax</label>
+        </div>
+
+        <div class="field">
+          <label>Shipping / extra cost</label>
+          <input id="p-extra" type="number" inputmode="decimal" min="0" step="any" value={entry.extraCost ?? ''} placeholder="Same currency as price" />
+        </div>
+
+        <div class="field">
+          <label>Condition</label>
+          <select id="p-condition">
+            <option value="new" selected={entry.condition !== 'used' && entry.condition !== 'used_complete'}>New</option>
+            <option value="used" selected={entry.condition === 'used'}>Used</option>
+            <option value="used_complete" selected={entry.condition === 'used_complete'}>Used, complete (box/obi)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Note</label>
+          <textarea id="p-note" rows="2" placeholder="Anything worth remembering…">{entry.note || ''}</textarea>
+        </div>
+
+        <div class="field">
+          <label>Seen at</label>
+          <p class="readonly-value">{formatSeenAt(entry.seenAt)}</p>
+        </div>
+
+        <button id="p-save" type="button" class="save-btn">Save changes</button>
+        <p id="p-msg" class="save-msg" hidden></p>
+
+        <div class="danger-zone">
+          <button id="p-delete" type="button" class="delete-btn">🗑 Delete this price entry</button>
+        </div>
+
+        <a href="/prices" class="back-link">← Back to prices</a>
+
+        <script
+          type="application/json"
+          id="edit-price-data"
+          set:html={JSON.stringify({
+            id: entry._id,
+            key,
+            productName: entry.productName,
+            sourceLabel,
+            price: entry.price,
+            currency: entry.currency,
+            hasOtherPrices,
+          })}
+        />
+      </>
+    )}
+  </div>
+
+  <script>
+    const dataEl = document.querySelector('#edit-price-data')
+    if (dataEl) {
+      const DATA = JSON.parse(dataEl.textContent || '{}')
+
+      const statusSel = document.querySelector('#p-status')
+      const sourceRadios = document.querySelectorAll('input[name="p-source"]')
+      const shopSel = document.querySelector('#p-shop')
+      const sourceNameInput = document.querySelector('#p-source-name')
+      const urlInput = document.querySelector('#p-url')
+      const priceInput = document.querySelector('#p-price')
+      const currencySel = document.querySelector('#p-currency')
+      const taxCheckbox = document.querySelector('#p-tax')
+      const extraInput = document.querySelector('#p-extra')
+      const conditionSel = document.querySelector('#p-condition')
+      const noteInput = document.querySelector('#p-note')
+      const saveBtn = document.querySelector('#p-save')
+      const deleteBtn = document.querySelector('#p-delete')
+      const msg = document.querySelector('#p-msg')
+
+      function currentSource() {
+        const checked = document.querySelector('input[name="p-source"]:checked')
+        return checked ? checked.value : 'japanStore'
+      }
+
+      function applySource() {
+        const src = currentSource()
+        document.querySelectorAll('[data-source-for]').forEach((el) => {
+          const vals = el.getAttribute('data-source-for').split(' ')
+          el.hidden = !vals.includes(src)
+        })
+      }
+      sourceRadios.forEach((r) => r.addEventListener('change', applySource))
+      applySource()
+
+      function applyCurrency() {
+        const cur = currencySel.value
+        document.querySelectorAll('[data-currency-for]').forEach((el) => {
+          const vals = el.getAttribute('data-currency-for').split(' ')
+          el.hidden = !vals.includes(cur)
+        })
+      }
+      currencySel.addEventListener('change', applyCurrency)
+      applyCurrency()
+
+      function showMsg(text, ok) {
+        msg.hidden = false
+        msg.textContent = text
+        msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+      }
+
+      function formatPrice(price, currency) {
+        const n = typeof price === 'number' ? price : Number(price)
+        return (isNaN(n) ? price : n.toLocaleString('en-US')) + ' ' + (currency || '')
+      }
+
+      async function save() {
+        const priceVal = priceInput.value
+        if (priceVal === '' || isNaN(Number(priceVal)) || Number(priceVal) < 0) {
+          return showMsg('Please enter a valid price.', false)
+        }
+        const source = currentSource()
+
+        saveBtn.disabled = true
+        saveBtn.textContent = 'Saving…'
+
+        try {
+          const res = await fetch('/api/price-entry-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: DATA.id,
+              status: statusSel.value,
+              sourceType: source,
+              shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
+              sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
+              url: source !== 'japanStore' ? (urlInput.value.trim() || undefined) : undefined,
+              price: priceVal,
+              currency: currencySel.value,
+              taxIncluded: currencySel.value === 'JPY' ? taxCheckbox.checked : undefined,
+              extraCost: extraInput.value || undefined,
+              condition: conditionSel.value,
+              note: noteInput.value.trim() || undefined,
+            }),
+          })
+          const data = await res.json()
+          if (!res.ok) {
+            showMsg(data.error || 'Save failed.', false)
+            return
+          }
+          window.location.href = '/prices?open=' + encodeURIComponent(DATA.key)
+        } catch (e) {
+          showMsg('Network error.', false)
+        } finally {
+          saveBtn.disabled = false
+          saveBtn.textContent = 'Save changes'
+        }
+      }
+      saveBtn.addEventListener('click', save)
+
+      deleteBtn.addEventListener('click', async () => {
+        const priceText = formatPrice(DATA.price, DATA.currency)
+        const ok = window.confirm(
+          `Delete this price for "${DATA.productName}" — ${priceText} at ${DATA.sourceLabel}? This cannot be undone.`
+        )
+        if (!ok) return
+
+        deleteBtn.disabled = true
+        deleteBtn.textContent = 'Deleting…'
+
+        try {
+          const res = await fetch('/api/price-entry-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: DATA.id, action: 'delete' }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok) {
+            showMsg((data && data.error) || 'Delete failed.', false)
+            deleteBtn.disabled = false
+            deleteBtn.textContent = '🗑 Delete this price entry'
+            return
+          }
+          window.location.href = DATA.hasOtherPrices ? '/prices?open=' + encodeURIComponent(DATA.key) : '/prices'
+        } catch (e) {
+          showMsg('Network error.', false)
+          deleteBtn.disabled = false
+          deleteBtn.textContent = '🗑 Delete this price entry'
+        }
+      })
+    }
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field-row { display: flex; gap: 1rem; }
+    .field-row[hidden] { display: none; }
+    .field-row .field { flex: 1; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
+    .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
+    .radio-opt input { width: auto; margin: 0; }
+    .checkbox-field label.checkbox-label {
+      display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--text);
+      cursor: pointer; margin-bottom: 0;
+    }
+    .checkbox-label input { width: auto; margin: 0; }
+
+    .product-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);
+    }
+    .product-header .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; background: var(--bg); flex-shrink: 0; }
+    .product-header .thumb-placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.5rem; border: 1px solid var(--border); }
+    .product-header-info { flex: 1; min-width: 0; }
+    .product-header-name { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+    .edit-product-inline-link { font-size: 0.85rem; color: var(--accent); text-decoration: none; }
+    .edit-product-inline-link:hover { text-decoration: underline; }
+
+    .readonly-value { margin: 0; padding: 0.7rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; color: var(--muted); }
+
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+
+    .danger-zone { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+    .delete-btn {
+      width: 100%; background: rgba(231,76,60,0.1); color: #e74c3c; border: 1px solid #e74c3c;
+      padding: 0.9rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .delete-btn:hover { background: rgba(231,76,60,0.2); }
+    .delete-btn:disabled { opacity: 0.6; cursor: default; }
+
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

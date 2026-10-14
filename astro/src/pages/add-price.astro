@@ -1,23 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
-import { sanity } from '../lib/sanity'
-import { fetchProducts } from '../lib/price-products'
+import { fetchProducts, fetchShopGroups } from '../lib/price-products'
 
-type Shop = { _id: string; shopName: string; area?: string; placeType?: string }
-
-const shopsRaw: Shop[] = await sanity.fetch(`
-  *[_type == "shopNote" && !(_id in path("drafts.**")) && (placeType == "shop" || !defined(placeType))]
-    | order(area asc, shopName asc) { _id, shopName, area }
-`)
-
-const byArea = new Map<string, Shop[]>()
-for (const s of shopsRaw) {
-  const area = s.area || 'Other'
-  if (!byArea.has(area)) byArea.set(area, [])
-  byArea.get(area)!.push(s)
-}
-const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
-
+const shopGroups = await fetchShopGroups()
 const products = await fetchProducts()
 ---
 <Base title="Add price">

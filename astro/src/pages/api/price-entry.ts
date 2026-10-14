@@ -1,14 +1,9 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody, buildDoc } from '../../lib/api'
+import { CATEGORIES, SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES } from '../../lib/price-entry-fields'
 
 export const prerender = false
-
-const CATEGORIES = ['album', 'game', 'book', 'figure', 'other']
-const SOURCE_TYPES = ['japanStore', 'online', 'norway']
-const CURRENCIES = ['JPY', 'NOK', 'USD', 'EUR']
-const CONDITIONS = ['new', 'used', 'used_complete']
-const STATUSES = ['considering', 'bought']
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)

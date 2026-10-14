@@ -106,3 +106,23 @@ export async function fetchProducts(): Promise<Product[]> {
   const docs: PriceDoc[] = await sanity.fetch(PRICE_DOCS_QUERY)
   return groupProducts(docs)
 }
+
+export type ShopOption = { _id: string; shopName: string }
+export type ShopGroup = { area: string; shops: ShopOption[] }
+
+// The shop dropdown used by both add-price.astro and edit-price.astro: real shops only
+// (restaurants/sights/etc. filtered out), grouped and sorted by area.
+export async function fetchShopGroups(): Promise<ShopGroup[]> {
+  const shopsRaw: { _id: string; shopName: string; area?: string }[] = await sanity.fetch(`
+    *[_type == "shopNote" && !(_id in path("drafts.**")) && (placeType == "shop" || !defined(placeType))]
+      | order(area asc, shopName asc) { _id, shopName, area }
+  `)
+
+  const byArea = new Map<string, ShopOption[]>()
+  for (const s of shopsRaw) {
+    const area = s.area || 'Other'
+    if (!byArea.has(area)) byArea.set(area, [])
+    byArea.get(area)!.push({ _id: s._id, shopName: s.shopName })
+  }
+  return [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
+}

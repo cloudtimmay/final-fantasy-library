@@ -49,7 +49,7 @@ function formatDate(iso: string | undefined): string {
           const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toLowerCase()
           return (
             <li class="price-row" data-search={searchHay}>
-              <details>
+              <details data-key={p.key}>
                 <summary>
                   {p.image ? (
                     <img class="thumb" src={`${p.image.url}?w=100`} alt={p.productName} />
@@ -69,12 +69,14 @@ function formatDate(iso: string | undefined): string {
 
                 <ul class="history-list">
                   {p.prices.map((price) => (
-                    <li class="history-row">
-                      <span class="history-source">{price.source}</span>
-                      <span class="history-price">{formatMoney(price.price, price.currency)}</span>
-                      {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
-                      {price.status === 'bought' && <span class="history-bought">✅</span>}
-                      <span class="history-date">{formatDate(price.seenAt)}</span>
+                    <li>
+                      <a class="history-row" href={`/edit-price?id=${price._id}`}>
+                        <span class="history-source">{price.source}</span>
+                        <span class="history-price">{formatMoney(price.price, price.currency)}</span>
+                        {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
+                        {price.status === 'bought' && <span class="history-bought">✅</span>}
+                        <span class="history-date">{formatDate(price.seenAt)}</span>
+                      </a>
                     </li>
                   ))}
                 </ul>
@@ -103,6 +105,17 @@ function formatDate(iso: string | undefined): string {
       })
     }
     searchInput.addEventListener('input', applySearch)
+
+    // Arriving back from /add-price, /edit-product or /edit-price with ?open=<key> —
+    // expand that product and bring it into view.
+    const openKey = new URLSearchParams(window.location.search).get('open')
+    if (openKey) {
+      const target = document.querySelector('details[data-key="' + CSS.escape(openKey) + '"]')
+      if (target) {
+        target.open = true
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
   </script>
 
   <style>
@@ -162,7 +175,9 @@ function formatDate(iso: string | undefined): string {
       display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
       font-size: 0.85rem; padding: 0.55rem 0.7rem;
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      text-decoration: none; color: inherit; cursor: pointer;
     }
+    .history-row:hover { border-color: var(--accent); }
     .history-source { flex: 1; min-width: 80px; color: var(--text); }
     .history-price { font-weight: 600; color: var(--accent); white-space: nowrap; }
     .history-condition { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }

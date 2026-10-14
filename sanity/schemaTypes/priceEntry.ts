@@ -65,7 +65,7 @@ export const priceEntry = defineType({
       validation: (R) => R.required(),
     }),
     defineField({
-      name: 'photo',
+      name: 'image',
       title: 'Photo',
       type: 'image',
       options: { hotspot: true },
@@ -194,14 +194,14 @@ export const priceEntry = defineType({
       shopName: 'shop.shopName',
       sourceName: 'sourceName',
       status: 'status',
-      photo: 'photo',
+      image: 'image',
     },
-    prepare({ itemTitle, productName, price, currency, shopName, sourceName, status, photo }) {
+    prepare({ itemTitle, productName, price, currency, shopName, sourceName, status, image }) {
       const priceText = typeof price === 'number' ? `${price.toLocaleString('en-US')} ${currency || ''}`.trim() : ''
       return {
         title: itemTitle || productName || 'Unnamed product',
         subtitle: [status === 'bought' ? '✅' : '', priceText, shopName || sourceName].filter(Boolean).join(' · '),
-        media: photo || (() => '🏷️'),
+        media: image || (() => '🏷️'),
       }
     },
   },

@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro'
-import { sanity, SHARED_FIELDS } from '../../lib/sanity'
+import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 import { isNew } from '../../lib/dates'
 
 const albums = await sanity.fetch(`
@@ -53,7 +53,9 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
         <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
         <span class="hud-corner bl"></span><span class="hud-corner br"></span>
         <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
-          {a.externalImageUrl
+          {a.image
+            ? <img class="album-thumb" src={urlFor(a.image).height(120).url()} alt={a.title} loading="lazy" />
+            : a.externalImageUrl
             ? <img class="album-thumb" src={a.externalImageUrl} alt={a.title} loading="lazy" />
             : <div class="album-thumb placeholder">🎵</div>
           }

@@ -1,0 +1,286 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+type Shop = { _id: string; shopName: string; area?: string; placeType?: string }
+
+const shopsRaw: Shop[] = await sanity.fetch(`
+  *[_type == "shopNote" && !(_id in path("drafts.**")) && (placeType == "shop" || !defined(placeType))]
+    | order(area asc, shopName asc) { _id, shopName, area }
+`)
+
+const byArea = new Map<string, Shop[]>()
+for (const s of shopsRaw) {
+  const area = s.area || 'Other'
+  if (!byArea.has(area)) byArea.set(area, [])
+  byArea.get(area)!.push(s)
+}
+const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
+---
+<Base title="Add price">
+  <div class="add-wrap">
+    <h1>Add price</h1>
+    <p class="hint">Log a price you've seen. Shop, category, source and currency stay selected so you can log several prices in a row.</p>
+
+    <div class="field">
+      <label>Product name *</label>
+      <input id="p-name" type="text" placeholder="What is it?" />
+    </div>
+
+    <div class="field">
+      <label>Japanese name</label>
+      <input id="p-name-jp" type="text" placeholder="日本語名（任意）" />
+    </div>
+
+    <div class="field">
+      <label>JAN / barcode</label>
+      <input id="p-jan" type="text" inputmode="numeric" placeholder="8, 12 or 13 digits (optional)" />
+    </div>
+
+    <div class="field">
+      <label>Category *</label>
+      <select id="p-category">
+        <option value="">Select category…</option>
+        <option value="album">Album</option>
+        <option value="game">Game</option>
+        <option value="book">Book</option>
+        <option value="figure">Merchandise</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Source</label>
+      <div class="radio-row">
+        <label class="radio-opt"><input type="radio" name="p-source" value="japanStore" checked /> 🇯🇵 Shop in Japan</label>
+        <label class="radio-opt"><input type="radio" name="p-source" value="online" /> 🌐 Online</label>
+        <label class="radio-opt"><input type="radio" name="p-source" value="norway" /> 🇳🇴 Norway</label>
+      </div>
+    </div>
+
+    <div class="field" data-source-for="japanStore">
+      <label>Shop *</label>
+      {shopGroups.length > 0 ? (
+        <select id="p-shop">
+          <option value="">Select shop…</option>
+          {shopGroups.map((g) => (
+            <optgroup label={g.area}>
+              {g.shops.map((s) => <option value={s._id}>{s.shopName}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      ) : (
+        <select id="p-shop"><option value="">No shops saved yet</option></select>
+      )}
+    </div>
+
+    <div class="field-row" data-source-for="online norway">
+      <div class="field">
+        <label>Store / site name</label>
+        <input id="p-source-name" type="text" placeholder="e.g. CDJapan, Amiami, Outland" />
+      </div>
+      <div class="field">
+        <label>Link</label>
+        <input id="p-url" type="url" placeholder="https://…" />
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Price *</label>
+        <input id="p-price" type="number" inputmode="decimal" min="0" step="any" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>Currency</label>
+        <select id="p-currency">
+          <option value="JPY">JPY</option>
+          <option value="NOK">NOK</option>
+          <option value="USD">USD</option>
+          <option value="EUR">EUR</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field checkbox-field" data-currency-for="JPY">
+      <label class="checkbox-label"><input id="p-tax" type="checkbox" checked /> Price includes consumption tax</label>
+    </div>
+
+    <div class="field">
+      <label>Shipping / extra cost</label>
+      <input id="p-extra" type="number" inputmode="decimal" min="0" step="any" placeholder="Same currency as price" />
+    </div>
+
+    <div class="field">
+      <label>Condition</label>
+      <select id="p-condition">
+        <option value="new">New</option>
+        <option value="used">Used</option>
+        <option value="used_complete">Used, complete (box/obi)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Status</label>
+      <select id="p-status">
+        <option value="considering">Considering</option>
+        <option value="bought">Bought</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Note</label>
+      <textarea id="p-note" rows="2" placeholder="Anything worth remembering…"></textarea>
+    </div>
+
+    <button id="p-save" type="button" class="save-btn">Save price</button>
+    <p id="p-msg" class="save-msg" hidden></p>
+
+    <a href="/add-menu" class="back-link">← Back</a>
+  </div>
+
+  <script>
+    const nameInput = document.querySelector('#p-name')
+    const nameJpInput = document.querySelector('#p-name-jp')
+    const janInput = document.querySelector('#p-jan')
+    const categorySel = document.querySelector('#p-category')
+    const sourceRadios = document.querySelectorAll('input[name="p-source"]')
+    const shopSel = document.querySelector('#p-shop')
+    const sourceNameInput = document.querySelector('#p-source-name')
+    const urlInput = document.querySelector('#p-url')
+    const priceInput = document.querySelector('#p-price')
+    const currencySel = document.querySelector('#p-currency')
+    const taxCheckbox = document.querySelector('#p-tax')
+    const extraInput = document.querySelector('#p-extra')
+    const conditionSel = document.querySelector('#p-condition')
+    const statusSel = document.querySelector('#p-status')
+    const noteInput = document.querySelector('#p-note')
+    const saveBtn = document.querySelector('#p-save')
+    const msg = document.querySelector('#p-msg')
+
+    function currentSource() {
+      const checked = document.querySelector('input[name="p-source"]:checked')
+      return checked ? checked.value : 'japanStore'
+    }
+
+    function applySource() {
+      const src = currentSource()
+      document.querySelectorAll('[data-source-for]').forEach((el) => {
+        const vals = el.getAttribute('data-source-for').split(' ')
+        el.hidden = !vals.includes(src)
+      })
+    }
+    sourceRadios.forEach((r) => r.addEventListener('change', applySource))
+    applySource()
+
+    function applyCurrency() {
+      const cur = currencySel.value
+      document.querySelectorAll('[data-currency-for]').forEach((el) => {
+        const vals = el.getAttribute('data-currency-for').split(' ')
+        el.hidden = !vals.includes(cur)
+      })
+    }
+    currencySel.addEventListener('change', applyCurrency)
+    applyCurrency()
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    async function save() {
+      const productName = nameInput.value.trim()
+      if (!productName) return showMsg('Please enter a product name.', false)
+      if (!categorySel.value) return showMsg('Please select a category.', false)
+      const priceVal = priceInput.value
+      if (priceVal === '' || isNaN(Number(priceVal)) || Number(priceVal) < 0) {
+        return showMsg('Please enter a valid price.', false)
+      }
+
+      const source = currentSource()
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+
+      try {
+        const res = await fetch('/api/price-entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productName,
+            productNameJp: nameJpInput.value.trim() || undefined,
+            jan: janInput.value.trim() || undefined,
+            category: categorySel.value,
+            sourceType: source,
+            shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
+            sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
+            url: source !== 'japanStore' ? (urlInput.value.trim() || undefined) : undefined,
+            price: priceVal,
+            currency: currencySel.value,
+            taxIncluded: currencySel.value === 'JPY' ? taxCheckbox.checked : undefined,
+            extraCost: extraInput.value || undefined,
+            condition: conditionSel.value,
+            status: statusSel.value,
+            note: noteInput.value.trim() || undefined,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          showMsg(data.error || 'Save failed.', false)
+          return
+        }
+
+        showMsg('Saved ✓ — ready for the next one.', true)
+
+        // Keep shop/category/source/currency/condition selected — logging several prices
+        // in the same shop is the common case. Status resets since "bought" shouldn't
+        // carry over to the next item. Only clear the per-item fields otherwise.
+        nameInput.value = ''
+        nameJpInput.value = ''
+        janInput.value = ''
+        priceInput.value = ''
+        extraInput.value = ''
+        noteInput.value = ''
+        statusSel.value = 'considering'
+        nameInput.focus()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save price'
+      }
+    }
+
+    saveBtn.addEventListener('click', save)
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field-row { display: flex; gap: 1rem; }
+    .field-row[hidden] { display: none; }
+    .field-row .field { flex: 1; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
+    .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
+    .radio-opt input { width: auto; margin: 0; }
+    .checkbox-field label.checkbox-label {
+      display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--text);
+      cursor: pointer; margin-bottom: 0;
+    }
+    .checkbox-label input { width: auto; margin: 0; }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

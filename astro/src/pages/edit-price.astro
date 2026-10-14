@@ -1,7 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
-import { fetchProducts, fetchShopGroups, productKey } from '../lib/price-products'
+import { fetchProducts, fetchShopGroups, fetchTrips, productKey } from '../lib/price-products'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 type EntryDoc = {
@@ -54,13 +54,13 @@ const notFound = !entry || entry._type !== 'priceEntry'
 const key = entry ? productKey(entry.jan, entry.productName) : ''
 let hasOtherPrices = false
 let shopGroups: Awaited<ReturnType<typeof fetchShopGroups>> = []
-let trips: { _id: string; label?: string }[] = []
+let trips: Awaited<ReturnType<typeof fetchTrips>> = []
 if (!notFound && entry) {
   shopGroups = await fetchShopGroups()
   const products = await fetchProducts()
   const product = products.find((p) => p.key === key)
   hasOtherPrices = !!product && product.prices.length > 1
-  trips = await sanity.fetch(`*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`)
+  trips = await fetchTrips()
 }
 
 function formatSeenAt(iso: string | undefined): string {
@@ -132,6 +132,7 @@ const sourceLabel =
           </div>
         </div>
         <p class="hint buyer-trip-hint">Required to mark as Bought. Can be set now even while Considering — counts as planned spend.</p>
+        <div id="p-no-trip-note" class="no-trip-note" hidden></div>
 
         <div id="p-revert-warning" class="revert-warning" hidden></div>
 
@@ -242,24 +243,32 @@ const sourceLabel =
             currency: entry.currency,
             hasOtherPrices,
             owner: OWNER,
-            tripAlreadySet: !!entry.tripId,
+            tripId: entry.tripId || '',
             createdFamilyPurchaseInfo: entry.createdFamilyPurchaseInfo || null,
             createdItemInfo: entry.createdItemInfo || null,
           })}
         />
+        <script type="application/json" id="trips-data" set:html={JSON.stringify(trips)} />
       </>
     )}
   </div>
+
+  <script is:inline src="/trip-select.js"></script>
 
   <script>
     const dataEl = document.querySelector('#edit-price-data')
     if (dataEl) {
       const DATA = JSON.parse(dataEl.textContent || '{}')
+      let TRIPS = []
+      try {
+        TRIPS = JSON.parse(document.querySelector('#trips-data')?.textContent || '[]')
+      } catch (e) { TRIPS = [] }
 
       const statusSel = document.querySelector('#p-status')
       const frozenNote = document.querySelector('#p-frozen-note')
       const buyerSel = document.querySelector('#p-buyer')
       const tripSel = document.querySelector('#p-trip')
+      const noTripNote = document.querySelector('#p-no-trip-note')
       const revertWarning = document.querySelector('#p-revert-warning')
       const sourceRadios = document.querySelectorAll('input[name="p-source"]')
       const shopSel = document.querySelector('#p-shop')
@@ -301,14 +310,12 @@ const sourceLabel =
       applyCurrency()
 
       const LAST_TRIP_KEY = 'ff-last-trip'
-      if (!DATA.tripAlreadySet && tripSel) {
-        try {
-          const remembered = localStorage.getItem(LAST_TRIP_KEY)
-          if (remembered && tripSel.querySelector('option[value="' + CSS.escape(remembered) + '"]')) {
-            tripSel.value = remembered
-          }
-        } catch (e) {}
+      let initialTripId = DATA.tripId || ''
+      if (!initialTripId) {
+        try { initialTripId = localStorage.getItem(LAST_TRIP_KEY) || '' } catch (e) {}
       }
+      applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote, initialTripId)
+      buyerSel.addEventListener('change', () => applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote))
       function rememberTrip() {
         try { localStorage.setItem(LAST_TRIP_KEY, tripSel.value) } catch (e) {}
       }
@@ -482,6 +489,11 @@ const sourceLabel =
     .readonly-value { margin: 0; padding: 0.7rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem; color: var(--muted); }
 
     .buyer-trip-hint { margin: -0.5rem 0 1rem; }
+    .no-trip-note {
+      display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin: -0.5rem 0 1rem;
+      background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.4); border-radius: 6px;
+    }
+    .no-trip-note[hidden] { display: none; }
     .frozen-note {
       display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin-bottom: 1rem;
       background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;

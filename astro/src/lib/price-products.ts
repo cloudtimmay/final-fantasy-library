@@ -107,6 +107,23 @@ export async function fetchProducts(): Promise<Product[]> {
   return groupProducts(docs)
 }
 
+export type TripOption = { _id: string; label?: string; people: string[] }
+
+// Trips for the buyer/trip pickers on add-price.astro and edit-price.astro. `people` is
+// the flattened list of names with a budget line on that trip (from childBudgets), used
+// to filter the trip select down to trips valid for the currently chosen buyer — the
+// same rule Studio applies when offering trips on a familyPurchase.
+export async function fetchTrips(): Promise<TripOption[]> {
+  const raw: { _id: string; label?: string; childBudgets?: { person?: string }[] }[] = await sanity.fetch(
+    `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label, childBudgets[]{ person } }`
+  )
+  return raw.map((t) => ({
+    _id: t._id,
+    label: t.label,
+    people: (t.childBudgets || []).map((c) => c.person).filter((p): p is string => !!p),
+  }))
+}
+
 export type ShopOption = { _id: string; shopName: string }
 export type ShopGroup = { area: string; shops: ShopOption[] }
 

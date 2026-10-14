@@ -1,9 +1,11 @@
 ---
 import Base from '../layouts/Base.astro'
-import { fetchProducts, fetchShopGroups } from '../lib/price-products'
+import { fetchProducts, fetchShopGroups, fetchTrips } from '../lib/price-products'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 const shopGroups = await fetchShopGroups()
 const products = await fetchProducts()
+const trips = await fetchTrips()
 ---
 <Base title="Add price">
   <div class="add-wrap">
@@ -148,6 +150,28 @@ const products = await fetchProducts()
       </select>
     </div>
 
+    <div class="field-row">
+      <div class="field">
+        <label>Who buys it</label>
+        <select id="p-buyer">
+          {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Trip</label>
+        {trips.length > 0 ? (
+          <select id="p-trip">
+            <option value="">Select trip…</option>
+            {trips.map((t) => <option value={t._id}>{t.label || 'Trip'}</option>)}
+          </select>
+        ) : (
+          <select id="p-trip"><option value="">No trips set up yet</option></select>
+        )}
+      </div>
+    </div>
+    <p class="hint buyer-trip-hint">Required to mark as Bought. Can be set now even while Considering — counts as planned spend.</p>
+    <div id="p-no-trip-note" class="no-trip-note" hidden></div>
+
     <div class="field">
       <label>Note</label>
       <textarea id="p-note" rows="2" placeholder="Anything worth remembering…"></textarea>
@@ -160,8 +184,10 @@ const products = await fetchProducts()
   </div>
 
   <script type="application/json" id="product-data" set:html={JSON.stringify(products)}></script>
+  <script type="application/json" id="trips-data" set:html={JSON.stringify(trips)}></script>
 
   <script is:inline src="/resize-image.js"></script>
+  <script is:inline src="/trip-select.js"></script>
 
   <script>
     const productSel = document.querySelector('#p-product')
@@ -171,6 +197,10 @@ const products = await fetchProducts()
     try {
       PRODUCTS = JSON.parse(document.querySelector('#product-data')?.textContent || '[]')
     } catch (e) { PRODUCTS = [] }
+    let TRIPS = []
+    try {
+      TRIPS = JSON.parse(document.querySelector('#trips-data')?.textContent || '[]')
+    } catch (e) { TRIPS = [] }
 
     const nameInput = document.querySelector('#p-name')
     const nameWarning = document.querySelector('#p-name-warning')
@@ -195,6 +225,9 @@ const products = await fetchProducts()
     const extraInput = document.querySelector('#p-extra')
     const conditionSel = document.querySelector('#p-condition')
     const statusSel = document.querySelector('#p-status')
+    const buyerSel = document.querySelector('#p-buyer')
+    const tripSel = document.querySelector('#p-trip')
+    const noTripNote = document.querySelector('#p-no-trip-note')
     const noteInput = document.querySelector('#p-note')
     const saveBtn = document.querySelector('#p-save')
     const msg = document.querySelector('#p-msg')
@@ -223,6 +256,15 @@ const products = await fetchProducts()
     }
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
+
+    const LAST_TRIP_KEY = 'ff-last-trip'
+    let initialTripId = ''
+    try { initialTripId = localStorage.getItem(LAST_TRIP_KEY) || '' } catch (e) {}
+    applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote, initialTripId)
+    buyerSel.addEventListener('change', () => applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote))
+    function rememberTrip() {
+      try { localStorage.setItem(LAST_TRIP_KEY, tripSel.value) } catch (e) {}
+    }
 
     function revokeIfBlob() {
       if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
@@ -458,10 +500,23 @@ const products = await fetchProducts()
       const jan = janInput.value.trim()
       const category = categorySel.value
       const sourceLabel = currentSourceLabel(source)
+      const markingBought = statusSel.value === 'bought'
+
+      if (markingBought) {
+        if (currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
+          return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
+        }
+        if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
+        if (!tripSel.value) return showMsg('Please choose a trip.', false)
+      }
+
       saveBtn.disabled = true
       saveBtn.textContent = 'Saving…'
 
       try {
+        // Always created as Considering — the Bought transition (and the familyPurchase/
+        // collection-item side effects it triggers) only ever runs through
+        // /api/price-entry-update, so that logic is never duplicated here.
         const res = await fetch('/api/price-entry', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -479,7 +534,8 @@ const products = await fetchProducts()
             taxIncluded: currencySel.value === 'JPY' ? taxCheckbox.checked : undefined,
             extraCost: extraInput.value || undefined,
             condition: conditionSel.value,
-            status: statusSel.value,
+            buyer: buyerSel.value || undefined,
+            tripId: tripSel.value || undefined,
             note: noteInput.value.trim() || undefined,
             // A freshly taken photo always wins — only reuse the existing product's
             // photo when no new one was chosen for this entry.
@@ -493,7 +549,8 @@ const products = await fetchProducts()
         }
 
         // Upload the photo (if any) after the entry exists, so a failed upload never
-        // costs you the price entry itself.
+        // costs you the price entry itself. Must happen before the Bought call below,
+        // so the familyPurchase/collection item it may create can see the photo too.
         let photoFailed = false
         let uploadedImage = null
         if (selectedPhoto && data.id) {
@@ -515,10 +572,43 @@ const products = await fetchProducts()
           }
         }
 
-        showMsg(
-          photoFailed ? 'Price saved, but the photo upload failed — saved without it.' : 'Saved ✓ — ready for the next one.',
-          !photoFailed
-        )
+        let boughtError = null
+        if (markingBought && data.id) {
+          try {
+            const boughtRes = await fetch('/api/price-entry-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: data.id,
+                status: 'bought',
+                buyer: buyerSel.value,
+                tripId: tripSel.value,
+                sourceType: source,
+                shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
+                sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
+                url: source !== 'japanStore' ? (urlInput.value.trim() || undefined) : undefined,
+                price: priceVal,
+                currency: currencySel.value,
+                taxIncluded: currencySel.value === 'JPY' ? taxCheckbox.checked : undefined,
+                extraCost: extraInput.value || undefined,
+                condition: conditionSel.value,
+                note: noteInput.value.trim() || undefined,
+              }),
+            })
+            const boughtData = await boughtRes.json().catch(() => null)
+            if (!boughtRes.ok) boughtError = (boughtData && boughtData.error) || 'Unknown error'
+          } catch (e) {
+            boughtError = 'Network error'
+          }
+        }
+
+        if (boughtError) {
+          showMsg(`Price saved as Considering, but marking it as bought failed: ${boughtError}. Open it from All prices to try again.`, false)
+        } else if (photoFailed) {
+          showMsg('Price saved, but the photo upload failed — saved without it.', false)
+        } else {
+          showMsg('Saved ✓ — ready for the next one.', true)
+        }
 
         rememberSavedPrice(
           productName,
@@ -527,10 +617,12 @@ const products = await fetchProducts()
           { source: sourceLabel, price: Number(priceVal), currency: currencySel.value },
           uploadedImage
         )
+        if (tripSel.value) rememberTrip()
 
-        // Keep shop/category/source/currency/condition selected — logging several prices
-        // in the same shop is the common case. Status resets since "bought" shouldn't
-        // carry over to the next item. Only clear the per-item fields otherwise.
+        // Keep shop/category/source/currency/condition/buyer/trip selected — logging
+        // several prices in a row (often for the same trip/buyer) is the common case.
+        // Status resets since "bought" shouldn't carry over to the next item. Only clear
+        // the per-item fields otherwise.
         nameInput.value = ''
         nameJpInput.value = ''
         janInput.value = ''
@@ -601,6 +693,12 @@ const products = await fetchProducts()
       padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
     }
     .use-existing-btn:hover { background: #241826; }
+    .buyer-trip-hint { margin: -0.5rem 0 1rem; }
+    .no-trip-note {
+      display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin: -0.5rem 0 1rem;
+      background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.4); border-radius: 6px;
+    }
+    .no-trip-note[hidden] { display: none; }
     .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
     .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
     .radio-opt input { width: auto; margin: 0; }

@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
-import { sanityWrite } from '../../lib/sanity'
+import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody, buildDoc } from '../../lib/api'
-import { CATEGORIES, SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES } from '../../lib/price-entry-fields'
+import { CATEGORIES, SOURCE_TYPES, CURRENCIES, CONDITIONS, PEOPLE_LIST } from '../../lib/price-entry-fields'
 
 export const prerender = false
 
@@ -22,7 +22,6 @@ export const POST: APIRoute = async ({ request }) => {
   const sourceType = SOURCE_TYPES.includes(body.sourceType) ? body.sourceType : 'japanStore'
   const currency = CURRENCIES.includes(body.currency) ? body.currency : 'JPY'
   const condition = CONDITIONS.includes(body.condition) ? body.condition : 'new'
-  const status = STATUSES.includes(body.status) ? body.status : 'considering'
 
   const base: Record<string, any> = {
     _type: 'priceEntry',
@@ -32,9 +31,25 @@ export const POST: APIRoute = async ({ request }) => {
     price,
     currency,
     condition,
-    status,
+    // A new entry is always Considering — the Bought transition (and everything it
+    // triggers: familyPurchase/collection-item creation) only ever happens through
+    // /api/price-entry-update, so that logic lives in exactly one place.
+    status: 'considering',
     taxIncluded: typeof body.taxIncluded === 'boolean' ? body.taxIncluded : true,
     seenAt: new Date().toISOString(),
+  }
+
+  const buyer = String(body.buyer || '').trim()
+  if (buyer) {
+    if (!PEOPLE_LIST.includes(buyer)) return json(400, { error: 'Invalid buyer' })
+    base.buyer = buyer
+  }
+
+  const tripId = String(body.tripId || '').trim()
+  if (tripId) {
+    const trip = await sanity.fetch(`*[_id == $id && _type == "tripSettings"][0]{ _id }`, { id: tripId })
+    if (!trip) return json(400, { error: 'Unknown trip' })
+    base.trip = { _type: 'reference', _ref: tripId, _weak: true }
   }
 
   // Shop vs. sourceName/url are mutually exclusive, gated by sourceType — never trust

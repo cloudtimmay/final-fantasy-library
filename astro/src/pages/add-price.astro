@@ -16,11 +16,89 @@ for (const s of shopsRaw) {
   byArea.get(area)!.push(s)
 }
 const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
+
+type PriceDoc = {
+  productName?: string
+  productNameJp?: string
+  jan?: string
+  category?: string
+  image?: { assetId?: string; url?: string } | null
+  price?: number
+  currency?: string
+  sourceType?: string
+  shopName?: string
+  sourceName?: string
+  seenAt?: string
+}
+type ProductPrice = { source: string; price: number; currency: string }
+type Product = {
+  key: string
+  productName: string
+  productNameJp?: string
+  jan?: string
+  category?: string
+  image: { assetId: string; url: string } | null
+  prices: ProductPrice[]
+}
+
+// Newest first, so the first time we see a product's key is its most recent entry —
+// that entry's productName/productNameJp/jan/category/image become the product's.
+const priceDocs: PriceDoc[] = await sanity.fetch(`
+  *[_type == "priceEntry" && !(_id in path("drafts.**"))] | order(seenAt desc) {
+    productName, productNameJp, jan, category,
+    "image": image{ "assetId": asset->_id, "url": asset->url },
+    price, currency, sourceType,
+    "shopName": shop->shopName,
+    sourceName, seenAt
+  }
+`)
+
+const productMap = new Map<string, Product>()
+for (const d of priceDocs) {
+  const name = String(d.productName || '').trim()
+  if (!name) continue
+  const jan = String(d.jan || '').trim()
+  const key = jan || name.toLowerCase()
+  const sourceLabel =
+    d.sourceType === 'japanStore' ? (d.shopName || 'Shop') : d.sourceName || (d.sourceType === 'norway' ? 'Norway' : 'Online')
+  const priceRow: ProductPrice = { source: sourceLabel, price: d.price ?? 0, currency: d.currency || 'JPY' }
+
+  let product = productMap.get(key)
+  if (!product) {
+    product = {
+      key,
+      productName: name,
+      productNameJp: d.productNameJp || undefined,
+      jan: jan || undefined,
+      category: d.category || undefined,
+      image: d.image && d.image.assetId && d.image.url ? { assetId: d.image.assetId, url: d.image.url } : null,
+      prices: [],
+    }
+    productMap.set(key, product)
+  }
+  product.prices.push(priceRow)
+}
+const products = [...productMap.values()].sort((a, b) => a.productName.localeCompare(b.productName))
 ---
 <Base title="Add price">
   <div class="add-wrap">
     <h1>Add price</h1>
     <p class="hint">Log a price you've seen. Shop, category, source and currency stay selected so you can log several prices in a row.</p>
+
+    <div class="field">
+      <label>Existing product</label>
+      <select id="p-product">
+        <option value="">+ New product</option>
+        {products.map((p, i) => (
+          <option value={i}>{p.productName} ({p.prices.length} price{p.prices.length === 1 ? '' : 's'})</option>
+        ))}
+      </select>
+    </div>
+
+    <div class="field" id="p-seen-wrap" hidden>
+      <label>Seen before</label>
+      <ul id="p-seen-list" class="seen-list"></ul>
+    </div>
 
     <div class="field">
       <label>Product name *</label>
@@ -155,9 +233,19 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     <a href="/add-menu" class="back-link">← Back</a>
   </div>
 
+  <script type="application/json" id="product-data" set:html={JSON.stringify(products)}></script>
+
   <script is:inline src="/resize-image.js"></script>
 
   <script>
+    const productSel = document.querySelector('#p-product')
+    const seenWrap = document.querySelector('#p-seen-wrap')
+    const seenList = document.querySelector('#p-seen-list')
+    let PRODUCTS = []
+    try {
+      PRODUCTS = JSON.parse(document.querySelector('#product-data')?.textContent || '[]')
+    } catch (e) { PRODUCTS = [] }
+
     const nameInput = document.querySelector('#p-name')
     const photoCamera = document.querySelector('#p-photo-camera')
     const photoGallery = document.querySelector('#p-photo-gallery')
@@ -165,6 +253,7 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     const preview = document.querySelector('#p-preview')
     const photoRemoveBtn = document.querySelector('#p-photo-remove')
     let selectedPhoto = null
+    let reusedImage = null
     const nameJpInput = document.querySelector('#p-name-jp')
     const janInput = document.querySelector('#p-jan')
     const categorySel = document.querySelector('#p-category')
@@ -207,9 +296,37 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
 
+    function revokeIfBlob() {
+      if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+    }
+
+    // Decides what the preview area shows: a freshly taken/chosen photo always wins;
+    // otherwise an existing product's photo (if one was selected); otherwise nothing.
+    function updatePhotoPreview() {
+      if (selectedPhoto) {
+        preview.hidden = false
+        photoRemoveBtn.hidden = false
+        return
+      }
+      if (reusedImage && reusedImage.url) {
+        revokeIfBlob()
+        preview.src = reusedImage.url
+        preview.hidden = false
+        photoName.hidden = false
+        photoName.textContent = 'Using existing photo'
+        photoRemoveBtn.hidden = false
+        return
+      }
+      preview.hidden = true
+      preview.src = ''
+      photoName.hidden = true
+      photoRemoveBtn.hidden = true
+    }
+
     async function handlePhoto(fileInput) {
       const file = fileInput.files && fileInput.files[0]
       if (!file) return
+      reusedImage = null
       photoName.hidden = false
       photoName.textContent = 'Processing photo…'
       let chosen = file
@@ -217,33 +334,124 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
         if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
       } catch (e) { chosen = file }
       selectedPhoto = chosen
-      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
-      preview.hidden = false
+      revokeIfBlob()
       preview.src = URL.createObjectURL(chosen)
       photoName.textContent = file.name || 'photo'
-      photoRemoveBtn.hidden = false
+      updatePhotoPreview()
       fileInput.value = ''
     }
     photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
     photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
 
     function resetPhoto() {
-      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      revokeIfBlob()
       selectedPhoto = null
+      reusedImage = null
       photoCamera.value = ''
       photoGallery.value = ''
-      photoName.hidden = true
       photoName.textContent = ''
-      preview.hidden = true
-      preview.src = ''
-      photoRemoveBtn.hidden = true
+      updatePhotoPreview()
     }
     photoRemoveBtn.addEventListener('click', resetPhoto)
+
+    function productKey(jan, name) {
+      const j = (jan || '').trim()
+      if (j) return j
+      return String(name || '').trim().toLowerCase()
+    }
+
+    function formatPrice(price, currency) {
+      const n = typeof price === 'number' ? price : Number(price)
+      return (isNaN(n) ? price : n.toLocaleString('en-US')) + ' ' + (currency || '')
+    }
+
+    function renderSeenList(prices) {
+      seenList.replaceChildren()
+      if (!prices || prices.length === 0) { seenWrap.hidden = true; return }
+      seenWrap.hidden = false
+      prices.forEach((p) => {
+        const li = document.createElement('li')
+        const left = document.createElement('span')
+        left.className = 'seen-source'
+        left.textContent = p.source
+        const right = document.createElement('span')
+        right.className = 'seen-price'
+        right.textContent = formatPrice(p.price, p.currency)
+        li.appendChild(left)
+        li.appendChild(right)
+        seenList.appendChild(li)
+      })
+    }
+
+    function applyProduct() {
+      const idx = productSel.value
+      resetPhoto()
+      if (idx === '') {
+        nameInput.value = ''
+        nameJpInput.value = ''
+        janInput.value = ''
+        categorySel.value = ''
+        renderSeenList([])
+        return
+      }
+      const product = PRODUCTS[Number(idx)]
+      if (!product) return
+      nameInput.value = product.productName || ''
+      nameJpInput.value = product.productNameJp || ''
+      janInput.value = product.jan || ''
+      categorySel.value = product.category || ''
+      renderSeenList(product.prices)
+      if (product.image && product.image.url) {
+        reusedImage = product.image
+        updatePhotoPreview()
+      }
+    }
+    productSel.addEventListener('change', applyProduct)
 
     function showMsg(text, ok) {
       msg.hidden = false
       msg.textContent = text
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    // Shop/source display label for the in-page "Seen before" cache — mirrors the
+    // server's grouping logic in the frontmatter exactly (japanStore -> shop name,
+    // otherwise the typed source name, falling back to a generic label).
+    function currentSourceLabel(source) {
+      if (source === 'japanStore') {
+        const opt = shopSel.options[shopSel.selectedIndex]
+        return (opt && opt.value) ? opt.text : 'Shop'
+      }
+      return sourceNameInput.value.trim() || (source === 'norway' ? 'Norway' : 'Online')
+    }
+
+    function rememberSavedPrice(productName, jan, category, priceRow, uploadedImage) {
+      const key = productKey(jan, productName)
+      const idx = PRODUCTS.findIndex((p) => p.key === key)
+      if (idx >= 0) {
+        PRODUCTS[idx].prices.unshift(priceRow)
+        if (uploadedImage) PRODUCTS[idx].image = uploadedImage
+        const optionEl = productSel.querySelector('option[value="' + idx + '"]')
+        if (optionEl) {
+          const n = PRODUCTS[idx].prices.length
+          optionEl.textContent = PRODUCTS[idx].productName + ' (' + n + ' price' + (n === 1 ? '' : 's') + ')'
+        }
+        return
+      }
+      PRODUCTS.push({
+        key,
+        productName,
+        productNameJp: nameJpInput.value.trim() || undefined,
+        jan: jan || undefined,
+        category,
+        image: uploadedImage || null,
+        prices: [priceRow],
+      })
+      const newIdx = PRODUCTS.length - 1
+      const option = document.createElement('option')
+      option.value = String(newIdx)
+      option.textContent = productName + ' (1 price)'
+      productSel.appendChild(option)
     }
 
     async function save() {
@@ -256,6 +464,9 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
       }
 
       const source = currentSource()
+      const jan = janInput.value.trim()
+      const category = categorySel.value
+      const sourceLabel = currentSourceLabel(source)
       saveBtn.disabled = true
       saveBtn.textContent = 'Saving…'
 
@@ -266,8 +477,8 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
           body: JSON.stringify({
             productName,
             productNameJp: nameJpInput.value.trim() || undefined,
-            jan: janInput.value.trim() || undefined,
-            category: categorySel.value,
+            jan: jan || undefined,
+            category,
             sourceType: source,
             shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
             sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
@@ -279,6 +490,9 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
             condition: conditionSel.value,
             status: statusSel.value,
             note: noteInput.value.trim() || undefined,
+            // A freshly taken photo always wins — only reuse the existing product's
+            // photo when no new one was chosen for this entry.
+            imageAssetId: (!selectedPhoto && reusedImage) ? reusedImage.assetId : undefined,
           }),
         })
         const data = await res.json()
@@ -290,6 +504,7 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
         // Upload the photo (if any) after the entry exists, so a failed upload never
         // costs you the price entry itself.
         let photoFailed = false
+        let uploadedImage = null
         if (selectedPhoto && data.id) {
           saveBtn.textContent = 'Uploading photo…'
           try {
@@ -298,7 +513,12 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
             form.append('docId', data.id)
             form.append('field', 'image')
             const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
-            if (!upRes.ok) photoFailed = true
+            if (!upRes.ok) {
+              photoFailed = true
+            } else {
+              const upData = await upRes.json().catch(() => null)
+              if (upData && upData.assetId && upData.url) uploadedImage = { assetId: upData.assetId, url: upData.url }
+            }
           } catch (e) {
             photoFailed = true
           }
@@ -307,6 +527,14 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
         showMsg(
           photoFailed ? 'Price saved, but the photo upload failed — saved without it.' : 'Saved ✓ — ready for the next one.',
           !photoFailed
+        )
+
+        rememberSavedPrice(
+          productName,
+          jan,
+          category,
+          { source: sourceLabel, price: Number(priceVal), currency: currencySel.value },
+          uploadedImage
         )
 
         // Keep shop/category/source/currency/condition selected — logging several prices
@@ -319,6 +547,8 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
         extraInput.value = ''
         noteInput.value = ''
         statusSel.value = 'considering'
+        productSel.value = ''
+        renderSeenList([])
         resetPhoto()
         nameInput.focus()
       } catch (e) {
@@ -363,6 +593,10 @@ const shopGroups = [...byArea.keys()].sort().map((area) => ({ area, shops: byAre
     }
     .photo-remove-btn[hidden] { display: none; }
     .photo-remove-btn:hover { border-color: var(--accent); }
+    .seen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 160px; overflow-y: auto; }
+    .seen-list li { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+    .seen-source { color: var(--text); }
+    .seen-price { color: var(--accent); font-weight: 600; white-space: nowrap; }
     .radio-row { display: flex; flex-direction: column; gap: 0.6rem; }
     .radio-opt { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; cursor: pointer; }
     .radio-opt input { width: auto; margin: 0; }

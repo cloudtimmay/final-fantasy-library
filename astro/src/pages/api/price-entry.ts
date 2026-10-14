@@ -58,6 +58,15 @@ export const POST: APIRoute = async ({ request }) => {
   const jan = String(body.jan || '').replace(/\D/g, '')
   if (jan) base.jan = jan
 
+  // Reuse an existing product's photo when no new one was taken for this entry.
+  // Only accept something that actually looks like a Sanity image asset id — this is
+  // the one field here that references another document by a client-supplied id, so it
+  // gets its own explicit format check rather than just an includes()/trim() guard.
+  const imageAssetId = String(body.imageAssetId || '').trim()
+  if (imageAssetId && imageAssetId.startsWith('image-')) {
+    base.image = { _type: 'image', asset: { _type: 'reference', _ref: imageAssetId } }
+  }
+
   const doc = buildDoc(base, body, [
     { from: 'productNameJp' },
     { from: 'extraCost', type: 'num' },

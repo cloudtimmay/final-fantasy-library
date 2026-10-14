@@ -5,5 +5,6 @@ import { book } from './book'
 import { shopNote } from './shopNote'
 import { tripSettings } from './tripSettings'
 import { familyPurchase } from './familyPurchase'
+import { priceEntry } from './priceEntry'
 
-export const schemaTypes = [album, game, figure, book, shopNote, tripSettings, familyPurchase]
+export const schemaTypes = [album, game, figure, book, shopNote, tripSettings, familyPurchase, priceEntry]

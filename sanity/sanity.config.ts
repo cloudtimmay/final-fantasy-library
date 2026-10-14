@@ -23,6 +23,7 @@ export default defineConfig({
             S.listItem().title('Merchandise').schemaType('figure').child(S.documentTypeList('figure')),
             S.listItem().title('Books').schemaType('book').child(S.documentTypeList('book')),
             S.listItem().title('Shop Notes').schemaType('shopNote').child(S.documentTypeList('shopNote')),
+            S.listItem().title('Price Entries').schemaType('priceEntry').child(S.documentTypeList('priceEntry')),
             S.listItem().title('Trip Settings').schemaType('tripSettings').child(S.documentTypeList('tripSettings')),
             S.listItem().title('Family Purchases').schemaType('familyPurchase').child(S.documentTypeList('familyPurchase')),
           ]),

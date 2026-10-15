@@ -5,12 +5,19 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "dev:test": "node tests/guard-dataset.mjs && astro dev",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:ai-live": "playwright test --config=playwright.ai-live.config.ts"
   },
   "dependencies": {
     "@astrojs/vercel": "^10.0.8",
     "@sanity/client": "^6.0.0",
     "@sanity/image-url": "^2.1.1",
     "astro": "^6.4.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
   }
 }

@@ -19,6 +19,11 @@ astro/.vercel/
 # Sanity local files
 .sanity/
 
+# Playwright
+astro/test-results/
+astro/playwright-report/
+astro/blob-report/
+
 # Logs
 *.log
 

@@ -31,7 +31,9 @@ Search strategy: if a JAN/EAN/UPC barcode is given, search by that first — it 
 
 For region "norway": search Norwegian retailers, for example Outland, Platekompaniet, Komplett, Elkjøp, Proshop, and other Norwegian shops. Prices must be in NOK.
 
-For region "online": search international stores that ship to Norway, for example CDJapan, AmiAmi, Play-Asia, Amazon.co.jp, Amazon.com, and Mercari (via a proxy/forwarding service, since Mercari itself does not ship internationally). Prices can be in JPY, USD or EUR depending on the store.
+For region "online": search international stores that ship to Norway, for example CDJapan, AmiAmi, Play-Asia, Amazon.co.jp, Amazon.com, and Mercari (via a proxy/forwarding service, since Mercari itself does not ship internationally). These stores typically bill in JPY, USD or EUR.
+
+For every result, report the price and currency exactly as the store's own product page bills it — never a geo-converted, localized, or "estimated price in your currency" display. Many store pages show a converted price for visitors (for example a Japanese or US store showing an estimate in NOK because it detected a Norwegian visitor) — that converted figure is not what this is asking for; always use the store's actual listed price and its native currency.
 
 Only include a result if you are confident the product actually matches — same edition, same format (for example, don't match a Blu-ray edition to a request for a DVD, and don't match a different regional release unless that is genuinely what is being sold). If you are unsure whether a found listing is really the same product, leave it out rather than guessing.
 
@@ -182,6 +184,10 @@ export const POST: APIRoute = async ({ request }) => {
     if (!store) continue
     if (typeof item.price !== 'number' || !isFinite(item.price) || item.price < 0) continue
     if (!CURRENCIES.includes(item.currency)) continue
+    // The prompt tells the model Norway prices must be in NOK — enforced here too,
+    // rather than just trusted, since a geo-converted display price on a non-Norwegian
+    // page could otherwise slip through labeled with the wrong store/currency pairing.
+    if (region === 'norway' && item.currency !== 'NOK') continue
     const url = typeof item.url === 'string' ? item.url.trim() : ''
     if (!url.startsWith('https://')) continue
     const hostname = hostnameOf(url)

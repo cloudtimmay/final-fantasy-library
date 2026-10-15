@@ -239,6 +239,7 @@ const trips = await fetchTrips()
     const extraPhotosWrap = document.querySelector('#p-extra-photos')
     const MAX_EXTRA_PHOTOS = 2
     let extraPhotos = [] // { file, url }[] — identify-only, never uploaded to Sanity
+    let suggestionShown = false // true while an AI suggestion card is on screen
     let selectedPhoto = null
     let reusedImage = null
     const nameJpInput = document.querySelector('#p-name-jp')
@@ -321,6 +322,7 @@ const trips = await fetchTrips()
     function hideIdentifyCard() {
       identifyCard.hidden = true
       identifyCard.replaceChildren()
+      suggestionShown = false
     }
 
     // Extra photos are identify-only — never uploaded to Sanity, never part of the
@@ -351,6 +353,9 @@ const trips = await fetchTrips()
       if (extraPhotos.length >= MAX_EXTRA_PHOTOS) return
       extraPhotos.push({ file, url: URL.createObjectURL(file) })
       renderExtraPhotos()
+      // The suggestion card already on screen was built without this photo — nudge
+      // toward re-running Identify rather than silently leaving it out.
+      if (suggestionShown) showIdentifyMsg('New photo added. Tap Identify again to include it.', true)
     }
     function removeExtraPhoto(idx) {
       const [removed] = extraPhotos.splice(idx, 1)
@@ -557,6 +562,7 @@ const trips = await fetchTrips()
       identifyCard.appendChild(actions)
 
       identifyCard.hidden = false
+      suggestionShown = true
     }
 
     async function identifyPhoto() {
@@ -800,7 +806,7 @@ const trips = await fetchTrips()
       findPricesMsg.textContent = ''
     }
 
-    async function logFoundPrice(result, btn) {
+    async function logFoundPrice(result, region, btn) {
       const productName = nameInput.value.trim()
       if (!productName || !categorySel.value) return
       btn.disabled = true
@@ -814,7 +820,11 @@ const trips = await fetchTrips()
             productNameJp: nameJpInput.value.trim() || undefined,
             jan: janInput.value.trim() || undefined,
             category: categorySel.value,
-            sourceType: currentSource(),
+            // The region actually searched for this result, not whatever the source
+            // radio currently shows — the user could switch Online<->Norway after
+            // searching (the results stay visible either way) and tap Log afterward,
+            // which would otherwise silently save the wrong sourceType for this result.
+            sourceType: region,
             sourceName: result.store,
             url: result.url,
             price: result.price,
@@ -848,7 +858,7 @@ const trips = await fetchTrips()
       }
     }
 
-    function renderFindPricesResults(results) {
+    function renderFindPricesResults(results, region) {
       findPricesResultsWrap.replaceChildren()
 
       const note = document.createElement('p')
@@ -897,28 +907,12 @@ const trips = await fetchTrips()
         const actions = document.createElement('div')
         actions.className = 'ap-find-prices-actions'
 
-        const useBtn = document.createElement('button')
-        useBtn.type = 'button'
-        useBtn.className = 'ap-find-prices-use-btn'
-        useBtn.textContent = 'Use'
-        useBtn.addEventListener('click', () => {
-          sourceNameInput.value = r.store
-          urlInput.value = r.url
-          priceInput.value = String(r.price)
-          currencySel.value = r.currency
-          applyCurrency()
-          // The tax-included checkbox only shows (and only matters) for JPY — leave it
-          // untouched for any other currency.
-          if (r.currency === 'JPY') taxCheckbox.checked = true
-        })
-
         const logBtn = document.createElement('button')
         logBtn.type = 'button'
         logBtn.className = 'ap-find-prices-log-btn'
         logBtn.textContent = '➕ Log'
-        logBtn.addEventListener('click', () => logFoundPrice(r, logBtn))
+        logBtn.addEventListener('click', () => logFoundPrice(r, region, logBtn))
 
-        actions.appendChild(useBtn)
         actions.appendChild(logBtn)
         li.appendChild(actions)
 
@@ -936,6 +930,10 @@ const trips = await fetchTrips()
       findPricesBtn.disabled = true
       findPricesBtn.textContent = 'Searching…'
       showFindPricesMsg('Searching shops… this can take up to a minute.', true)
+      // Fixed for this search — if the user flips the source radio afterward (the
+      // results stay visible for either Online or Norway), "Log" must still save under
+      // the region these specific results were actually found for.
+      const region = currentSource()
       try {
         const res = await fetch('/api/find-prices', {
           method: 'POST',
@@ -945,7 +943,7 @@ const trips = await fetchTrips()
             productNameJp: nameJpInput.value.trim() || undefined,
             jan: janInput.value.trim() || undefined,
             category: categorySel.value,
-            region: currentSource(),
+            region,
           }),
         })
         const data = await res.json().catch(() => null)
@@ -958,7 +956,7 @@ const trips = await fetchTrips()
           return
         }
         hideFindPricesMsg()
-        renderFindPricesResults(data.results)
+        renderFindPricesResults(data.results, region)
       } catch (e) {
         showFindPricesMsg('Network error.', false)
       } finally {
@@ -1284,12 +1282,10 @@ const trips = await fetchTrips()
     .ap-find-prices-link { font-size: 0.78rem; color: var(--accent); overflow-wrap: anywhere; text-decoration: none; }
     .ap-find-prices-link:hover { text-decoration: underline; }
     .ap-find-prices-actions { display: flex; gap: 0.5rem; margin-top: 0.2rem; flex-wrap: wrap; }
-    .ap-find-prices-use-btn, .ap-find-prices-log-btn {
+    .ap-find-prices-log-btn {
       flex: 1; min-width: 80px; padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+      background: var(--accent); color: #fff; border: none;
     }
-    .ap-find-prices-use-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); }
-    .ap-find-prices-use-btn:hover { background: rgba(244,162,76,0.1); }
-    .ap-find-prices-log-btn { background: var(--accent); color: #fff; border: none; }
     .ap-find-prices-log-btn:hover { opacity: 0.9; }
     .ap-find-prices-log-btn:disabled { opacity: 0.6; cursor: default; }
   </style>

@@ -19,8 +19,17 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!CATEGORIES.includes(body.category)) return json(400, { error: 'Category is required' })
 
-  const sourceType = SOURCE_TYPES.includes(body.sourceType) ? body.sourceType : 'japanStore'
-  const currency = CURRENCIES.includes(body.currency) ? body.currency : 'JPY'
+  // sourceType and currency are always sent as one of a fixed set of valid values by
+  // every caller (a radio group / validated AI search result) — unlike condition, which
+  // genuinely has an optional "just use the default" case. Rejecting an invalid value
+  // here instead of silently defaulting it (as this used to do) means a client-side bug
+  // that sends a bad value surfaces as an error immediately, rather than quietly saving
+  // a plausible-looking but wrong document — matching price-entry-update.ts's existing,
+  // stricter validation for the same two fields.
+  if (!SOURCE_TYPES.includes(body.sourceType)) return json(400, { error: 'Invalid source type' })
+  if (!CURRENCIES.includes(body.currency)) return json(400, { error: 'Invalid currency' })
+  const sourceType = body.sourceType
+  const currency = body.currency
   const condition = CONDITIONS.includes(body.condition) ? body.condition : 'new'
 
   const base: Record<string, any> = {

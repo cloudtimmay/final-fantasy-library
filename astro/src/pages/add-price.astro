@@ -49,8 +49,16 @@ const trips = await fetchTrips()
       <img id="p-preview" class="photo-preview" hidden alt="Preview" />
       <button id="p-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
       <button id="p-identify-btn" type="button" class="identify-btn" hidden>✨ Identify</button>
-      <button id="p-extra-photo-btn" type="button" class="extra-photo-btn" hidden>➕ Add photo for identify</button>
-      <input id="p-extra-photo-input" type="file" accept="image/*" hidden />
+      <div id="p-extra-photo-buttons" class="extra-photo-buttons" hidden>
+        <label class="upload-btn upload-btn-small">
+          📷 Camera
+          <input id="p-extra-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn upload-btn-small">
+          🖼️ Gallery
+          <input id="p-extra-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
       <div id="p-extra-photos" class="extra-photos" hidden></div>
       <div id="p-identify-msg" class="identify-msg" hidden></div>
       <div id="p-identify-card" class="identify-card" hidden></div>
@@ -112,6 +120,12 @@ const trips = await fetchTrips()
         <label>Link</label>
         <input id="p-url" type="url" placeholder="https://…" />
       </div>
+    </div>
+
+    <div class="field" id="p-find-prices-wrap" hidden>
+      <button id="p-find-prices-btn" type="button" class="find-prices-btn">🔎 Find prices</button>
+      <div id="p-find-prices-msg" class="find-prices-msg" hidden></div>
+      <div id="p-find-prices-results" class="find-prices-results" hidden></div>
     </div>
 
     <div class="field-row">
@@ -219,8 +233,9 @@ const trips = await fetchTrips()
     const identifyBtn = document.querySelector('#p-identify-btn')
     const identifyMsg = document.querySelector('#p-identify-msg')
     const identifyCard = document.querySelector('#p-identify-card')
-    const extraPhotoBtn = document.querySelector('#p-extra-photo-btn')
-    const extraPhotoInput = document.querySelector('#p-extra-photo-input')
+    const extraPhotoButtons = document.querySelector('#p-extra-photo-buttons')
+    const extraPhotoCamera = document.querySelector('#p-extra-photo-camera')
+    const extraPhotoGallery = document.querySelector('#p-extra-photo-gallery')
     const extraPhotosWrap = document.querySelector('#p-extra-photos')
     const MAX_EXTRA_PHOTOS = 2
     let extraPhotos = [] // { file, url }[] — identify-only, never uploaded to Sanity
@@ -233,6 +248,10 @@ const trips = await fetchTrips()
     const shopSel = document.querySelector('#p-shop')
     const sourceNameInput = document.querySelector('#p-source-name')
     const urlInput = document.querySelector('#p-url')
+    const findPricesWrap = document.querySelector('#p-find-prices-wrap')
+    const findPricesBtn = document.querySelector('#p-find-prices-btn')
+    const findPricesMsg = document.querySelector('#p-find-prices-msg')
+    const findPricesResultsWrap = document.querySelector('#p-find-prices-results')
     const priceInput = document.querySelector('#p-price')
     const currencySel = document.querySelector('#p-currency')
     const taxCheckbox = document.querySelector('#p-tax')
@@ -257,8 +276,19 @@ const trips = await fetchTrips()
         const vals = el.getAttribute('data-source-for').split(' ')
         el.hidden = !vals.includes(src)
       })
+      updateFindPricesVisibility()
     }
     sourceRadios.forEach((r) => r.addEventListener('change', applySource))
+
+    // Only offered for online/Norway sources (a Japan shop price is already in hand by
+    // definition), and only once there's enough to search for. Never automatic.
+    function updateFindPricesVisibility() {
+      const src = currentSource()
+      const eligible = (src === 'online' || src === 'norway') && !!nameInput.value.trim() && !!categorySel.value
+      findPricesWrap.hidden = !eligible
+    }
+    nameInput.addEventListener('input', updateFindPricesVisibility)
+    categorySel.addEventListener('change', updateFindPricesVisibility)
     applySource()
 
     function applyCurrency() {
@@ -315,7 +345,7 @@ const trips = await fetchTrips()
         extraPhotosWrap.appendChild(item)
       })
       extraPhotosWrap.hidden = extraPhotos.length === 0
-      extraPhotoBtn.hidden = !selectedPhoto || extraPhotos.length >= MAX_EXTRA_PHOTOS
+      extraPhotoButtons.hidden = !selectedPhoto || extraPhotos.length >= MAX_EXTRA_PHOTOS
     }
     function addExtraPhoto(file) {
       if (extraPhotos.length >= MAX_EXTRA_PHOTOS) return
@@ -332,12 +362,13 @@ const trips = await fetchTrips()
       extraPhotos = []
       renderExtraPhotos()
     }
-    extraPhotoBtn.addEventListener('click', () => extraPhotoInput.click())
-    extraPhotoInput.addEventListener('change', () => {
-      const file = extraPhotoInput.files && extraPhotoInput.files[0]
-      extraPhotoInput.value = ''
+    function handleExtraPhotoInput(input) {
+      const file = input.files && input.files[0]
+      input.value = ''
       if (file) addExtraPhoto(file)
-    })
+    }
+    extraPhotoCamera.addEventListener('change', () => handleExtraPhotoInput(extraPhotoCamera))
+    extraPhotoGallery.addEventListener('change', () => handleExtraPhotoInput(extraPhotoGallery))
 
     // Decides what the preview area shows: a freshly taken/chosen photo always wins;
     // otherwise an existing product's photo (if one was selected); otherwise nothing.
@@ -510,6 +541,7 @@ const trips = await fetchTrips()
             if (typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
           }
           checkNameDuplicate()
+          updateFindPricesVisibility()
           hideIdentifyCard()
         })
       }
@@ -673,6 +705,7 @@ const trips = await fetchTrips()
         janInput.value = ''
         categorySel.value = ''
         renderSeenList([])
+        updateFindPricesVisibility()
         return
       }
       const product = PRODUCTS[Number(idx)]
@@ -686,6 +719,7 @@ const trips = await fetchTrips()
         reusedImage = product.image
         updatePhotoPreview()
       }
+      updateFindPricesVisibility()
     }
     productSel.addEventListener('change', applyProduct)
 
@@ -745,6 +779,194 @@ const trips = await fetchTrips()
       option.textContent = productName + ' (1 price)'
       productSel.appendChild(option)
     }
+
+    // Re-renders the on-screen "Seen before" list for whichever product the name/jan
+    // currently resolve to — used after a quick "Log" from Find Prices so the new price
+    // shows up immediately, since rememberSavedPrice() only mutates the PRODUCTS array
+    // and doesn't touch the DOM itself.
+    function refreshSeenListForCurrentProduct() {
+      const key = productKey(janInput.value.trim(), nameInput.value.trim())
+      const idx = PRODUCTS.findIndex((p) => p.key === key)
+      if (idx >= 0) renderSeenList(PRODUCTS[idx].prices)
+    }
+
+    function showFindPricesMsg(text, ok) {
+      findPricesMsg.hidden = false
+      findPricesMsg.textContent = text
+      findPricesMsg.style.color = ok ? 'var(--muted)' : '#e74c3c'
+    }
+    function hideFindPricesMsg() {
+      findPricesMsg.hidden = true
+      findPricesMsg.textContent = ''
+    }
+
+    async function logFoundPrice(result, btn) {
+      const productName = nameInput.value.trim()
+      if (!productName || !categorySel.value) return
+      btn.disabled = true
+      btn.textContent = 'Logging…'
+      try {
+        const res = await fetch('/api/price-entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productName,
+            productNameJp: nameJpInput.value.trim() || undefined,
+            jan: janInput.value.trim() || undefined,
+            category: categorySel.value,
+            sourceType: currentSource(),
+            sourceName: result.store,
+            url: result.url,
+            price: result.price,
+            currency: result.currency,
+            note: result.note || undefined,
+            // Reuse the existing product's photo if one is selected — a quick "Log" from
+            // search results never uploads a new photo of its own.
+            imageAssetId: (!selectedPhoto && reusedImage) ? reusedImage.assetId : undefined,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          btn.disabled = false
+          btn.textContent = '➕ Log'
+          showFindPricesMsg((data && data.error) || 'Logging failed.', false)
+          return
+        }
+        btn.textContent = 'Logged ✓'
+        rememberSavedPrice(
+          productName,
+          janInput.value.trim(),
+          categorySel.value,
+          { source: result.store, price: result.price, currency: result.currency, note: result.note },
+          null
+        )
+        refreshSeenListForCurrentProduct()
+      } catch (e) {
+        btn.disabled = false
+        btn.textContent = '➕ Log'
+        showFindPricesMsg('Network error.', false)
+      }
+    }
+
+    function renderFindPricesResults(results) {
+      findPricesResultsWrap.replaceChildren()
+
+      const note = document.createElement('p')
+      note.className = 'ap-find-prices-note'
+      note.textContent = 'Prices found by AI search. Check the link before relying on them. Shipping and import VAT not included.'
+      findPricesResultsWrap.appendChild(note)
+
+      const list = document.createElement('ul')
+      list.className = 'ap-find-prices-list'
+
+      results.forEach((r) => {
+        const li = document.createElement('li')
+        li.className = 'ap-find-prices-item'
+
+        const main = document.createElement('div')
+        main.className = 'ap-find-prices-main'
+        const store = document.createElement('span')
+        store.className = 'ap-find-prices-store'
+        store.textContent = r.store
+        const price = document.createElement('span')
+        price.className = 'ap-find-prices-price'
+        price.textContent = formatPrice(r.price, r.currency)
+        main.appendChild(store)
+        main.appendChild(price)
+        li.appendChild(main)
+
+        const metaBits = []
+        if (r.inStock === true) metaBits.push('In stock')
+        else if (r.inStock === false) metaBits.push('Out of stock')
+        if (r.note) metaBits.push(r.note)
+        if (metaBits.length > 0) {
+          const meta = document.createElement('div')
+          meta.className = 'ap-find-prices-meta'
+          meta.textContent = metaBits.join(' · ')
+          li.appendChild(meta)
+        }
+
+        const link = document.createElement('a')
+        link.className = 'ap-find-prices-link'
+        link.href = r.url
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        link.textContent = r.url
+        li.appendChild(link)
+
+        const actions = document.createElement('div')
+        actions.className = 'ap-find-prices-actions'
+
+        const useBtn = document.createElement('button')
+        useBtn.type = 'button'
+        useBtn.className = 'ap-find-prices-use-btn'
+        useBtn.textContent = 'Use'
+        useBtn.addEventListener('click', () => {
+          sourceNameInput.value = r.store
+          urlInput.value = r.url
+          priceInput.value = String(r.price)
+          currencySel.value = r.currency
+          applyCurrency()
+          // The tax-included checkbox only shows (and only matters) for JPY — leave it
+          // untouched for any other currency.
+          if (r.currency === 'JPY') taxCheckbox.checked = true
+        })
+
+        const logBtn = document.createElement('button')
+        logBtn.type = 'button'
+        logBtn.className = 'ap-find-prices-log-btn'
+        logBtn.textContent = '➕ Log'
+        logBtn.addEventListener('click', () => logFoundPrice(r, logBtn))
+
+        actions.appendChild(useBtn)
+        actions.appendChild(logBtn)
+        li.appendChild(actions)
+
+        list.appendChild(li)
+      })
+
+      findPricesResultsWrap.appendChild(list)
+      findPricesResultsWrap.hidden = false
+    }
+
+    async function findPrices() {
+      hideFindPricesMsg()
+      findPricesResultsWrap.replaceChildren()
+      findPricesResultsWrap.hidden = true
+      findPricesBtn.disabled = true
+      findPricesBtn.textContent = 'Searching…'
+      showFindPricesMsg('Searching shops… this can take up to a minute.', true)
+      try {
+        const res = await fetch('/api/find-prices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productName: nameInput.value.trim(),
+            productNameJp: nameJpInput.value.trim() || undefined,
+            jan: janInput.value.trim() || undefined,
+            category: categorySel.value,
+            region: currentSource(),
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          showFindPricesMsg((data && data.error) || 'Search failed.', false)
+          return
+        }
+        if (!data.results || data.results.length === 0) {
+          showFindPricesMsg('No reliable prices found.', false)
+          return
+        }
+        hideFindPricesMsg()
+        renderFindPricesResults(data.results)
+      } catch (e) {
+        showFindPricesMsg('Network error.', false)
+      } finally {
+        findPricesBtn.disabled = false
+        findPricesBtn.textContent = '🔎 Find prices'
+      }
+    }
+    findPricesBtn.addEventListener('click', findPrices)
 
     async function save() {
       const productName = nameInput.value.trim()
@@ -951,15 +1173,23 @@ const trips = await fetchTrips()
       padding: 0.75rem; background: rgba(244,162,76,0.06); border: 1px solid rgba(244,162,76,0.3); border-radius: 8px;
     }
     .identify-card[hidden] { display: none; }
-    .extra-photo-btn {
-      display: inline-block; margin-top: 0.5rem; margin-left: 0.5rem; background: var(--surface); color: var(--text);
-      border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 6px;
-      cursor: pointer; font-size: 0.85rem; font-weight: 600;
-    }
-    .extra-photo-btn[hidden] { display: none; }
-    .extra-photo-btn:hover { border-color: var(--accent); }
+    .extra-photo-buttons { display: inline-flex; gap: 0.4rem; margin-top: 0.5rem; margin-left: 0.5rem; flex-wrap: wrap; }
+    .extra-photo-buttons[hidden] { display: none; }
+    .upload-btn-small { padding: 0.4rem 0.7rem; font-size: 0.85rem; font-weight: 600; }
     .extra-photos { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
     .extra-photos[hidden] { display: none; }
+    .find-prices-btn {
+      display: inline-block; background: var(--surface); color: var(--accent);
+      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem; font-weight: 600;
+    }
+    .find-prices-btn[hidden] { display: none; }
+    .find-prices-btn:hover { background: rgba(244,162,76,0.1); }
+    .find-prices-btn:disabled { opacity: 0.6; cursor: default; }
+    .find-prices-msg { font-size: 0.85rem; margin-top: 0.5rem; }
+    .find-prices-msg[hidden] { display: none; }
+    .find-prices-results { margin-top: 0.75rem; }
+    .find-prices-results[hidden] { display: none; }
     .seen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 160px; overflow-y: auto; }
     .name-warning { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
     .name-warning[hidden] { display: none; }
@@ -995,9 +1225,9 @@ const trips = await fetchTrips()
     to be missing from the rightmost part (the JS-created <li>) for the whole rule to
     stop matching, even though ".seen-list" itself is a static, scoped element. So every
     class used on a JS-built element — the identify suggestion card, the extra-photo
-    thumbnails, the "seen before" list rows, and the duplicate-name warning — lives here
-    instead, global and prefixed with "ap-" (add-price) so it can't collide with another
-    page's classes.
+    thumbnails, the "seen before" list rows, the duplicate-name warning, and the Find
+    Prices result list — lives here instead, global and prefixed with "ap-" (add-price)
+    so it can't collide with another page's classes.
   -->
   <style is:global>
     .ap-identify-title { font-weight: 600; font-size: 0.9rem; color: var(--accent); }
@@ -1041,5 +1271,26 @@ const trips = await fetchTrips()
       padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
     }
     .ap-use-existing-btn:hover { background: #241826; }
+    .ap-find-prices-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
+    .ap-find-prices-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .ap-find-prices-item {
+      display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; padding: 0.6rem 0.7rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .ap-find-prices-main { display: flex; justify-content: space-between; gap: 0.75rem; font-weight: 600; }
+    .ap-find-prices-store { color: var(--text); }
+    .ap-find-prices-price { color: var(--accent); white-space: nowrap; }
+    .ap-find-prices-meta { font-size: 0.78rem; color: var(--muted); }
+    .ap-find-prices-link { font-size: 0.78rem; color: var(--accent); overflow-wrap: anywhere; text-decoration: none; }
+    .ap-find-prices-link:hover { text-decoration: underline; }
+    .ap-find-prices-actions { display: flex; gap: 0.5rem; margin-top: 0.2rem; flex-wrap: wrap; }
+    .ap-find-prices-use-btn, .ap-find-prices-log-btn {
+      flex: 1; min-width: 80px; padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+    }
+    .ap-find-prices-use-btn { background: var(--surface); color: var(--text); border: 1px solid var(--accent); }
+    .ap-find-prices-use-btn:hover { background: rgba(244,162,76,0.1); }
+    .ap-find-prices-log-btn { background: var(--accent); color: #fff; border: none; }
+    .ap-find-prices-log-btn:hover { opacity: 0.9; }
+    .ap-find-prices-log-btn:disabled { opacity: 0.6; cursor: default; }
   </style>
 </Base>

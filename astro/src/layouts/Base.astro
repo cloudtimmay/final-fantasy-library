@@ -9,6 +9,12 @@ function isActive(href: string) {
   if (href === '/') return path === '/'
   return path === href || path.startsWith(href + '/')
 }
+
+// Stamped on every server render. The inline script at the bottom of this file compares
+// this against Date.now() to tell a fresh server response apart from a page served by
+// sw.js's cache fallback (or restored from the back/forward cache) — see the
+// "saved copy" banner below.
+const renderedAt = Date.now()
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -106,6 +112,40 @@ function isActive(href: string) {
     }
 
     main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+    /* "Saved copy" banner — a normal block at the top of <main>, deliberately not
+       position: sticky and no backdrop-filter (both have caused a black screen on
+       mobile in this project). Rendered statically with [hidden] in the markup; the
+       inline script at the bottom of this file only ever toggles that attribute and
+       sets the text, it never creates this element. */
+    .saved-copy-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      background: rgba(244,162,76,0.12);
+      border: 1px solid rgba(244,162,76,0.4);
+      border-radius: 8px;
+      padding: 0.65rem 0.9rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+    .saved-copy-banner[hidden] { display: none; }
+    .saved-copy-refresh-btn {
+      flex-shrink: 0;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .saved-copy-refresh-btn:hover { opacity: 0.9; }
 
     .bottom-nav { display: none; }
 
@@ -266,7 +306,7 @@ function isActive(href: string) {
     }
   </style>
 </head>
-<body>
+<body data-rendered-at={renderedAt}>
   <nav>
     <a href="/" class="nav-brand">FF</a>
     <a href="/scan" class:list={['nav-link', { active: isActive('/scan') }]}>🔍 Scan</a>
@@ -289,6 +329,10 @@ function isActive(href: string) {
   </nav>
 
   <main>
+    <div id="saved-copy-banner" class="saved-copy-banner" hidden>
+      <span id="saved-copy-text"></span>
+      <button type="button" id="saved-copy-refresh" class="saved-copy-refresh-btn">Refresh</button>
+    </div>
     <slot />
   </main>
 
@@ -299,5 +343,57 @@ function isActive(href: string) {
     <a href="/spending" class:list={[{ active: isActive('/spending') }]}><span class="bn-icon">💴</span>Spending</a>
     <a href="/itinerary" class:list={[{ active: isActive('/itinerary') }]}><span class="bn-icon">🗺️</span>Plan</a>
   </nav>
+
+  <script>
+    (function () {
+      const TWO_MINUTES_MS = 2 * 60 * 1000
+      const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
+
+      const banner = document.querySelector('#saved-copy-banner')
+      const textEl = document.querySelector('#saved-copy-text')
+      const refreshBtn = document.querySelector('#saved-copy-refresh')
+      if (!banner || !textEl || !refreshBtn) return
+
+      function formatTime(date) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      function formatDateTime(date) {
+        return date.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      }
+
+      // Re-read the attribute (not a closed-over value) every time, so a test — or a
+      // future caller — can override data-rendered-at and get this to recompute from it.
+      function checkAge() {
+        const renderedAtAttr = document.body.getAttribute('data-rendered-at')
+        const renderedAt = Number(renderedAtAttr)
+        if (!renderedAtAttr || isNaN(renderedAt)) {
+          banner.hidden = true
+          return
+        }
+
+        const age = Date.now() - renderedAt
+        if (age < TWO_MINUTES_MS) {
+          banner.hidden = true
+          return
+        }
+
+        const renderedDate = new Date(renderedAt)
+        const whenText = age >= TWENTY_FOUR_HOURS_MS ? formatDateTime(renderedDate) : formatTime(renderedDate)
+        textEl.textContent = `Saved copy from ${whenText}. Data may be out of date.`
+        banner.hidden = false
+      }
+
+      refreshBtn.addEventListener('click', () => location.reload())
+
+      // 'load' covers a normal fresh navigation. 'pageshow' also fires for that, but is
+      // the only one of the two that fires again when the page is restored from the
+      // back/forward cache instead of re-requested (event.persisted is true in that
+      // case) — without it, a bfcache-restored page would keep showing whatever banner
+      // state it had when it was put into the cache, however stale that's since become.
+      checkAge()
+      window.addEventListener('load', checkAge)
+      window.addEventListener('pageshow', checkAge)
+    })()
+  </script>
 </body>
 </html>

@@ -186,20 +186,13 @@ test.describe('add-price: duplicate name warning', () => {
     await expect(page.locator('#p-name-warning button', { hasText: 'Use existing' })).toBeVisible()
   })
 
-  // KNOWN APP BUG (reported, not fixed — see report): clicking "Use existing" has no
-  // effect. Clicking the button first blurs #p-name (focus moves to the button before
-  // the click completes), which synchronously re-runs checkNameDuplicate() ->
-  // renderNameWarning(), rebuilding the warning's DOM via replaceChildren() — including
-  // the very button being clicked. The original button is detached mid-gesture, so its
-  // click handler never fires. Confirmed directly: after the click, #p-product and
-  // #p-category are unchanged, and the original button element is no longer connected
-  // to the document. This test documents the actual current behavior rather than the
-  // intended one, per instructions to only fix test code.
-  test('clicking "Use existing" currently has no effect (known bug)', async ({ page, trackDoc, sanity }) => {
+  test('clicking "Use existing" selects the product and fills its fields', async ({ page, trackDoc, sanity }) => {
     const productName = testName(`Duplicate Check Click ${Date.now()}`)
     const created = await sanity.create({
       _type: 'priceEntry',
       productName,
+      productNameJp: 'クリックテスト',
+      jan: '4988601998877',
       category: 'game',
       sourceType: 'japanStore',
       price: 2000,
@@ -216,7 +209,11 @@ test.describe('add-price: duplicate name warning', () => {
 
     await page.locator('#p-name-warning button', { hasText: 'Use existing' }).click()
 
-    await expect(page.locator('#p-product')).toHaveValue('')
-    await expect(page.locator('#p-category')).toHaveValue('')
+    await expect(page.locator('#p-product')).not.toHaveValue('')
+    await expect(page.locator('#p-name')).toHaveValue(productName)
+    await expect(page.locator('#p-name-jp')).toHaveValue('クリックテスト')
+    await expect(page.locator('#p-jan')).toHaveValue('4988601998877')
+    await expect(page.locator('#p-category')).toHaveValue('game')
+    await expect(page.locator('#p-name-warning')).toBeHidden()
   })
 })

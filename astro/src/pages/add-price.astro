@@ -646,9 +646,12 @@ const trips = await fetchTrips()
       })
     }
 
+    let nameWarningKey = null // signature of the currently-rendered match set, or null when hidden
+
     function hideNameWarning() {
       nameWarning.hidden = true
       nameWarning.replaceChildren()
+      nameWarningKey = null
     }
 
     function renderNameWarning(matches) {
@@ -679,7 +682,11 @@ const trips = await fetchTrips()
     }
 
     // Only relevant while creating a brand-new product — once an existing one is
-    // selected there's nothing to warn about.
+    // selected there's nothing to warn about. Rebuilds the warning's DOM (via
+    // renderNameWarning's replaceChildren) only when the actual set of matches changes —
+    // otherwise a redundant call (e.g. a stray debounced check landing right as a
+    // "Use existing" click is in flight) would detach and replace the very button
+    // being clicked, silently swallowing the click.
     function checkNameDuplicate() {
       if (productSel.value !== '') { hideNameWarning(); return }
       const typed = nameInput.value.trim().toLowerCase()
@@ -688,6 +695,9 @@ const trips = await fetchTrips()
         .map((product, idx) => ({ product, idx }))
         .filter(({ product }) => product.productName.trim().toLowerCase() === typed)
       if (matches.length === 0) { hideNameWarning(); return }
+      const key = matches.map(({ idx }) => idx).join(',')
+      if (key === nameWarningKey) return
+      nameWarningKey = key
       renderNameWarning(matches)
     }
     let nameCheckTimer = null
@@ -695,7 +705,14 @@ const trips = await fetchTrips()
       clearTimeout(nameCheckTimer)
       nameCheckTimer = setTimeout(checkNameDuplicate, 300)
     })
-    nameInput.addEventListener('blur', checkNameDuplicate)
+    // Skip the re-check entirely when focus is moving into the warning itself (e.g. onto
+    // "Use existing") — blur fires as part of the click gesture, before the click event,
+    // so without this guard a matches-changed rebuild could still detach the button the
+    // user is in the middle of clicking.
+    nameInput.addEventListener('blur', (event) => {
+      if (event.relatedTarget && nameWarning.contains(event.relatedTarget)) return
+      checkNameDuplicate()
+    })
 
     function applyProduct() {
       const idx = productSel.value

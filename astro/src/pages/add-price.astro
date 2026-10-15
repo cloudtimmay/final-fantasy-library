@@ -802,11 +802,13 @@ const trips = await fetchTrips()
       findPricesMsg.textContent = ''
     }
 
+    let findPricesSavedCount = 0
+
     async function logFoundPrice(result, region, btn) {
       const productName = nameInput.value.trim()
       if (!productName || !categorySel.value) return
       btn.disabled = true
-      btn.textContent = 'Logging…'
+      btn.textContent = 'Saving…'
       try {
         const res = await fetch('/api/price-entry', {
           method: 'POST',
@@ -818,7 +820,7 @@ const trips = await fetchTrips()
             category: categorySel.value,
             // The region actually searched for this result, not whatever the source
             // radio currently shows — the user could switch Online<->Norway after
-            // searching (the results stay visible either way) and tap Log afterward,
+            // searching (the results stay visible either way) and tap Save afterward,
             // which would otherwise silently save the wrong sourceType for this result.
             sourceType: region,
             sourceName: result.store,
@@ -826,7 +828,7 @@ const trips = await fetchTrips()
             price: result.price,
             currency: result.currency,
             note: result.note || undefined,
-            // Reuse the existing product's photo if one is selected — a quick "Log" from
+            // Reuse the existing product's photo if one is selected — a quick save from
             // search results never uploads a new photo of its own.
             imageAssetId: (!selectedPhoto && reusedImage) ? reusedImage.assetId : undefined,
           }),
@@ -834,11 +836,11 @@ const trips = await fetchTrips()
         const data = await res.json().catch(() => null)
         if (!res.ok) {
           btn.disabled = false
-          btn.textContent = '➕ Log'
-          showFindPricesMsg((data && data.error) || 'Logging failed.', false)
+          btn.textContent = '💾 Save this price'
+          showFindPricesMsg((data && data.error) || 'Saving failed.', false)
           return
         }
-        btn.textContent = 'Logged ✓'
+        btn.textContent = 'Saved ✓'
         rememberSavedPrice(
           productName,
           janInput.value.trim(),
@@ -847,20 +849,55 @@ const trips = await fetchTrips()
           null
         )
         refreshSeenListForCurrentProduct()
+        findPricesSavedCount++
+        renderFindPricesSummary(findPricesSavedCount, productName, productKey(janInput.value.trim(), productName))
       } catch (e) {
         btn.disabled = false
-        btn.textContent = '➕ Log'
+        btn.textContent = '💾 Save this price'
         showFindPricesMsg('Network error.', false)
       }
+    }
+
+    function renderFindPricesSummary(count, productName, key) {
+      let summary = findPricesResultsWrap.querySelector('.ap-find-prices-summary')
+      if (!summary) {
+        summary = document.createElement('div')
+        summary.className = 'ap-find-prices-summary'
+        findPricesResultsWrap.appendChild(summary)
+      }
+      summary.replaceChildren()
+
+      const text = document.createElement('p')
+      text.className = 'ap-find-prices-summary-text'
+      text.textContent = `✓ ${count} price${count === 1 ? '' : 's'} saved for ${productName}`
+      summary.appendChild(text)
+
+      const link = document.createElement('a')
+      link.className = 'ap-find-prices-summary-link'
+      link.href = '/prices?open=' + encodeURIComponent(key)
+      link.textContent = 'View in All prices'
+      summary.appendChild(link)
+
+      const doneBtn = document.createElement('button')
+      doneBtn.type = 'button'
+      doneBtn.className = 'ap-find-prices-done-btn'
+      doneBtn.textContent = 'Done'
+      doneBtn.addEventListener('click', resetFormAfterSave)
+      summary.appendChild(doneBtn)
     }
 
     function renderFindPricesResults(results, region) {
       findPricesResultsWrap.replaceChildren()
 
-      const note = document.createElement('p')
-      note.className = 'ap-find-prices-note'
-      note.textContent = 'Prices found by AI search. Check the link before relying on them. Shipping and import VAT not included.'
-      findPricesResultsWrap.appendChild(note)
+      const note1 = document.createElement('p')
+      note1.className = 'ap-find-prices-note'
+      note1.textContent = "Each tap saves that shop's price as its own entry. You don't need the Save button below."
+      findPricesResultsWrap.appendChild(note1)
+
+      const note2 = document.createElement('p')
+      note2.className = 'ap-find-prices-note'
+      note2.textContent = 'Prices found by AI search. Check the link. Shipping and import VAT not included.'
+      findPricesResultsWrap.appendChild(note2)
 
       const list = document.createElement('ul')
       list.className = 'ap-find-prices-list'
@@ -906,7 +943,7 @@ const trips = await fetchTrips()
         const logBtn = document.createElement('button')
         logBtn.type = 'button'
         logBtn.className = 'ap-find-prices-log-btn'
-        logBtn.textContent = '➕ Log'
+        logBtn.textContent = '💾 Save this price'
         logBtn.addEventListener('click', () => logFoundPrice(r, region, logBtn))
 
         actions.appendChild(logBtn)
@@ -923,6 +960,7 @@ const trips = await fetchTrips()
       hideFindPricesMsg()
       findPricesResultsWrap.replaceChildren()
       findPricesResultsWrap.hidden = true
+      findPricesSavedCount = 0
       findPricesBtn.disabled = true
       findPricesBtn.textContent = 'Searching…'
       showFindPricesMsg('Searching shops… this can take up to a minute.', true)
@@ -961,6 +999,30 @@ const trips = await fetchTrips()
       }
     }
     findPricesBtn.addEventListener('click', findPrices)
+
+    // Shared by the main Save button and the Find Prices "Done" button — keep
+    // shop/category/source/currency/condition/buyer/trip selected (logging several
+    // prices in a row, often for the same trip/buyer, is the common case); status resets
+    // since "bought" shouldn't carry over to the next item; the Find Prices results are
+    // specific to the product just cleared, so they're dropped too.
+    function resetFormAfterSave() {
+      nameInput.value = ''
+      nameJpInput.value = ''
+      janInput.value = ''
+      priceInput.value = ''
+      extraInput.value = ''
+      noteInput.value = ''
+      statusSel.value = 'considering'
+      productSel.value = ''
+      renderSeenList([])
+      resetPhoto()
+      hideNameWarning()
+      updateFindPricesVisibility()
+      findPricesResultsWrap.replaceChildren()
+      findPricesResultsWrap.hidden = true
+      hideFindPricesMsg()
+      nameInput.focus()
+    }
 
     async function save() {
       const productName = nameInput.value.trim()
@@ -1095,23 +1157,7 @@ const trips = await fetchTrips()
           uploadedImage
         )
         rememberTrip()
-
-        // Keep shop/category/source/currency/condition/buyer/trip selected — logging
-        // several prices in a row (often for the same trip/buyer) is the common case.
-        // Status resets since "bought" shouldn't carry over to the next item. Only clear
-        // the per-item fields otherwise.
-        nameInput.value = ''
-        nameJpInput.value = ''
-        janInput.value = ''
-        priceInput.value = ''
-        extraInput.value = ''
-        noteInput.value = ''
-        statusSel.value = 'considering'
-        productSel.value = ''
-        renderSeenList([])
-        resetPhoto()
-        hideNameWarning()
-        nameInput.focus()
+        resetFormAfterSave()
       } catch (e) {
         showMsg('Network error.', false)
       } finally {
@@ -1286,5 +1332,17 @@ const trips = await fetchTrips()
     }
     .ap-find-prices-log-btn:hover { opacity: 0.9; }
     .ap-find-prices-log-btn:disabled { opacity: 0.6; cursor: default; }
+    .ap-find-prices-summary {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-top: 0.9rem;
+      padding: 0.75rem; background: rgba(46,204,113,0.08); border: 1px solid rgba(46,204,113,0.35); border-radius: 8px;
+    }
+    .ap-find-prices-summary-text { margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text); }
+    .ap-find-prices-summary-link { font-size: 0.85rem; color: var(--accent); text-decoration: none; }
+    .ap-find-prices-summary-link:hover { text-decoration: underline; }
+    .ap-find-prices-done-btn {
+      align-self: stretch; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    .ap-find-prices-done-btn:hover { border-color: var(--accent); }
   </style>
 </Base>

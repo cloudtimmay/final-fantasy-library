@@ -7,6 +7,7 @@ import {
   pickDefaultTrip,
   computePersonSpending,
   sumBoughtNok,
+  NORWAY_DUTY_FREE_ALLOWANCE_NOK,
 } from '../lib/spending'
 
 const allTrips = await fetchTripsForSpending()
@@ -131,7 +132,49 @@ const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBough
           ))}
         </nav>
 
-        <div class="child-summary" id="child-summary"></div>
+        <div class="person-cards" id="person-cards">
+          {personSpendings.map((p) => {
+            const hasBudget = p.budgetNok != null && p.budgetNok > 0
+            const pct = hasBudget ? Math.min(100, (p.boughtNok / p.budgetNok) * 100) : 0
+            const overBudget = hasBudget && p.boughtNok > p.budgetNok
+            return (
+              <div class="person-card" data-person={p.person}>
+                <div class="person-head">
+                  <span class="person-name">{p.person}</span>
+                  <span class:list={['person-spent', { over: overBudget }]}>
+                    {hasBudget ? `${fmtNok(p.boughtNok)} / ${fmtNok(p.budgetNok)}` : `${fmtNok(p.boughtNok)} spent`}
+                  </span>
+                </div>
+                {hasBudget && (
+                  <div class="person-bar">
+                    <div class:list={['person-fill', { over: overBudget }]} style={`width:${pct.toFixed(1)}%`}></div>
+                  </div>
+                )}
+                <div class:list={['person-meta', { over: overBudget }]}>
+                  {p.plannedNok > 0 && `+${fmtNok(p.plannedNok)} planned`}
+                  {p.remainingNok != null && (
+                    p.remainingNok >= 0
+                      ? `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(p.remainingNok)} left`
+                      : `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(-p.remainingNok)} over`
+                  )}
+                </div>
+                {p.overBudgetWithPlanned && (
+                  <p class="person-warning">⚠️ Bought + planned would exceed the budget</p>
+                )}
+                {p.plannedExcludedCurrencyCount > 0 && (
+                  <p class="person-note">
+                    {p.plannedExcludedCurrencyCount} planned item{p.plannedExcludedCurrencyCount === 1 ? '' : 's'} in a currency other than JPY/NOK excluded from the planned total.
+                  </p>
+                )}
+                <div class:list={['person-duty-free', { over: p.dutyFreeOverNok > 0 }]}>
+                  Duty-free: {fmtNok(p.boughtNok)} / {NORWAY_DUTY_FREE_ALLOWANCE_NOK} kr allowance
+                  {p.dutyFreeOverNok > 0 ? ` — ${fmtNok(p.dutyFreeOverNok)} over` : ' — under'}
+                  <span class="duty-free-hint"> (verify current threshold on toll.no)</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
 
         <div class="store-wrap" id="store-wrap">
           <h3 class="store-title">Tax-free by store / day</h3>
@@ -146,9 +189,9 @@ const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBough
     )}
   </section>
 
-  <script define:vars={{ budgetNok, budgetYen, childBudgets, peopleList, tripPurchases, rate }}>
+  <script define:vars={{ peopleList, tripPurchases, rate }}>
     const personFilter = document.querySelector('#person-filter')
-    const childSummary = document.querySelector('#child-summary')
+    const personCards = document.querySelectorAll('.person-card')
     const familyList = document.querySelector('#family-list')
     const storeWrap = document.querySelector('#store-wrap')
     const storeList = document.querySelector('#store-list')
@@ -161,72 +204,17 @@ const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBough
     function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
     function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
 
-    function budgetBoth(bNok, bYen, rate) {
-      let nok = null, yen = null, nokExplicit = false, yenExplicit = false
-      if (bNok) { nok = Number(bNok); yen = rate > 0 ? nok / rate : null; nokExplicit = true }
-      else if (bYen) { yen = Number(bYen); nok = yen * rate; yenExplicit = true }
-      return { nok, yen, nokExplicit, yenExplicit }
-    }
-
-    function childBudgetFor(person) {
-      const entry = (childBudgets || []).find((c) => c.person === person)
-      return entry ? { nok: entry.budgetNok ?? null, yen: entry.budgetYen ?? null } : { nok: null, yen: null }
+    // The person cards themselves are fully server-rendered (see personSpendings in the
+    // frontmatter) — filtering just shows/hides the pre-rendered card for each person,
+    // no recomputation needed client-side.
+    function applyPersonCardFilter() {
+      personCards.forEach((card) => {
+        card.hidden = selectedPerson !== '' && card.dataset.person !== selectedPerson
+      })
     }
 
     function updateFamily() {
-      if (!childSummary) return
-      const peopleToShow = selectedPerson ? [selectedPerson] : (peopleList || [])
-
-      const rows = peopleToShow.map((person) => {
-        const its = (tripPurchases || []).filter((p) => p.person === person)
-        let boughtNok = 0, plannedNok = 0
-        its.forEach((p) => {
-          const nok = (p.priceYen ? Number(p.priceYen) * rate : 0) + (p.priceNok ? Number(p.priceNok) : 0)
-          if (p.status === 'bought') boughtNok += nok
-          else plannedNok += nok
-        })
-        const cb = childBudgetFor(person)
-        const b = budgetBoth(cb.nok, cb.yen, rate)
-        return { person, boughtNok, plannedNok, count: its.length, b }
-      })
-
-      childSummary.innerHTML = rows.map((r) => {
-        const hasBudget = r.b.nok && r.b.nok > 0
-        let bar = ''
-        let over = false
-        // Helper: show a NOK amount with its yen equivalent in parentheses.
-        const withYen = (nokAmount) => {
-          const y = rate > 0 ? nokAmount / rate : 0
-          return `${fmtNok(nokAmount)} (${fmtYen(y)})`
-        }
-
-        let meta = `${withYen(r.boughtNok)} spent`
-        if (r.plannedNok > 0) meta += ` · +${withYen(r.plannedNok)} planned`
-        meta += ` · ${r.count} item${r.count === 1 ? '' : 's'}`
-
-        if (hasBudget) {
-          const pct = Math.min(100, (r.boughtNok / r.b.nok) * 100)
-          over = r.boughtNok > r.b.nok
-          const remaining = r.b.nok - r.boughtNok
-          bar = `<div class="cs-bar"><div class="cs-fill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%"></div></div>`
-          // Budget shown in both currencies.
-          const budYen = r.b.yen ? fmtYen(r.b.yen) + (r.b.yenExplicit ? '' : ' est.') : ''
-          const budLabel = fmtNok(r.b.nok) + (r.b.nokExplicit ? '' : ' est.') + (budYen ? ` (${budYen})` : '')
-          const remPart = remaining >= 0
-            ? `${withYen(remaining)} left`
-            : `${withYen(-remaining)} over`
-          const planPart = r.plannedNok > 0 ? ` · +${withYen(r.plannedNok)} planned` : ''
-          meta = `${fmtNok(r.boughtNok)} / ${budLabel} · ${remPart}${planPart}`
-        }
-
-        return `<div class="cs-row">
-          <div class="cs-head">
-            <span class="cs-name">${r.person}</span>
-            <span class="cs-spent ${over ? 'over' : ''}">${meta}</span>
-          </div>
-          ${bar}
-        </div>`
-      }).join('')
+      applyPersonCardFilter()
 
       if (familyList) {
         const visible = selectedPerson
@@ -277,10 +265,10 @@ const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBough
                 body: JSON.stringify({ id, status: to }),
               })
               if (!res.ok) { btn.disabled = false; btn.textContent = 'Retry'; return }
-              const rec = (tripPurchases || []).find((p) => p._id === id)
-              if (rec) rec.status = to
-              updateFamily()
-              updateStores()
+              // Person cards, the trip frame, and store/day totals are all computed
+              // server-side from this same data — reloading is simpler and more correct
+              // than duplicating that computation here just to patch the DOM in place.
+              location.reload()
             } catch {
               btn.disabled = false
               btn.textContent = 'Retry'
@@ -415,15 +403,23 @@ const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBough
     .frame-meta.over { color: #e74c3c; font-weight: 600; }
     .frame-note { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
 
-    .child-summary { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
-    .cs-row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
-    .cs-head { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
-    .cs-name { font-weight: 600; }
-    .cs-spent { color: var(--muted); text-align: right; }
-    .cs-spent.over { color: #e74c3c; font-weight: 600; }
-    .cs-bar { background: var(--border); border-radius: 999px; height: 8px; overflow: hidden; }
-    .cs-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
-    .cs-fill.over { background: #e74c3c; }
+    .person-cards { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .person-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+    .person-card[hidden] { display: none; }
+    .person-head { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .person-name { font-weight: 600; }
+    .person-spent { color: var(--muted); text-align: right; }
+    .person-spent.over { color: #e74c3c; font-weight: 600; }
+    .person-bar { background: var(--border); border-radius: 999px; height: 8px; overflow: hidden; }
+    .person-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
+    .person-fill.over { background: #e74c3c; }
+    .person-meta { font-size: 0.82rem; color: var(--muted); margin-top: 0.4rem; }
+    .person-meta.over { color: #e74c3c; font-weight: 600; }
+    .person-warning { font-size: 0.78rem; color: #e74c3c; margin-top: 0.4rem; }
+    .person-note { font-size: 0.75rem; color: var(--muted); margin-top: 0.4rem; }
+    .person-duty-free { font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    .person-duty-free.over { color: #e74c3c; font-weight: 600; }
+    .duty-free-hint { font-weight: 400; color: var(--muted); }
 
     .store-wrap { margin-bottom: 1.5rem; }
     .store-title { font-size: 0.95rem; margin: 0 0 0.6rem; }

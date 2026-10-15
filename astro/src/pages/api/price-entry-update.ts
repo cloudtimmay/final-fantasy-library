@@ -68,23 +68,34 @@ export const POST: APIRoute = async ({ request }) => {
   const hasExtraCost = body.extraCost !== '' && body.extraCost != null && !isNaN(extraCostNum)
 
   // --- Bought-specific validation & amount computation ---
+  // Trip is optional — a purchase doesn't have to belong to a trip or budget. Without
+  // one, no familyPurchase is created (nothing to attach a budget line to) and the budget
+  // check below is skipped; the owner's collection item is still created/updated as
+  // usual. The JPY/NOK requirement only matters when an amount will actually be recorded
+  // somewhere (a familyPurchase, or a collection item for the owner) — a non-owner buyer
+  // with no trip never creates anything, so an arbitrary currency is fine for them.
   let amount = 0
   if (status === 'bought') {
-    if (currency !== 'JPY' && currency !== 'NOK') {
+    if (!buyer) return json(400, { error: 'Buyer is required to mark as Bought' })
+
+    const willCreateSomething = !!tripId || buyer === OWNER
+    if (willCreateSomething && currency !== 'JPY' && currency !== 'NOK') {
       return json(400, { error: 'Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.' })
     }
-    if (!buyer) return json(400, { error: 'Buyer is required to mark as Bought' })
-    if (!tripId) return json(400, { error: 'Trip is required to mark as Bought' })
 
-    const trip = await sanity.fetch(`*[_id == $id][0]{ _id, childBudgets[]{ person } }`, { id: tripId })
-    if (!trip) return json(400, { error: 'Unknown trip' })
-    const validPeople: string[] = (trip.childBudgets || []).map((c: any) => c.person).filter(Boolean)
-    if (!validPeople.includes(buyer)) {
-      return json(400, { error: `${buyer} has no budget line on this trip` })
+    if (tripId) {
+      const trip = await sanity.fetch(`*[_id == $id][0]{ _id, childBudgets[]{ person } }`, { id: tripId })
+      if (!trip) return json(400, { error: 'Unknown trip' })
+      const validPeople: string[] = (trip.childBudgets || []).map((c: any) => c.person).filter(Boolean)
+      if (!validPeople.includes(buyer)) {
+        return json(400, { error: `${buyer} has no budget line on this trip` })
+      }
     }
 
-    const taxAdjusted = currency === 'JPY' && !taxIncluded ? Math.round(price * 1.1) : price
-    amount = taxAdjusted + (hasExtraCost ? extraCostNum : 0)
+    if (willCreateSomething) {
+      const taxAdjusted = currency === 'JPY' && !taxIncluded ? Math.round(price * 1.1) : price
+      amount = taxAdjusted + (hasExtraCost ? extraCostNum : 0)
+    }
   }
 
   // --- priceEntry field patch (applies regardless of status) ---
@@ -118,16 +129,19 @@ export const POST: APIRoute = async ({ request }) => {
   if (note) setFields.note = note
   else unsetFields.push('note')
 
-  // --- Bought side effects: familyPurchase (always) + collection item (owner only) ---
+  // --- Bought side effects: familyPurchase (only with a trip) + collection item (owner only) ---
   // Both are created at most once per priceEntry — if createdFamilyPurchase/createdItem
   // is already set, re-saving while still Bought is a no-op for this part, so reverting
-  // and re-marking Bought (nothing was ever deleted) never produces a duplicate.
+  // and re-marking Bought (nothing was ever deleted) never produces a duplicate. If this
+  // was first bought without a trip and later gets one, createdFamilyPurchaseId is still
+  // unset, so saving as Bought again creates it then — exactly once, same as any other
+  // first-time Bought save.
   const tx = sanityWrite.transaction()
 
   if (status === 'bought') {
     const today = new Date().toISOString().split('T')[0]
 
-    if (!existing.createdFamilyPurchaseId) {
+    if (tripId && !existing.createdFamilyPurchaseId) {
       const fpId = randomUUID()
       const fpDoc: Record<string, any> = {
         _id: fpId,
@@ -203,9 +217,11 @@ export const POST: APIRoute = async ({ request }) => {
         tx.create(itemDoc)
         setFields.createdItem = { _type: 'reference', _ref: itemId, _weak: true }
       }
-      // category === 'other' and no linked item: no collection item, familyPurchase only.
+      // category === 'other' and no linked item: no collection item (a familyPurchase is
+      // still created above if there's a trip).
     }
-    // buyer !== OWNER: collection is never touched, regardless of item/category.
+    // buyer !== OWNER: collection is never touched, regardless of item/category — and
+    // without a trip, nothing at all is created here, only the status/fields patch below.
   }
 
   tx.patch(id, (p) => {

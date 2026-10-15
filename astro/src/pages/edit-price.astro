@@ -121,18 +121,15 @@ const sourceLabel =
           </div>
           <div class="field">
             <label>Trip</label>
-            {trips.length > 0 ? (
-              <select id="p-trip">
-                <option value="">Select trip…</option>
-                {trips.map((t) => <option value={t._id} selected={entry.tripId === t._id}>{t.label || 'Trip'}</option>)}
-              </select>
-            ) : (
-              <select id="p-trip"><option value="">No trips set up yet</option></select>
-            )}
+            <select id="p-trip">
+              <option value="" selected={!entry.tripId}>No trip</option>
+              {trips.map((t) => <option value={t._id} selected={entry.tripId === t._id}>{t.label || 'Trip'}</option>)}
+            </select>
           </div>
         </div>
-        <p class="hint buyer-trip-hint">Required to mark as Bought. Can be set now even while Considering — counts as planned spend.</p>
+        <p class="hint buyer-trip-hint">Buyer is required to mark as Bought. Trip is optional — can be set now even while Considering, and without one it just won't count toward any trip budget.</p>
         <div id="p-no-trip-note" class="no-trip-note" hidden></div>
+        <div id="p-bought-no-trip-note" class="bought-no-trip-note" hidden>Bought without a trip. Not counted in any budget.</div>
 
         <div id="p-revert-warning" class="revert-warning" hidden></div>
 
@@ -269,6 +266,7 @@ const sourceLabel =
       const buyerSel = document.querySelector('#p-buyer')
       const tripSel = document.querySelector('#p-trip')
       const noTripNote = document.querySelector('#p-no-trip-note')
+      const boughtNoTripNote = document.querySelector('#p-bought-no-trip-note')
       const revertWarning = document.querySelector('#p-revert-warning')
       const sourceRadios = document.querySelectorAll('input[name="p-source"]')
       const shopSel = document.querySelector('#p-shop')
@@ -314,8 +312,18 @@ const sourceLabel =
       if (!initialTripId) {
         try { initialTripId = localStorage.getItem(LAST_TRIP_KEY) || '' } catch (e) {}
       }
+
+      function updateBoughtNoTripNote() {
+        boughtNoTripNote.hidden = !(statusSel.value === 'bought' && !tripSel.value)
+      }
+
       applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote, initialTripId)
-      buyerSel.addEventListener('change', () => applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote))
+      updateBoughtNoTripNote()
+      buyerSel.addEventListener('change', () => {
+        applyBuyerTripFilter(tripSel, TRIPS, buyerSel.value, noTripNote)
+        updateBoughtNoTripNote()
+      })
+      tripSel.addEventListener('change', updateBoughtNoTripNote)
       function rememberTrip() {
         try { localStorage.setItem(LAST_TRIP_KEY, tripSel.value) } catch (e) {}
       }
@@ -324,6 +332,7 @@ const sourceLabel =
         frozenNote.hidden = statusSel.value !== 'bought'
       }
       statusSel.addEventListener('change', updateFrozenNote)
+      statusSel.addEventListener('change', updateBoughtNoTripNote)
       updateFrozenNote()
 
       function updateRevertWarning() {
@@ -364,11 +373,13 @@ const sourceLabel =
         const markingBought = statusSel.value === 'bought'
 
         if (markingBought) {
-          if (currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
+          if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
+          // Trip is optional — only a familyPurchase (needs a trip) or a collection item
+          // (owner only) actually records an amount, so only those cases need JPY/NOK.
+          const willCreateSomething = !!tripSel.value || buyerSel.value === DATA.owner
+          if (willCreateSomething && currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
             return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
           }
-          if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
-          if (!tripSel.value) return showMsg('Please choose a trip.', false)
         }
 
         saveBtn.disabled = true
@@ -400,7 +411,7 @@ const sourceLabel =
             showMsg(data.error || 'Save failed.', false)
             return
           }
-          if (tripSel.value) rememberTrip()
+          rememberTrip()
           window.location.href = '/prices?open=' + encodeURIComponent(DATA.key)
         } catch (e) {
           showMsg('Network error.', false)
@@ -494,6 +505,11 @@ const sourceLabel =
       background: rgba(231,76,60,0.1); border: 1px solid rgba(231,76,60,0.4); border-radius: 6px;
     }
     .no-trip-note[hidden] { display: none; }
+    .bought-no-trip-note {
+      display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin: -0.5rem 0 1rem;
+      background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;
+    }
+    .bought-no-trip-note[hidden] { display: none; }
     .frozen-note {
       display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin-bottom: 1rem;
       background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;

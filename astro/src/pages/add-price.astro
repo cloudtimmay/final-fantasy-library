@@ -173,23 +173,19 @@ const trips = await fetchTrips()
     <div class="field-row">
       <div class="field">
         <label>Who buys it</label>
-        <select id="p-buyer">
+        <select id="p-buyer" data-owner={OWNER}>
           {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
         </select>
       </div>
       <div class="field">
         <label>Trip</label>
-        {trips.length > 0 ? (
-          <select id="p-trip">
-            <option value="">Select trip…</option>
-            {trips.map((t) => <option value={t._id}>{t.label || 'Trip'}</option>)}
-          </select>
-        ) : (
-          <select id="p-trip"><option value="">No trips set up yet</option></select>
-        )}
+        <select id="p-trip">
+          <option value="">No trip</option>
+          {trips.map((t) => <option value={t._id}>{t.label || 'Trip'}</option>)}
+        </select>
       </div>
     </div>
-    <p class="hint buyer-trip-hint">Required to mark as Bought. Can be set now even while Considering — counts as planned spend.</p>
+    <p class="hint buyer-trip-hint">Buyer is required to mark as Bought. Trip is optional — can be set now even while Considering, and without one it just won't count toward any trip budget.</p>
     <div id="p-no-trip-note" class="no-trip-note" hidden></div>
 
     <div class="field">
@@ -982,11 +978,13 @@ const trips = await fetchTrips()
       const markingBought = statusSel.value === 'bought'
 
       if (markingBought) {
-        if (currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
+        if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
+        // Trip is optional — only a familyPurchase (needs a trip) or a collection item
+        // (owner only) actually records an amount, so only those cases need JPY/NOK.
+        const willCreateSomething = !!tripSel.value || buyerSel.value === buyerSel.dataset.owner
+        if (willCreateSomething && currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
           return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
         }
-        if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
-        if (!tripSel.value) return showMsg('Please choose a trip.', false)
       }
 
       saveBtn.disabled = true
@@ -1096,7 +1094,7 @@ const trips = await fetchTrips()
           { source: sourceLabel, price: Number(priceVal), currency: currencySel.value, note: noteInput.value.trim() || undefined },
           uploadedImage
         )
-        if (tripSel.value) rememberTrip()
+        rememberTrip()
 
         // Keep shop/category/source/currency/condition/buyer/trip selected — logging
         // several prices in a row (often for the same trip/buyer) is the common case.

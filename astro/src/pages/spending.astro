@@ -36,7 +36,7 @@ const purchasePeople = [...new Set(tripPurchases.map((p) => p.person).filter(Boo
 const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
 
 // Computed once, server-side, for every person on this trip — the per-person cards
-// (added in a later step) render this directly; the trip frame below aggregates it.
+// below render this directly; the trip frame aggregates it.
 const personSpendings = activeTripId
   ? await Promise.all(
       peopleList.map(async (person) => {

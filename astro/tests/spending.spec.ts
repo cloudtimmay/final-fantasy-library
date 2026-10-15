@@ -196,3 +196,118 @@ test.describe('spending: trip frame', () => {
     await expect(frame).toContainText('+500 kr planned')
   })
 })
+
+test.describe('spending: shop/day tax-free', () => {
+  test('groups bought purchases by shop/day on the new (refund) system', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Shop Day Trip ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: tripLabel, jpyToNokRate: 0.07 })
+    trackDoc(trip._id)
+
+    const day = '2026-03-15'
+
+    const taxFreeShop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Tax Free Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(taxFreeShop._id)
+    const notTaxFreeShop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Not Tax Free Shop ${Date.now()}`),
+      taxFreeShop: false,
+    })
+    trackDoc(notTaxFreeShop._id)
+    const unknownShop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Unknown Status Shop ${Date.now()}`),
+    })
+    trackDoc(unknownShop._id)
+    const underThresholdShop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Under Threshold Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(underThresholdShop._id)
+
+    const reached = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Reached ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 6000, // over the 5500 incl. threshold
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: taxFreeShop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(reached._id)
+    const notTaxFree = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Not Tax Free ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 6000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: notTaxFreeShop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(notTaxFree._id)
+    const unknown = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Unknown ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 6000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: unknownShop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(unknown._id)
+    const underThreshold = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Under Threshold ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 2000, // under the 5500 incl. threshold -> 3500 missing
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: underThresholdShop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(underThreshold._id)
+    // A planned (not bought) purchase at the tax-free shop/day must NOT count toward
+    // the threshold — only actual, bought purchases do.
+    const plannedSameDay = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Planned Same Day ${Date.now()}`),
+      person: 'Kim',
+      status: 'planned',
+      priceYen: 10000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: taxFreeShop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(plannedSameDay._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+
+    const reachedRow = page.locator('.store-row', { hasText: taxFreeShop.shopName })
+    await expect(reachedRow).toBeVisible()
+    await expect(reachedRow).toContainText('¥6,000')
+    await expect(reachedRow).toContainText('tax-free reached')
+    await expect(reachedRow).toContainText('¥545') // 6000 / 11 ≈ 545.45, rounded
+    await expect(reachedRow).toHaveClass(/ok/)
+
+    const notTaxFreeRow = page.locator('.store-row', { hasText: notTaxFreeShop.shopName })
+    await expect(notTaxFreeRow).toContainText('not a tax-free shop')
+
+    const unknownRow = page.locator('.store-row', { hasText: unknownShop.shopName })
+    await expect(unknownRow).toContainText('check if tax-free')
+    await expect(unknownRow).toHaveClass(/unknown/)
+
+    const underThresholdRow = page.locator('.store-row', { hasText: underThresholdShop.shopName })
+    await expect(underThresholdRow).toContainText('¥3,500 more to reach tax-free')
+
+    const total = page.locator('.store-total')
+    await expect(total).toBeVisible()
+    await expect(total).toContainText('estimated, before any service fees')
+  })
+})

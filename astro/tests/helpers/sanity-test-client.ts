@@ -34,6 +34,7 @@ const FIXTURE_TYPES_BY_NAME_FIELD: { type: string; field: string }[] = [
   { type: 'figure', field: 'title' },
   { type: 'familyPurchase', field: 'name' },
   { type: 'tripSettings', field: 'label' },
+  { type: 'shopNote', field: 'shopName' },
 ]
 
 // Safety-net sweep for anything a previous crashed/interrupted run left behind — run

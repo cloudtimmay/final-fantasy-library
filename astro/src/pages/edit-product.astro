@@ -200,7 +200,7 @@ const otherProducts = products.filter((p) => p.key !== key)
         nameNote.replaceChildren()
         matches.forEach((p) => {
           const row = document.createElement('div')
-          row.className = 'name-note-row'
+          row.className = 'ep-name-note-row'
           const catLabel = CATEGORY_LABELS[p.category] || p.category || 'Other'
           row.textContent =
             `Another product with this name exists (${catLabel}, ${p.count} price${p.count === 1 ? '' : 's'}). ` +
@@ -335,10 +335,6 @@ const otherProducts = products.filter((p) => p.key !== key)
     .photo-remove-btn:hover { border-color: var(--accent); }
     .name-note { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
     .name-note[hidden] { display: none; }
-    .name-note-row {
-      font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem;
-      background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;
-    }
     .save-btn {
       width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
       padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
@@ -347,5 +343,20 @@ const otherProducts = products.filter((p) => p.key !== key)
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+  </style>
+
+  <!--
+    Astro's scoped CSS only applies to elements written directly in this file's own
+    template — it's added at build time as a data-astro-cid-* attribute, which elements
+    created at runtime via document.createElement() never receive, even without
+    innerHTML. So the class used on the JS-built duplicate-name note row lives here
+    instead, global and prefixed with "ep-" (edit-product) so it can't collide with
+    another page's classes.
+  -->
+  <style is:global>
+    .ep-name-note-row {
+      font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem;
+      background: rgba(107,159,212,0.1); border: 1px solid rgba(107,159,212,0.4); border-radius: 6px;
+    }
   </style>
 </Base>

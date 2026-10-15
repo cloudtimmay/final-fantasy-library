@@ -238,6 +238,13 @@ const trips = await fetchTrips()
     let suggestionShown = false // true while an AI suggestion card is on screen
     let selectedPhoto = null
     let reusedImage = null
+    // Cache for the Sanity image asset created from `selectedPhoto` the first time it's
+    // actually uploaded (by whichever happens first: a "Save this price" click, or the
+    // main Save button) — every later save during this form session reuses this id
+    // instead of re-uploading the same file. Reset whenever the underlying photo changes
+    // (a new one is taken/chosen) or the form itself resets.
+    let uploadedPhotoAssetId = null
+    let uploadedPhotoUrl = null
     const nameJpInput = document.querySelector('#p-name-jp')
     const janInput = document.querySelector('#p-jan')
     const categorySel = document.querySelector('#p-category')
@@ -406,6 +413,9 @@ const trips = await fetchTrips()
       const file = fileInput.files && fileInput.files[0]
       if (!file) return
       reusedImage = null
+      // A new photo invalidates any asset already uploaded for the previous one.
+      uploadedPhotoAssetId = null
+      uploadedPhotoUrl = null
       hideIdentifyMsg()
       hideIdentifyCard()
       clearExtraPhotos()
@@ -429,6 +439,8 @@ const trips = await fetchTrips()
       revokeIfBlob()
       selectedPhoto = null
       reusedImage = null
+      uploadedPhotoAssetId = null
+      uploadedPhotoUrl = null
       photoCamera.value = ''
       photoGallery.value = ''
       photoName.textContent = ''
@@ -438,6 +450,43 @@ const trips = await fetchTrips()
       updatePhotoPreview()
     }
     photoRemoveBtn.addEventListener('click', resetPhoto)
+
+    // What to send as imageAssetId on a create call: an existing product's photo always
+    // wins if one is selected; otherwise a freshly-taken photo that's already been
+    // uploaded this session (by an earlier "Save this price" or Save) can be referenced
+    // directly; a freshly-taken photo not yet uploaded has no asset id yet — that case is
+    // handled after creation by uploadSelectedPhotoTo().
+    function imageAssetIdForCreate() {
+      if (reusedImage) return reusedImage.assetId
+      if (selectedPhoto && uploadedPhotoAssetId) return uploadedPhotoAssetId
+      return undefined
+    }
+
+    // Uploads `selectedPhoto` and attaches it to `docId`, exactly once per form session —
+    // a no-op (returning success) if there's no fresh photo or it's already been
+    // uploaded. The resulting asset id/url are cached so every later save this session
+    // (another "Save this price", or the main Save button) reuses them via
+    // imageAssetIdForCreate() instead of uploading the same file again.
+    async function uploadSelectedPhotoTo(docId) {
+      if (!selectedPhoto || uploadedPhotoAssetId) return true
+      try {
+        const form = new FormData()
+        form.append('file', selectedPhoto)
+        form.append('docId', docId)
+        form.append('field', 'image')
+        const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
+        if (!upRes.ok) return false
+        const upData = await upRes.json().catch(() => null)
+        if (upData && upData.assetId && upData.url) {
+          uploadedPhotoAssetId = upData.assetId
+          uploadedPhotoUrl = upData.url
+          return true
+        }
+        return false
+      } catch (e) {
+        return false
+      }
+    }
 
     function fileToBase64(file) {
       return new Promise((resolve, reject) => {
@@ -845,9 +894,7 @@ const trips = await fetchTrips()
             price: result.price,
             currency: result.currency,
             note: result.note || undefined,
-            // Reuse the existing product's photo if one is selected — a quick save from
-            // search results never uploads a new photo of its own.
-            imageAssetId: (!selectedPhoto && reusedImage) ? reusedImage.assetId : undefined,
+            imageAssetId: imageAssetIdForCreate(),
           }),
         })
         const data = await res.json().catch(() => null)
@@ -857,13 +904,23 @@ const trips = await fetchTrips()
           showFindPricesMsg((data && data.error) || 'Saving failed.', false)
           return
         }
+
+        // A freshly-taken photo that hasn't been uploaded yet this session can't be
+        // attached until the entry exists — upload it now and cache the asset id so
+        // every later "Save this price" and the main Save button reuse it instead of
+        // uploading the same file again. The photo itself stays in the form either way.
+        if (selectedPhoto && !uploadedPhotoAssetId && data.id) {
+          await uploadSelectedPhotoTo(data.id)
+        }
+
         btn.textContent = 'Saved ✓'
+        const uploadedImage = reusedImage || (uploadedPhotoAssetId ? { assetId: uploadedPhotoAssetId, url: uploadedPhotoUrl } : null)
         rememberSavedPrice(
           productName,
           janInput.value.trim(),
           categorySel.value,
           { source: result.store, price: result.price, currency: result.currency, note: result.note },
-          null
+          uploadedImage
         )
         refreshSeenListForCurrentProduct()
         findPricesSavedCount++
@@ -903,8 +960,17 @@ const trips = await fetchTrips()
       summary.appendChild(doneBtn)
     }
 
-    function renderFindPricesResults(results, region) {
+    function renderFindPricesResults(results, region, searchedFor) {
       findPricesResultsWrap.replaceChildren()
+
+      const searchedForLine = document.createElement('p')
+      searchedForLine.className = 'ap-find-prices-searched-for'
+      const catLabel = CATEGORY_LABELS[searchedFor.category] || searchedFor.category || 'Other'
+      const searchedParts = [searchedFor.productName]
+      if (searchedFor.jan) searchedParts.push(searchedFor.jan)
+      searchedParts.push(catLabel)
+      searchedForLine.textContent = 'Searched for: ' + searchedParts.join(' · ') + (searchedFor.jan ? ' (by JAN)' : '')
+      findPricesResultsWrap.appendChild(searchedForLine)
 
       const note1 = document.createElement('p')
       note1.className = 'ap-find-prices-note'
@@ -985,16 +1051,34 @@ const trips = await fetchTrips()
       // results stay visible for either Online or Norway), "Log" must still save under
       // the region these specific results were actually found for.
       const region = currentSource()
+      // Read once, at the moment the button is tapped — both for the request itself and
+      // for the "Searched for" line, so the two can never drift apart.
+      const productName = nameInput.value.trim()
+      const productNameJp = nameJpInput.value.trim()
+      const jan = janInput.value.trim()
+      const category = categorySel.value
       try {
+        // The product photo (if any) confirms edition/format only — the model still
+        // searches by text. Downscaled the same way identify-product.ts's photos are.
+        let image
+        if (selectedPhoto) {
+          let forApi = selectedPhoto
+          try {
+            if (window.resizeImage) forApi = await window.resizeImage(selectedPhoto, 1024, 0.8)
+          } catch (e) {}
+          image = await fileToBase64(forApi)
+        }
+
         const res = await fetch('/api/find-prices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            productName: nameInput.value.trim(),
-            productNameJp: nameJpInput.value.trim() || undefined,
-            jan: janInput.value.trim() || undefined,
-            category: categorySel.value,
+            productName,
+            productNameJp: productNameJp || undefined,
+            jan: jan || undefined,
+            category,
             region,
+            image,
           }),
         })
         const data = await res.json().catch(() => null)
@@ -1007,7 +1091,7 @@ const trips = await fetchTrips()
           return
         }
         hideFindPricesMsg()
-        renderFindPricesResults(data.results, region)
+        renderFindPricesResults(data.results, region, { productName, jan, category })
       } catch (e) {
         showFindPricesMsg('Network error.', false)
       } finally {
@@ -1093,9 +1177,7 @@ const trips = await fetchTrips()
             buyer: buyerSel.value || undefined,
             tripId: tripSel.value || undefined,
             note: noteInput.value.trim() || undefined,
-            // A freshly taken photo always wins — only reuse the existing product's
-            // photo when no new one was chosen for this entry.
-            imageAssetId: (!selectedPhoto && reusedImage) ? reusedImage.assetId : undefined,
+            imageAssetId: imageAssetIdForCreate(),
           }),
         })
         const data = await res.json()
@@ -1107,26 +1189,16 @@ const trips = await fetchTrips()
         // Upload the photo (if any) after the entry exists, so a failed upload never
         // costs you the price entry itself. Must happen before the Bought call below,
         // so the familyPurchase/collection item it may create can see the photo too.
+        // Skipped entirely if a "Save this price" click already uploaded this same
+        // photo earlier in the session — imageAssetIdForCreate() above already
+        // referenced that asset directly.
         let photoFailed = false
-        let uploadedImage = null
-        if (selectedPhoto && data.id) {
+        if (selectedPhoto && !uploadedPhotoAssetId && data.id) {
           saveBtn.textContent = 'Uploading photo…'
-          try {
-            const form = new FormData()
-            form.append('file', selectedPhoto)
-            form.append('docId', data.id)
-            form.append('field', 'image')
-            const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
-            if (!upRes.ok) {
-              photoFailed = true
-            } else {
-              const upData = await upRes.json().catch(() => null)
-              if (upData && upData.assetId && upData.url) uploadedImage = { assetId: upData.assetId, url: upData.url }
-            }
-          } catch (e) {
-            photoFailed = true
-          }
+          const ok = await uploadSelectedPhotoTo(data.id)
+          if (!ok) photoFailed = true
         }
+        const uploadedImage = reusedImage || (uploadedPhotoAssetId ? { assetId: uploadedPhotoAssetId, url: uploadedPhotoUrl } : null)
 
         let boughtError = null
         if (markingBought && data.id) {
@@ -1330,6 +1402,7 @@ const trips = await fetchTrips()
       padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
     }
     .ap-use-existing-btn:hover { background: #241826; }
+    .ap-find-prices-searched-for { font-size: 0.8rem; color: var(--text); font-weight: 600; margin: 0 0 0.5rem; overflow-wrap: anywhere; }
     .ap-find-prices-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
     .ap-find-prices-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
     .ap-find-prices-item {

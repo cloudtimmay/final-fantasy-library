@@ -17,6 +17,10 @@ const MODEL = 'claude-haiku-5-5'
 const MAX_TOKENS = 8192
 const TIMEOUT_MS = 55000
 
+// Same ceiling as identify-product.ts's total image budget, applied here to the single
+// optional product photo this endpoint accepts.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
 const CATEGORY_LABELS: Record<string, string> = {
   album: 'music album',
   game: 'video game',
@@ -36,6 +40,8 @@ For region "online": search international stores that ship to Norway, for exampl
 For every result, report the price and currency exactly as the store's own product page bills it — never a geo-converted, localized, or "estimated price in your currency" display. Many store pages show a converted price for visitors (for example a Japanese or US store showing an estimate in NOK because it detected a Norwegian visitor) — that converted figure is not what this is asking for; always use the store's actual listed price and its native currency.
 
 Only include a result if you are confident the product actually matches — same edition, same format (for example, don't match a Blu-ray edition to a request for a DVD, and don't match a different regional release unless that is genuinely what is being sold). If you are unsure whether a found listing is really the same product, leave it out rather than guessing.
+
+If a product photo is included, it shows the exact item being searched for. Use it only to confirm the edition and format you see in each search result (for example vinyl vs CD, or a limited vs standard edition) and drop any result that doesn't match what the photo shows — the web search itself must still be done by text (product name, Japanese name, or JAN), never by searching for the image.
 
 After searching, respond with ONLY a JSON array (no other text, no markdown code fences, no explanation) of up to 6 objects, each with exactly these fields:
 - store: string, the store/site name.
@@ -69,6 +75,19 @@ export const POST: APIRoute = async ({ request }) => {
   if (!CATEGORIES.includes(category)) return json(400, { error: 'Missing or invalid category' })
   if (!region) return json(400, { error: 'Missing or invalid region' })
 
+  // Optional product photo — confirms edition/format only, the search itself stays
+  // text-based. Defensive prefix-strip for the same reason as identify-product.ts: the
+  // client sends raw base64 only, but this endpoint doesn't control every caller.
+  let image: string | undefined
+  if (typeof body.image === 'string' && body.image) {
+    image = body.image
+    const commaIdx = image.indexOf(',')
+    if (image.startsWith('data:') && commaIdx !== -1) image = image.slice(commaIdx + 1)
+    if (Buffer.byteLength(image, 'base64') > MAX_IMAGE_BYTES) {
+      return json(400, { error: 'Image is too large (max 4MB)' })
+    }
+  }
+
   const lines = [`Find current prices for this ${CATEGORY_LABELS[category] || 'product'}.`]
   lines.push(`Product name (English): ${productName}`)
   if (productNameJp) lines.push(`Product name (Japanese): ${productNameJp}`)
@@ -100,7 +119,15 @@ export const POST: APIRoute = async ({ request }) => {
         max_tokens: MAX_TOKENS,
         system: SYSTEM_PROMPT,
         tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
-        messages: [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              ...(image ? [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } }] : []),
+              { type: 'text', text: userPrompt },
+            ],
+          },
+        ],
       }),
       signal: controller.signal,
     })

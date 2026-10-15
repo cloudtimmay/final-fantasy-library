@@ -58,6 +58,12 @@ export const shopNote = defineType({
       },
       initialValue: 'maybe',
     }),
+    defineField({
+      name: 'taxFreeShop',
+      title: 'Tax-free shop',
+      type: 'boolean',
+      description: 'Leave unset if unknown — deliberately no initial value, so "unknown" stays distinguishable from "No".',
+    }),
     defineField({ name: 'address', title: 'Address / how to find', type: 'string' }),
     defineField({ name: 'latitude', title: 'Latitude', type: 'number' }),
     defineField({ name: 'longitude', title: 'Longitude', type: 'number' }),

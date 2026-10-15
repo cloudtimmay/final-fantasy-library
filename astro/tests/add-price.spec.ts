@@ -1,6 +1,7 @@
+import path from 'node:path'
 import { test, expect, testName } from './fixtures'
 import { findIdByField } from './helpers/sanity-test-client'
-import { mockFindPricesResults } from './helpers/mock-ai'
+import { mockFindPricesResults, mockFindPricesTwoResults } from './helpers/mock-ai'
 
 test.describe('add-price: new product', () => {
   test('japan shop source', async ({ page, trackDoc }) => {
@@ -159,6 +160,92 @@ test.describe('add-price: find prices ("Save this price")', () => {
     await summary.locator('button', { hasText: 'Done' }).click()
     await expect(page.locator('#p-name')).toHaveValue('')
     await expect(resultsWrap).toBeHidden()
+  })
+})
+
+test.describe('add-price: find prices photo handling', () => {
+  test('Save this price uploads a freshly-taken photo once and reuses the same asset for a second entry', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const productName = testName(`Find Prices Photo ${Date.now()}`)
+    await mockFindPricesTwoResults(page)
+
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('album')
+    await page.locator('input[name="p-source"][value="online"]').check()
+
+    const photoPath = path.join(__dirname, '..', 'public', 'icons', 'album.png')
+    await page.locator('#p-photo-gallery').setInputFiles(photoPath)
+    await expect(page.locator('#p-preview')).toBeVisible()
+
+    await page.locator('#p-find-prices-btn').click()
+    const resultsWrap = page.locator('#p-find-prices-results')
+    await expect(resultsWrap).toBeVisible()
+
+    const saveButtons = resultsWrap.locator('.ap-find-prices-log-btn')
+    await expect(saveButtons).toHaveCount(2)
+
+    await saveButtons.nth(0).click()
+    await expect(saveButtons.nth(0)).toHaveText('Saved ✓')
+    // The photo must stay in the form — only a form reset (Done / normal Save) clears it.
+    await expect(page.locator('#p-preview')).toBeVisible()
+
+    await saveButtons.nth(1).click()
+    await expect(saveButtons.nth(1)).toHaveText('Saved ✓')
+
+    const docs = await sanity.fetch<{ _id: string; price: number; assetId: string | null }[]>(
+      `*[_type == "priceEntry" && productName == $name] | order(price asc) { _id, price, "assetId": image.asset._ref }`,
+      { name: productName }
+    )
+    expect(docs.length).toBe(2)
+    docs.forEach((d) => trackDoc(d._id))
+    if (docs[0]?.assetId) trackDoc(docs[0].assetId) // the uploaded Sanity image asset itself
+
+    expect(docs[0].assetId).toBeTruthy()
+    expect(docs[1].assetId).toBeTruthy()
+    // Same asset on both — proves the second "Save this price" reused the upload from
+    // the first instead of uploading the file again.
+    expect(docs[0].assetId).toBe(docs[1].assetId)
+  })
+})
+
+test.describe('add-price: find prices "Searched for" line', () => {
+  test('reflects the current form values, including JAN when present', async ({ page }) => {
+    const productName = testName(`Searched For ${Date.now()}`)
+    await mockFindPricesResults(page)
+
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-jan').fill('4988601112223')
+    await page.locator('#p-category').selectOption('game')
+    await page.locator('input[name="p-source"][value="online"]').check()
+
+    await page.locator('#p-find-prices-btn').click()
+    const resultsWrap = page.locator('#p-find-prices-results')
+    await expect(resultsWrap).toBeVisible()
+
+    const searchedForLine = resultsWrap.locator('.ap-find-prices-searched-for')
+    await expect(searchedForLine).toHaveText(`Searched for: ${productName} · 4988601112223 · Game (by JAN)`)
+  })
+
+  test('omits "(by JAN)" when no JAN was entered', async ({ page }) => {
+    const productName = testName(`Searched For No JAN ${Date.now()}`)
+    await mockFindPricesResults(page)
+
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('book')
+    await page.locator('input[name="p-source"][value="online"]').check()
+
+    await page.locator('#p-find-prices-btn').click()
+    const resultsWrap = page.locator('#p-find-prices-results')
+    await expect(resultsWrap).toBeVisible()
+
+    const searchedForLine = resultsWrap.locator('.ap-find-prices-searched-for')
+    await expect(searchedForLine).toHaveText(`Searched for: ${productName} · Book`)
   })
 })
 

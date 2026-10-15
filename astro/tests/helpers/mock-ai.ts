@@ -58,6 +58,36 @@ export async function mockFindPricesResults(page: Page): Promise<void> {
   })
 }
 
+export async function mockFindPricesTwoResults(page: Page): Promise<void> {
+  await page.route('**/api/find-prices', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        results: [
+          {
+            store: 'CDJapan',
+            price: 42.99,
+            currency: 'USD',
+            url: 'https://www.cdjapan.co.jp/product/TEST-FIXTURE-1',
+            inStock: true,
+            note: undefined,
+          },
+          {
+            store: 'AmiAmi',
+            price: 39.99,
+            currency: 'USD',
+            url: 'https://www.amiami.com/product/TEST-FIXTURE-2',
+            inStock: true,
+            note: undefined,
+          },
+        ],
+      }),
+    })
+  })
+}
+
 export async function mockFindPricesEmpty(page: Page): Promise<void> {
   await page.route('**/api/find-prices', async (route) => {
     await route.fulfill({

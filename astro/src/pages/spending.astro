@@ -1,50 +1,78 @@
 ---
 import Base from '../layouts/Base.astro'
-import { sanity } from '../lib/sanity'
+import {
+  fetchTripsForSpending,
+  fetchFamilyPurchasesForTrip,
+  fetchPlannedPriceEntries,
+  pickDefaultTrip,
+  computePersonSpending,
+  sumBoughtNok,
+} from '../lib/spending'
 
-const allTrips = await sanity.fetch(`
-  *[_type == "tripSettings"] | order(_createdAt asc) {
-    _id, _createdAt, label, budgetNok, budgetYen, jpyToNokRate,
-    childBudgets[]{ person, budgetNok, budgetYen }
-  }
-`)
-
-const familyPurchases = await sanity.fetch(`
-  *[_type == "familyPurchase" && !(_id in path("drafts.**"))] {
-    _id, name, person, status, priceNok, priceYen, purchaseDate,
-    "tripId": trip._ref,
-    "storeId": store._ref,
-    "storeName": store->shopName
-  }
-`)
+const allTrips = await fetchTripsForSpending()
 
 const requestedId = Astro.url.searchParams.get('trip')
-const settings = allTrips.find((t) => t._id === requestedId) ?? allTrips[0] ?? null
+const settings = allTrips.find((t) => t._id === requestedId) ?? pickDefaultTrip(allTrips)
 
 function tripLabel(trip, index) {
   if (trip.label) return trip.label
-  if (trip._createdAt) return new Date(trip._createdAt).toLocaleDateString('en-GB')
+  if (trip.startDate) return new Date(trip.startDate).toLocaleDateString('en-GB')
   return `Trip ${index + 1}`
 }
 
 const activeTripId = settings?._id ?? null
-const defaultRate = settings?.jpyToNokRate ?? 0.060
+// Always the trip's own stored rate — no live-editable override (see Trip Settings).
+const rate = settings?.jpyToNokRate ?? 0.06
 const budgetNok = settings?.budgetNok ?? null
 const budgetYen = settings?.budgetYen ?? null
 const childBudgets = settings?.childBudgets ?? []
 
-const tripPurchases = familyPurchases.filter((p) => p.tripId === activeTripId)
+const tripPurchases = activeTripId ? await fetchFamilyPurchasesForTrip(activeTripId) : []
 
 const tripPeople = childBudgets.map((c) => c.person).filter(Boolean)
 const purchasePeople = [...new Set(tripPurchases.map((p) => p.person).filter(Boolean))]
 const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
+
+// Computed once, server-side, for every person on this trip — the per-person cards
+// (added in a later step) render this directly; the trip frame below aggregates it.
+const personSpendings = activeTripId
+  ? await Promise.all(
+      peopleList.map(async (person) => {
+        const planned = await fetchPlannedPriceEntries(person, activeTripId)
+        return computePersonSpending(person, childBudgets, tripPurchases, planned, rate)
+      })
+    )
+  : []
+
+function fmtYen(n) {
+  return '¥' + Math.round(n).toLocaleString('en-US')
+}
+function fmtNok(n) {
+  return Math.round(n).toLocaleString('nb-NO') + ' kr'
+}
+function budgetBoth(bNok, bYen) {
+  let nok = null, yen = null, nokExplicit = false, yenExplicit = false
+  if (bNok) { nok = bNok; yen = rate > 0 ? nok / rate : null; nokExplicit = true }
+  else if (bYen) { yen = bYen; nok = yen * rate; yenExplicit = true }
+  return { nok, yen, nokExplicit, yenExplicit }
+}
+
+// Trip frame: the family's total budget for the trip, compared against everyone's
+// bought total (planned is shown separately, never counted against the frame itself).
+const frameBudget = budgetBoth(budgetNok, budgetYen)
+const frameBoughtNok = sumBoughtNok(tripPurchases, rate)
+const framePlannedNok = personSpendings.reduce((sum, p) => sum + p.plannedNok, 0)
+const framePlannedExcludedCount = personSpendings.reduce((sum, p) => sum + p.plannedExcludedCurrencyCount, 0)
+const frameOverBudget = frameBudget.nok != null && frameBoughtNok > frameBudget.nok
+const framePct = frameBudget.nok ? Math.min(100, (frameBoughtNok / frameBudget.nok) * 100) : 0
+const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBoughtNok : null
 ---
 <Base title="Spending">
   <div class="page-header">
     <h1>Spending</h1>
   </div>
 
-  <p class="hint">Family shopping list for the selected trip is below. Budgets and rate are set in Studio (Trip Settings).</p>
+  <p class="hint">Family shopping list for the selected trip is below. Budgets are set in Studio (Trip Settings).</p>
 
   {allTrips.length > 1 && (
     <nav class="trip-switcher">
@@ -58,9 +86,36 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     </nav>
   )}
 
-  <div class="rate-row">
-    <label>1 JPY = <input id="rate" type="number" step="0.0001" value={defaultRate} /> NOK</label>
-  </div>
+  <p class="rate-note">1 JPY = {rate} NOK (change in Trip Settings)</p>
+
+  {frameBudget.nok != null && frameBudget.nok > 0 && (
+    <div class="frame-card" id="frame-card">
+      <div class="frame-head">
+        <span>Family trip budget</span>
+        <span class="frame-budget-label">
+          {fmtNok(frameBudget.nok)}{!frameBudget.nokExplicit ? ' est.' : ''}
+          {frameBudget.yen ? ` (${fmtYen(frameBudget.yen)}${!frameBudget.yenExplicit ? ' est.' : ''})` : ''}
+        </span>
+      </div>
+      <div class="frame-bar">
+        <div class:list={['frame-fill', { over: frameOverBudget }]} style={`width:${framePct.toFixed(1)}%`}></div>
+      </div>
+      <div class:list={['frame-meta', { over: frameOverBudget }]}>
+        {fmtNok(frameBoughtNok)} spent
+        {framePlannedNok > 0 && ` · +${fmtNok(framePlannedNok)} planned`}
+        {frameRemainingNok != null && (
+          frameRemainingNok >= 0
+            ? ` · ${fmtNok(frameRemainingNok)} left`
+            : ` · ${fmtNok(-frameRemainingNok)} over`
+        )}
+      </div>
+      {framePlannedExcludedCount > 0 && (
+        <p class="frame-note">
+          {framePlannedExcludedCount} planned item{framePlannedExcludedCount === 1 ? '' : 's'} in a currency other than JPY/NOK excluded from planned totals.
+        </p>
+      )}
+    </div>
+  )}
 
   <!-- ===== FAMILY SHOPPING LIST (this trip only) ===== -->
   <section class="section">
@@ -91,9 +146,7 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     )}
   </section>
 
-  <script define:vars={{ budgetNok, budgetYen, childBudgets, peopleList, tripPurchases }}>
-    const rateInput = document.querySelector('#rate')
-
+  <script define:vars={{ budgetNok, budgetYen, childBudgets, peopleList, tripPurchases, rate }}>
     const personFilter = document.querySelector('#person-filter')
     const childSummary = document.querySelector('#child-summary')
     const familyList = document.querySelector('#family-list')
@@ -122,7 +175,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
 
     function updateFamily() {
       if (!childSummary) return
-      const rate = Number(rateInput.value) || 0
       const peopleToShow = selectedPerson ? [selectedPerson] : (peopleList || [])
 
       const rows = peopleToShow.map((person) => {
@@ -300,8 +352,6 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
       })
     }
 
-    rateInput.addEventListener('input', update)
-
     update()
   </script>
 
@@ -354,9 +404,16 @@ const peopleList = [...new Set([...tripPeople, ...purchasePeople])]
     .section { margin-bottom: 2.5rem; }
     .section-title { font-size: 1.1rem; margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
 
-    .rate-row { margin-bottom: 1.5rem; }
-    .rate-row label { font-size: 0.85rem; color: var(--muted); display: flex; gap: 0.4rem; align-items: center; }
-    .rate-row input { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; width: 100px; }
+    .rate-note { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.5rem; }
+
+    .frame-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+    .frame-head { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.6rem; font-weight: 600; }
+    .frame-bar { background: var(--border); border-radius: 999px; height: 12px; overflow: hidden; }
+    .frame-fill { background: #2ecc71; height: 100%; width: 0%; transition: width 0.3s; }
+    .frame-fill.over { background: #e74c3c; }
+    .frame-meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+    .frame-meta.over { color: #e74c3c; font-weight: 600; }
+    .frame-note { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
 
     .child-summary { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
     .cs-row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }

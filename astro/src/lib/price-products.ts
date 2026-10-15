@@ -15,6 +15,7 @@ export type PriceDoc = {
   condition?: string
   status?: string
   seenAt?: string
+  note?: string
 }
 
 export type ProductPrice = {
@@ -25,6 +26,7 @@ export type ProductPrice = {
   condition?: string
   status?: string
   seenAt?: string
+  note?: string
 }
 
 export type Product = {
@@ -59,7 +61,7 @@ const PRICE_DOCS_QUERY = `
     "image": image{ "assetId": asset->_id, "url": asset->url },
     price, currency, sourceType,
     "shopName": shop->shopName,
-    sourceName, condition, status, seenAt
+    sourceName, condition, status, seenAt, note
   }
 `
 
@@ -82,6 +84,7 @@ export function groupProducts(docs: PriceDoc[]): Product[] {
       condition: d.condition,
       status: d.status,
       seenAt: d.seenAt,
+      note: d.note,
     }
 
     let product = productMap.get(key)

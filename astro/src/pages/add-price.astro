@@ -341,14 +341,26 @@ const trips = await fetchTrips()
       seenWrap.hidden = false
       prices.forEach((p) => {
         const li = document.createElement('li')
+
+        const main = document.createElement('div')
+        main.className = 'seen-main'
         const left = document.createElement('span')
         left.className = 'seen-source'
         left.textContent = p.source
         const right = document.createElement('span')
         right.className = 'seen-price'
         right.textContent = formatPrice(p.price, p.currency)
-        li.appendChild(left)
-        li.appendChild(right)
+        main.appendChild(left)
+        main.appendChild(right)
+        li.appendChild(main)
+
+        if (p.note) {
+          const note = document.createElement('div')
+          note.className = 'seen-note'
+          note.textContent = p.note
+          li.appendChild(note)
+        }
+
         seenList.appendChild(li)
       })
     }
@@ -614,7 +626,7 @@ const trips = await fetchTrips()
           productName,
           jan,
           category,
-          { source: sourceLabel, price: Number(priceVal), currency: currencySel.value },
+          { source: sourceLabel, price: Number(priceVal), currency: currencySel.value, note: noteInput.value.trim() || undefined },
           uploadedImage
         )
         if (tripSel.value) rememberTrip()
@@ -678,9 +690,11 @@ const trips = await fetchTrips()
     .photo-remove-btn[hidden] { display: none; }
     .photo-remove-btn:hover { border-color: var(--accent); }
     .seen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 160px; overflow-y: auto; }
-    .seen-list li { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+    .seen-list li { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; padding: 0.4rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+    .seen-main { display: flex; justify-content: space-between; gap: 0.75rem; }
     .seen-source { color: var(--text); }
     .seen-price { color: var(--accent); font-weight: 600; white-space: nowrap; }
+    .seen-note { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
     .name-warning { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
     .name-warning[hidden] { display: none; }
     .name-warning-row {

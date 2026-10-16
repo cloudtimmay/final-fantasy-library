@@ -205,7 +205,10 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
 
         {shopDayGroups.length > 0 && (
           <div class="store-wrap">
-            <h3 class="store-title">Tax-free by shop / day</h3>
+            <div class="store-title-row">
+              <h3 class="store-title">Tax-free by shop / day</h3>
+              <a href={`/checklist?trip=${activeTripId}`} class="checklist-link">✈️ Airport checklist</a>
+            </div>
             <div class="store-list">
               {shopDayGroups.map((g) => (
                 <div class:list={['store-row', { ok: g.reached && g.taxFreeShop === true, unknown: g.taxFreeShop === null }]}>
@@ -420,6 +423,10 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
 
     .store-wrap { margin-bottom: 1.5rem; }
     .store-title { font-size: 0.95rem; margin: 0 0 0.6rem; }
+    .store-title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
+    .store-title-row .store-title { margin: 0 0 0.6rem; }
+    .checklist-link { font-size: 0.82rem; color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
+    .checklist-link:hover { text-decoration: underline; }
     .store-list { display: flex; flex-direction: column; gap: 0.5rem; }
     .store-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.85rem; }
     .store-row.ok { border-color: #2ecc71; }

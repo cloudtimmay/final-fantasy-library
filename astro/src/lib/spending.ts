@@ -85,6 +85,7 @@ export type FamilyPurchaseDoc = {
   storeId?: string
   storeName?: string
   taxFreeShop: boolean | null
+  photoUrl?: string
 }
 
 export async function fetchFamilyPurchasesForTrip(tripId: string): Promise<FamilyPurchaseDoc[]> {
@@ -93,11 +94,12 @@ export async function fetchFamilyPurchasesForTrip(tripId: string): Promise<Famil
       _id, name, person, status, priceNok, priceYen, purchaseDate, barcode,
       "storeId": store._ref,
       "storeName": store->shopName,
-      "taxFreeShop": store->taxFreeShop
+      "taxFreeShop": store->taxFreeShop,
+      "photoUrl": photos[0].asset->url
     }`,
     { tripId }
   )
-  return raw.map((p) => ({ ...p, taxFreeShop: p.taxFreeShop ?? null }))
+  return raw.map((p) => ({ ...p, taxFreeShop: p.taxFreeShop ?? null, photoUrl: p.photoUrl ?? undefined }))
 }
 
 export type PlannedPriceDoc = {
@@ -266,4 +268,48 @@ export function groupShopDays(familyPurchases: FamilyPurchaseDoc[]): ShopDayGrou
       return { ...g, reached, missingInclJpy, estimatedRefundJpy }
     })
     .sort((a, b) => b.day.localeCompare(a.day) || a.storeName.localeCompare(b.storeName))
+}
+
+export type ChecklistGroup = {
+  key: string // stable id for this (person, store, day) group, for localStorage/DOM
+  person: string
+  storeName: string
+  day: string
+  taxFreeShop: boolean | null
+  items: FamilyPurchaseDoc[]
+  totalInclJpy: number
+  reached: boolean
+  estimatedRefundJpy: number
+}
+
+// Groups BOUGHT familyPurchase rows by (person, shop, day) rather than shop+day alone —
+// Japan's tax-free threshold is checked per purchaser's passport at the register, so
+// combining several people's purchases together (as groupShopDays() does, for the
+// page-level spending overview) would be wrong for an actual airport checklist: it could
+// show a shop-day as "qualifying" that no single person's receipts actually clear. Also
+// carries the individual line items, which groupShopDays() doesn't, since the checklist
+// needs to list and check off each one.
+export function groupBoughtByPersonShopDay(familyPurchases: FamilyPurchaseDoc[]): ChecklistGroup[] {
+  const groups = new Map<string, ChecklistGroup>()
+  for (const p of familyPurchases) {
+    if (p.status !== 'bought') continue
+    if (!p.priceYen) continue
+    const storeName = (p.storeName && p.storeName.trim()) || '— No store —'
+    const day = p.purchaseDate || '— No date —'
+    const key = `${p.person}||${storeName}||${day}`
+    let g = groups.get(key)
+    if (!g) {
+      g = { key, person: p.person, storeName, day, taxFreeShop: p.taxFreeShop, items: [], totalInclJpy: 0, reached: false, estimatedRefundJpy: 0 }
+      groups.set(key, g)
+    }
+    g.items.push(p)
+    g.totalInclJpy += p.priceYen
+  }
+  return [...groups.values()]
+    .map((g) => {
+      const reached = g.totalInclJpy >= TAX_FREE_THRESHOLD_INCL_JPY
+      const estimatedRefundJpy = reached && g.taxFreeShop === true ? g.totalInclJpy / 11 : 0
+      return { ...g, reached, estimatedRefundJpy }
+    })
+    .sort((a, b) => a.person.localeCompare(b.person) || b.day.localeCompare(a.day) || a.storeName.localeCompare(b.storeName))
 }

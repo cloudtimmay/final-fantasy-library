@@ -1,0 +1,283 @@
+---
+import Base from '../layouts/Base.astro'
+import {
+  fetchTripsForSpending,
+  fetchFamilyPurchasesForTrip,
+  pickDefaultTrip,
+  groupBoughtByPersonShopDay,
+} from '../lib/spending'
+
+const allTrips = await fetchTripsForSpending()
+
+const requestedId = Astro.url.searchParams.get('trip')
+const settings = allTrips.find((t) => t._id === requestedId) ?? pickDefaultTrip(allTrips)
+const activeTripId = settings?._id ?? null
+
+function tripLabel(trip, index) {
+  if (trip.label) return trip.label
+  if (trip.startDate) return new Date(trip.startDate).toLocaleDateString('en-GB')
+  return `Trip ${index + 1}`
+}
+
+const allPurchases = activeTripId ? await fetchFamilyPurchasesForTrip(activeTripId) : []
+const groups = groupBoughtByPersonShopDay(allPurchases)
+
+// Main checklist: shop-days that actually clear the threshold at a shop confirmed
+// tax-free. "Check the receipt": same threshold cleared, but the shop's tax-free status
+// is unknown — nothing to check off yet, just a reminder to find out before departure.
+const qualifyingGroups = groups.filter((g) => g.reached && g.taxFreeShop === true)
+const unknownGroups = groups.filter((g) => g.reached && g.taxFreeShop === null)
+
+const peopleWithQualifying = [...new Set(qualifyingGroups.map((g) => g.person))]
+
+function fmtYen(n) {
+  return '¥' + Math.round(n).toLocaleString('en-US')
+}
+
+const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
+---
+<Base title="Airport checklist">
+  <div class="page-header">
+    <h1>Airport checklist</h1>
+  </div>
+
+  <p class="hint">
+    For the tax-free refund system in effect from 1 Nov 2026: you already paid the tax-included price in the shop — this is what to have ready at the airport to claim it back.
+  </p>
+
+  {allTrips.length > 1 && (
+    <nav class="trip-switcher">
+      <span class="trip-switcher-label">Trip:</span>
+      {allTrips.map((trip, index) => (
+        <a
+          href={`/checklist?trip=${trip._id}`}
+          class:list={['trip-btn', { active: trip._id === activeTripId }]}
+        >{tripLabel(trip, index)}</a>
+      ))}
+    </nav>
+  )}
+
+  <ul class="checklist-rules">
+    <li>Have passports ready.</li>
+    <li>All tax-free goods must be shown at customs before check-in.</li>
+    <li>Every item on a receipt must be present, or the whole receipt loses its refund.</li>
+    <li>Goods used in Japan do not qualify.</li>
+    <li>Refund via the airport kiosk or Visit Japan Web.</li>
+  </ul>
+
+  {activeTripId && qualifyingGroups.length > 0 && (
+    <>
+      <div class="checklist-toolbar">
+        <p class="checklist-progress" id="checklist-progress" data-total={totalItems}>
+          0 of {totalItems} item{totalItems === 1 ? '' : 's'} ready
+        </p>
+        <button type="button" class="reset-btn" id="reset-checklist-btn">Reset checklist</button>
+      </div>
+
+      <div class="person-sections" id="checklist-trip" data-trip-id={activeTripId}>
+        {peopleWithQualifying.map((person) => (
+          <section class="person-section">
+            <h2 class="person-section-title">{person}</h2>
+            {qualifyingGroups.filter((g) => g.person === person).map((g) => (
+              <div class="shopday-card">
+                <div class="shopday-head">
+                  <label class="shopday-receipt">
+                    <input type="checkbox" class="receipt-checkbox" data-group-key={g.key} />
+                    <span>
+                      <span class="shopday-name">{g.storeName}</span>
+                      <span class="shopday-day">{g.day}</span>
+                    </span>
+                  </label>
+                  <span class="shopday-totals">
+                    {fmtYen(g.totalInclJpy)} · ~{fmtYen(g.estimatedRefundJpy)} est. refund
+                  </span>
+                </div>
+                <ul class="checklist-items">
+                  {g.items.map((item) => (
+                    <li class="checklist-item">
+                      <label class="checklist-item-label">
+                        <input type="checkbox" class="item-checkbox" data-item-id={item._id} />
+                        {item.photoUrl ? (
+                          <img class="item-thumb" src={`${item.photoUrl}?w=60`} alt="" />
+                        ) : (
+                          <span class="item-thumb item-thumb-placeholder">🏷️</span>
+                        )}
+                        <span class="item-name">{item.name}</span>
+                        <span class="item-price">{fmtYen(item.priceYen || 0)}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </>
+  )}
+
+  {activeTripId && qualifyingGroups.length === 0 && (
+    <p class="hint">No shop-days at a confirmed tax-free shop have reached the ¥5,000 threshold yet for this trip.</p>
+  )}
+
+  {!activeTripId && (
+    <p class="hint">No trip selected.</p>
+  )}
+
+  <div class="unknown-wrap" id="unknown-wrap" hidden>
+    <h2 class="section-title">Check the receipt</h2>
+    <p class="hint">These shop-days reached the threshold, but it's not confirmed whether the shop does tax-free — ask at checkout or check the receipt before relying on a refund.</p>
+    <ul class="unknown-list" id="unknown-list">
+      {unknownGroups.map((g) => (
+        <li class="unknown-row">
+          <span class="unknown-name">{g.person} — {g.storeName} <span class="shopday-day">{g.day}</span></span>
+          <span class="unknown-total">{fmtYen(g.totalInclJpy)}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+
+  <script define:vars={{ activeTripId, unknownGroupsCount: unknownGroups.length }}>
+    const unknownWrap = document.querySelector('#unknown-wrap')
+    if (unknownWrap && unknownGroupsCount > 0) unknownWrap.hidden = false
+
+    const tripRoot = document.querySelector('#checklist-trip')
+    if (tripRoot && activeTripId) {
+      const STORAGE_KEY = 'ff-checklist-' + activeTripId
+      const progressEl = document.querySelector('#checklist-progress')
+      const itemCheckboxes = Array.from(tripRoot.querySelectorAll('.item-checkbox'))
+      const groupCheckboxes = Array.from(tripRoot.querySelectorAll('.receipt-checkbox'))
+      const resetBtn = document.querySelector('#reset-checklist-btn')
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY)
+          return raw ? JSON.parse(raw) : { items: {}, groups: {} }
+        } catch (e) {
+          return { items: {}, groups: {} }
+        }
+      }
+
+      function saveState(state) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+        } catch (e) {}
+      }
+
+      function updateProgress() {
+        const checked = itemCheckboxes.filter((c) => c.checked).length
+        const total = itemCheckboxes.length
+        progressEl.textContent = `${checked} of ${total} item${total === 1 ? '' : 's'} ready`
+      }
+
+      function applyState(state) {
+        itemCheckboxes.forEach((c) => { c.checked = !!state.items[c.dataset.itemId] })
+        groupCheckboxes.forEach((c) => { c.checked = !!state.groups[c.dataset.groupKey] })
+        updateProgress()
+      }
+
+      applyState(loadState())
+
+      itemCheckboxes.forEach((c) => {
+        c.addEventListener('change', () => {
+          const state = loadState()
+          if (c.checked) state.items[c.dataset.itemId] = true
+          else delete state.items[c.dataset.itemId]
+          saveState(state)
+          updateProgress()
+        })
+      })
+
+      groupCheckboxes.forEach((c) => {
+        c.addEventListener('change', () => {
+          const state = loadState()
+          if (c.checked) state.groups[c.dataset.groupKey] = true
+          else delete state.groups[c.dataset.groupKey]
+          saveState(state)
+        })
+      })
+
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          const ok = window.confirm('Reset all checkboxes on this checklist? This cannot be undone.')
+          if (!ok) return
+          try { localStorage.removeItem(STORAGE_KEY) } catch (e) {}
+          applyState({ items: {}, groups: {} })
+        })
+      }
+    }
+  </script>
+
+  <style>
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
+
+    .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }
+    .trip-btn {
+      padding: 0.45rem 0.95rem; border: 1px solid var(--border); border-radius: 999px;
+      background: var(--surface); color: var(--text); font-size: 0.85rem; font-weight: 500;
+      line-height: 1; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
+    }
+    .trip-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+    .checklist-rules {
+      list-style: none; margin: 0 0 1.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .checklist-rules li {
+      font-size: 0.85rem; color: var(--text); padding: 0.55rem 0.75rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .checklist-rules li::before { content: '✓ '; color: var(--accent); font-weight: 700; }
+
+    .checklist-toolbar {
+      display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+      flex-wrap: wrap; margin-bottom: 1.25rem;
+    }
+    .checklist-progress { font-size: 0.95rem; font-weight: 600; color: var(--text); margin: 0; }
+    .reset-btn {
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+    }
+    .reset-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    .section-title { font-size: 1.1rem; margin: 2rem 0 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+
+    .person-sections { display: flex; flex-direction: column; gap: 1.75rem; }
+    .person-section-title { font-size: 1rem; margin: 0 0 0.75rem; color: var(--accent); }
+
+    .shopday-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 0.9rem 1rem; margin-bottom: 0.9rem;
+    }
+    .shopday-head {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;
+      margin-bottom: 0.6rem; flex-wrap: wrap;
+    }
+    .shopday-receipt { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+    .shopday-receipt input { width: auto; margin: 0; flex-shrink: 0; }
+    .shopday-day { font-weight: 400; color: var(--muted); font-size: 0.75rem; margin-left: 0.4rem; }
+    .shopday-totals { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+
+    .checklist-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+    .checklist-item-label {
+      display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.5rem;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .checklist-item-label input { width: auto; margin: 0; flex-shrink: 0; }
+    .item-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--border); }
+    .item-thumb-placeholder { display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+    .item-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .item-price { color: var(--muted); font-size: 0.78rem; flex-shrink: 0; }
+    .checklist-item:has(.item-checkbox:checked) .item-name { text-decoration: line-through; opacity: 0.6; }
+
+    .unknown-wrap { margin-top: 1rem; }
+    .unknown-wrap[hidden] { display: none; }
+    .unknown-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .unknown-row {
+      display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;
+      background: var(--surface); border: 1px solid rgba(243,156,18,0.4); border-radius: 8px;
+      padding: 0.6rem 0.9rem; font-size: 0.85rem;
+    }
+    .unknown-total { color: var(--muted); white-space: nowrap; }
+  </style>
+</Base>

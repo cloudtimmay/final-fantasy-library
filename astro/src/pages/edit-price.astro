@@ -135,6 +135,7 @@ const sourceLabel =
           <label>Paid with passport</label>
           <select id="p-passport" data-owner={OWNER}>
             {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+            <option value="none">No passport (not tax-free)</option>
           </select>
         </div>
 
@@ -302,6 +303,7 @@ const sourceLabel =
           const vals = el.getAttribute('data-source-for').split(' ')
           el.hidden = !vals.includes(src)
         })
+        updatePassportVisibility()
       }
       sourceRadios.forEach((r) => r.addEventListener('change', applySource))
       applySource()
@@ -340,8 +342,11 @@ const sourceLabel =
       function updateFrozenNote() {
         frozenNote.hidden = statusSel.value !== 'bought'
       }
+      // Only meaningful for a Japan shop purchase — Online/Norway purchases are never
+      // paid with a passport at a Japanese register, so they're always treated as not
+      // tax-free (see the price-entry-update.ts side of this).
       function updatePassportVisibility() {
-        passportField.hidden = statusSel.value !== 'bought'
+        passportField.hidden = statusSel.value !== 'bought' || currentSource() !== 'japanStore'
       }
       statusSel.addEventListener('change', updateFrozenNote)
       statusSel.addEventListener('change', updateBoughtNoTripNote)

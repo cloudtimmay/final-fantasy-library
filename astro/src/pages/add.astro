@@ -72,6 +72,7 @@ const today = new Date().toISOString().split('T')[0]
       <label>Paid with passport</label>
       <select id="f-passport" data-owner={OWNER}>
         {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+        <option value="none">No passport (not tax-free)</option>
       </select>
     </div>
 

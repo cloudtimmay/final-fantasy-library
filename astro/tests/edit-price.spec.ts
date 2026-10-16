@@ -290,6 +290,167 @@ test.describe('edit-price: status, buyer, trip', () => {
   })
 })
 
+test.describe('edit-price: passport field only for a Japan shop purchase', () => {
+  test('hides the field for an Online source and creates a not-tax-free familyPurchase with no passportHolder', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Online Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`Online Bought ${Date.now()}`)
+    const created = await sanity.create({
+      _type: 'priceEntry',
+      productName,
+      category: 'figure',
+      sourceType: 'online',
+      sourceName: 'Play-Asia',
+      price: 50,
+      currency: 'NOK',
+      condition: 'new',
+      status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(created._id)
+
+    await page.goto(`/edit-price?id=${created._id}`)
+    await expect(page.locator('#p-passport-field')).toBeHidden()
+
+    const optionValue = await page.locator('#p-trip option', { hasText: tripLabel }).first().getAttribute('value')
+    await page.locator('#p-trip').selectOption(optionValue!)
+    await page.locator('#p-status').selectOption('bought')
+    // Still hidden — Online is never tax-free, so there's nothing to pick a passport for.
+    await expect(page.locator('#p-passport-field')).toBeHidden()
+
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id: created._id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ taxFree: boolean | null; passportHolder: string | null }>(
+      '*[_id == $id][0]{ taxFree, passportHolder }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.taxFree).toBe(false)
+    expect(fp.passportHolder ?? null).toBeNull()
+  })
+
+  test('shows the field for a Japan shop source and saves the chosen passport holder as tax-free', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Japan Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Richard', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`Japan Shop Bought ${Date.now()}`)
+    const created = await sanity.create({
+      _type: 'priceEntry',
+      productName,
+      category: 'game',
+      sourceType: 'japanStore',
+      price: 3000,
+      currency: 'JPY',
+      taxIncluded: true,
+      condition: 'new',
+      status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(created._id)
+
+    await page.goto(`/edit-price?id=${created._id}`)
+    await page.locator('#p-buyer').selectOption('Richard')
+    const optionValue = await page.locator('#p-trip option', { hasText: tripLabel }).first().getAttribute('value')
+    await page.locator('#p-trip').selectOption(optionValue!)
+    await page.locator('#p-status').selectOption('bought')
+
+    await expect(page.locator('#p-passport-field')).toBeVisible()
+    await page.locator('#p-passport').selectOption('Richard')
+
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id: created._id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ passportHolder: string; taxFree: boolean | null }>(
+      '*[_id == $id][0]{ passportHolder, taxFree }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.passportHolder).toBe('Richard')
+    expect(fp.taxFree ?? null).toBeNull() // left unset — tax-free
+  })
+
+  test('lets a Japan shop purchase be marked "No passport", creating a not-tax-free familyPurchase with no passportHolder', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Japan No Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Niklas', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`Japan Shop No Passport ${Date.now()}`)
+    const created = await sanity.create({
+      _type: 'priceEntry',
+      productName,
+      category: 'game',
+      sourceType: 'japanStore',
+      price: 500,
+      currency: 'JPY',
+      taxIncluded: true,
+      condition: 'new',
+      status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(created._id)
+
+    await page.goto(`/edit-price?id=${created._id}`)
+    await page.locator('#p-buyer').selectOption('Niklas')
+    const optionValue = await page.locator('#p-trip option', { hasText: tripLabel }).first().getAttribute('value')
+    await page.locator('#p-trip').selectOption(optionValue!)
+    await page.locator('#p-status').selectOption('bought')
+
+    await expect(page.locator('#p-passport-field')).toBeVisible()
+    await page.locator('#p-passport').selectOption('none')
+
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id: created._id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ taxFree: boolean | null; passportHolder: string | null }>(
+      '*[_id == $id][0]{ taxFree, passportHolder }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.taxFree).toBe(false)
+    expect(fp.passportHolder ?? null).toBeNull()
+  })
+})
+
 test.describe('edit-price: delete', () => {
   test('deleting a price entry removes it and navigates back to the list', async ({ page, sanity }) => {
     const productName = testName(`Delete Me ${Date.now()}`)

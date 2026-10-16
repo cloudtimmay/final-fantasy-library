@@ -63,10 +63,18 @@ export const POST: APIRoute = async ({ request }) => {
 
   const buyer = String(body.buyer || '').trim() || undefined
   const tripId = String(body.tripId || '').trim() || undefined
-  const passportHolder = String(body.passportHolder || '').trim() || undefined
-  if (passportHolder && !PEOPLE_LIST.includes(passportHolder)) {
+
+  // "none" is the client's sentinel for "No passport (not tax-free)" — never a real
+  // person's name, so it's handled separately from the PEOPLE_LIST check below.
+  const rawPassportHolder = String(body.passportHolder || '').trim()
+  if (rawPassportHolder && rawPassportHolder !== 'none' && !PEOPLE_LIST.includes(rawPassportHolder)) {
     return json(400, { error: 'Invalid passport holder' })
   }
+  // Only a Japan shop purchase can be tax-free — an Online/Norway purchase never shows a
+  // passport at a Japanese register, so it's always not-tax-free regardless of whatever
+  // passport value the client sent (ignored entirely in that case).
+  const noPassport = sourceType !== 'japanStore' || rawPassportHolder === 'none'
+  const passportHolder = !noPassport && rawPassportHolder ? rawPassportHolder : undefined
 
   const extraCostNum = Number(body.extraCost)
   const hasExtraCost = body.extraCost !== '' && body.extraCost != null && !isNaN(extraCostNum)
@@ -158,6 +166,7 @@ export const POST: APIRoute = async ({ request }) => {
       }
       if (existing.jan) fpDoc.barcode = existing.jan
       if (passportHolder) fpDoc.passportHolder = passportHolder
+      if (noPassport) fpDoc.taxFree = false
       if (sourceType === 'japanStore' && existing.shopId) {
         fpDoc.store = { _type: 'reference', _ref: existing.shopId }
       }

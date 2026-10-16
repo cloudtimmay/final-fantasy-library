@@ -192,6 +192,7 @@ const trips = await fetchTrips()
       <label>Paid with passport</label>
       <select id="p-passport" data-owner={OWNER}>
         {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+        <option value="none">No passport (not tax-free)</option>
       </select>
     </div>
 
@@ -290,6 +291,7 @@ const trips = await fetchTrips()
         el.hidden = !vals.includes(src)
       })
       updateFindPricesVisibility()
+      updatePassportVisibility()
     }
     sourceRadios.forEach((r) => r.addEventListener('change', applySource))
 
@@ -314,8 +316,11 @@ const trips = await fetchTrips()
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
 
+    // Only meaningful for a Japan shop purchase — Online/Norway purchases are never
+    // paid with a passport at a Japanese register, so they're always treated as not
+    // tax-free (see the price-entry-update.ts side of this).
     function updatePassportVisibility() {
-      passportField.hidden = statusSel.value !== 'bought'
+      passportField.hidden = statusSel.value !== 'bought' || currentSource() !== 'japanStore'
     }
     statusSel.addEventListener('change', updatePassportVisibility)
     updatePassportVisibility()

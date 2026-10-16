@@ -22,10 +22,14 @@ export const POST: APIRoute = async ({ request }) => {
   const status = body.status === 'bought' ? 'bought' : 'planned'
   const num = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
 
-  const passportHolder = String(body.passportHolder || '').trim()
-  if (passportHolder && !PEOPLE_LIST.includes(passportHolder)) {
+  // "none" is the client's sentinel for "No passport (not tax-free)" — never a real
+  // person's name, so it's handled separately from the PEOPLE_LIST check below.
+  const rawPassportHolder = String(body.passportHolder || '').trim()
+  if (rawPassportHolder && rawPassportHolder !== 'none' && !PEOPLE_LIST.includes(rawPassportHolder)) {
     return json(400, { error: 'Invalid passport holder' })
   }
+  const noPassport = rawPassportHolder === 'none'
+  const passportHolder = !noPassport && rawPassportHolder ? rawPassportHolder : undefined
 
   // Validate that person/trip actually exist and are consistent, using the read client.
   const trip = await sanity.fetch(
@@ -53,6 +57,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (num(body.priceNok) != null) doc.priceNok = num(body.priceNok)
   if (body.barcode) doc.barcode = String(body.barcode).trim()
   if (status === 'bought' && passportHolder) doc.passportHolder = passportHolder
+  if (status === 'bought' && noPassport) doc.taxFree = false
 
   try {
     const created = await sanityWrite.create(doc)

@@ -68,6 +68,141 @@ test.describe('add-price: new product', () => {
   })
 })
 
+test.describe('add-price: paid with passport only for a Japan shop purchase', () => {
+  test('hides the field for an Online bought purchase and creates a not-tax-free familyPurchase with no passportHolder', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`AP Online Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`AP Online Bought ${Date.now()}`)
+    await page.goto('/add-price')
+
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('album')
+    await page.locator('input[name="p-source"][value="online"]').check()
+    await page.locator('#p-source-name').fill('CDJapan')
+    await page.locator('#p-price').fill('300')
+    await page.locator('#p-currency').selectOption('NOK')
+    await expect(page.locator('#p-passport-field')).toBeHidden()
+
+    await page.locator('#p-trip').selectOption(trip._id)
+    await page.locator('#p-status').selectOption('bought')
+    // Still hidden — Online is never tax-free, so there's nothing to pick a passport for.
+    await expect(page.locator('#p-passport-field')).toBeHidden()
+
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+
+    const id = await findIdByField('priceEntry', 'productName', productName)
+    trackDoc(id)
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ taxFree: boolean | null; passportHolder: string | null }>(
+      '*[_id == $id][0]{ taxFree, passportHolder }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.taxFree).toBe(false)
+    expect(fp.passportHolder ?? null).toBeNull()
+  })
+
+  test('shows the field for a Japan shop bought purchase and saves the chosen passport holder as tax-free', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`AP Japan Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`AP Japan Shop Bought ${Date.now()}`)
+    await page.goto('/add-price')
+
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('game')
+    await page.locator('#p-price').fill('3000')
+    await page.locator('#p-trip').selectOption(trip._id)
+    await page.locator('#p-status').selectOption('bought')
+
+    await expect(page.locator('#p-passport-field')).toBeVisible()
+    await page.locator('#p-passport').selectOption('Tone')
+
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+
+    const id = await findIdByField('priceEntry', 'productName', productName)
+    trackDoc(id)
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ passportHolder: string; taxFree: boolean | null }>(
+      '*[_id == $id][0]{ passportHolder, taxFree }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.passportHolder).toBe('Tone')
+    expect(fp.taxFree ?? null).toBeNull() // left unset — tax-free
+  })
+
+  test('lets a Japan shop bought purchase be marked "No passport", creating a not-tax-free familyPurchase', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`AP Japan No Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`AP Japan Shop No Passport ${Date.now()}`)
+    await page.goto('/add-price')
+
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('game')
+    await page.locator('#p-price').fill('500')
+    await page.locator('#p-trip').selectOption(trip._id)
+    await page.locator('#p-status').selectOption('bought')
+
+    await expect(page.locator('#p-passport-field')).toBeVisible()
+    await page.locator('#p-passport').selectOption('none')
+
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+
+    const id = await findIdByField('priceEntry', 'productName', productName)
+    trackDoc(id)
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ taxFree: boolean | null; passportHolder: string | null }>(
+      '*[_id == $id][0]{ taxFree, passportHolder }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.taxFree).toBe(false)
+    expect(fp.passportHolder ?? null).toBeNull()
+  })
+})
+
 test.describe('add-price: existing product', () => {
   test('reusing an existing product prefills fields and appends to Seen before', async ({ page, trackDoc, sanity }) => {
     const productName = testName(`Existing Product ${Date.now()}`)

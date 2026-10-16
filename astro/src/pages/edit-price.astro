@@ -131,6 +131,13 @@ const sourceLabel =
         <div id="p-no-trip-note" class="no-trip-note" hidden></div>
         <div id="p-bought-no-trip-note" class="bought-no-trip-note" hidden>Bought without a trip. Not counted in any budget.</div>
 
+        <div class="field" id="p-passport-field" hidden>
+          <label>Paid with passport</label>
+          <select id="p-passport" data-owner={OWNER}>
+            {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+          </select>
+        </div>
+
         <div id="p-revert-warning" class="revert-warning" hidden></div>
 
         <div class="field">
@@ -267,6 +274,8 @@ const sourceLabel =
       const tripSel = document.querySelector('#p-trip')
       const noTripNote = document.querySelector('#p-no-trip-note')
       const boughtNoTripNote = document.querySelector('#p-bought-no-trip-note')
+      const passportField = document.querySelector('#p-passport-field')
+      const passportSel = document.querySelector('#p-passport')
       const revertWarning = document.querySelector('#p-revert-warning')
       const sourceRadios = document.querySelectorAll('input[name="p-source"]')
       const shopSel = document.querySelector('#p-shop')
@@ -331,9 +340,14 @@ const sourceLabel =
       function updateFrozenNote() {
         frozenNote.hidden = statusSel.value !== 'bought'
       }
+      function updatePassportVisibility() {
+        passportField.hidden = statusSel.value !== 'bought'
+      }
       statusSel.addEventListener('change', updateFrozenNote)
       statusSel.addEventListener('change', updateBoughtNoTripNote)
+      statusSel.addEventListener('change', updatePassportVisibility)
       updateFrozenNote()
+      updatePassportVisibility()
 
       function updateRevertWarning() {
         const reverting = statusSel.value !== 'bought' && (DATA.createdFamilyPurchaseInfo || DATA.createdItemInfo)
@@ -394,6 +408,7 @@ const sourceLabel =
               status: statusSel.value,
               buyer: buyerSel.value || undefined,
               tripId: tripSel.value || undefined,
+              passportHolder: markingBought ? passportSel.value : undefined,
               sourceType: source,
               shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
               sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,

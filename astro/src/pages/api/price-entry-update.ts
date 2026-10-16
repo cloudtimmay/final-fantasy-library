@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
 import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
-import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER } from '../../lib/price-entry-fields'
+import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER, PEOPLE_LIST } from '../../lib/price-entry-fields'
 
 export const prerender = false
 
@@ -63,6 +63,10 @@ export const POST: APIRoute = async ({ request }) => {
 
   const buyer = String(body.buyer || '').trim() || undefined
   const tripId = String(body.tripId || '').trim() || undefined
+  const passportHolder = String(body.passportHolder || '').trim() || undefined
+  if (passportHolder && !PEOPLE_LIST.includes(passportHolder)) {
+    return json(400, { error: 'Invalid passport holder' })
+  }
 
   const extraCostNum = Number(body.extraCost)
   const hasExtraCost = body.extraCost !== '' && body.extraCost != null && !isNaN(extraCostNum)
@@ -153,6 +157,7 @@ export const POST: APIRoute = async ({ request }) => {
         purchaseDate: today,
       }
       if (existing.jan) fpDoc.barcode = existing.jan
+      if (passportHolder) fpDoc.passportHolder = passportHolder
       if (sourceType === 'japanStore' && existing.shopId) {
         fpDoc.store = { _type: 'reference', _ref: existing.shopId }
       }

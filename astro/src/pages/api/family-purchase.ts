@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
+import { PEOPLE_LIST } from '../../lib/price-entry-fields'
 
 export const prerender = false
 
@@ -20,6 +21,11 @@ export const POST: APIRoute = async ({ request }) => {
 
   const status = body.status === 'bought' ? 'bought' : 'planned'
   const num = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
+
+  const passportHolder = String(body.passportHolder || '').trim()
+  if (passportHolder && !PEOPLE_LIST.includes(passportHolder)) {
+    return json(400, { error: 'Invalid passport holder' })
+  }
 
   // Validate that person/trip actually exist and are consistent, using the read client.
   const trip = await sanity.fetch(
@@ -46,6 +52,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (num(body.priceYen) != null) doc.priceYen = num(body.priceYen)
   if (num(body.priceNok) != null) doc.priceNok = num(body.priceNok)
   if (body.barcode) doc.barcode = String(body.barcode).trim()
+  if (status === 'bought' && passportHolder) doc.passportHolder = passportHolder
 
   try {
     const created = await sanityWrite.create(doc)

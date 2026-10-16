@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 const trips = await sanity.fetch(`
   *[_type == "tripSettings"] | order(_createdAt asc) {
@@ -67,6 +68,13 @@ const today = new Date().toISOString().split('T')[0]
       </div>
     </div>
 
+    <div class="field" id="f-passport-field" hidden>
+      <label>Paid with passport</label>
+      <select id="f-passport" data-owner={OWNER}>
+        {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+      </select>
+    </div>
+
     <div class="field">
       <label>Barcode</label>
       <div class="barcode-row">
@@ -111,6 +119,8 @@ const today = new Date().toISOString().split('T')[0]
     const nokInput = document.querySelector('#f-nok')
     const dateInput = document.querySelector('#f-date')
     const statusSel = document.querySelector('#f-status')
+    const passportField = document.querySelector('#f-passport-field')
+    const passportSel = document.querySelector('#f-passport')
     const barcodeInput = document.querySelector('#f-barcode')
     const saveBtn = document.querySelector('#f-save')
     const msg = document.querySelector('#f-msg')
@@ -157,6 +167,12 @@ const today = new Date().toISOString().split('T')[0]
     }
     tripSel.addEventListener('change', refreshPeople)
     refreshPeople()
+
+    function updatePassportVisibility() {
+      passportField.hidden = statusSel.value !== 'bought'
+    }
+    statusSel.addEventListener('change', updatePassportVisibility)
+    updatePassportVisibility()
 
     function showMsg(text, ok) {
       msg.hidden = false
@@ -254,6 +270,7 @@ const today = new Date().toISOString().split('T')[0]
             purchaseDate: dateInput.value,
             status: statusSel.value,
             barcode: barcodeInput.value.trim() || undefined,
+            passportHolder: statusSel.value === 'bought' ? passportSel.value : undefined,
           }),
         })
         const data = await res.json()
@@ -281,6 +298,8 @@ const today = new Date().toISOString().split('T')[0]
         nokInput.value = ''
         barcodeInput.value = ''
         statusSel.value = 'planned'
+        passportSel.value = passportSel.dataset.owner
+        updatePassportVisibility()
         selectedPhoto = null
         photoCamera.value = ''
         photoGallery.value = ''

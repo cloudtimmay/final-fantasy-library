@@ -121,6 +121,9 @@ test.describe('edit-price: status, buyer, trip', () => {
     await page.locator('#p-trip').selectOption(optionValue!)
     await page.locator('#p-status').selectOption('bought')
     await expect(page.locator('#p-bought-no-trip-note')).toBeHidden()
+    // Paid-with-passport defaults to Kim once Bought is selected.
+    await expect(page.locator('#p-passport-field')).toBeVisible()
+    await expect(page.locator('#p-passport')).toHaveValue('Kim')
 
     await page.locator('#p-save').click()
     await expect(page).toHaveURL(/\/prices/)
@@ -139,12 +142,62 @@ test.describe('edit-price: status, buyer, trip', () => {
     trackDoc(after.createdFamilyPurchaseId)
     trackDoc(after.createdItemId)
 
-    const fp = await sanity.fetch<{ person: string; status: string }>(
-      '*[_id == $id][0]{ person, status }',
+    const fp = await sanity.fetch<{ person: string; status: string; passportHolder: string }>(
+      '*[_id == $id][0]{ person, status, passportHolder }',
       { id: after.createdFamilyPurchaseId }
     )
     expect(fp.person).toBe('Kim')
     expect(fp.status).toBe('bought')
+    expect(fp.passportHolder).toBe('Kim')
+  })
+
+  test('records a non-default passport holder on the created familyPurchase', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      childBudgets: [{ _key: 'k1', person: 'Tone', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const productName = testName(`Bought Passport ${Date.now()}`)
+    const created = await sanity.create({
+      _type: 'priceEntry',
+      productName,
+      category: 'game',
+      sourceType: 'japanStore',
+      price: 3000,
+      currency: 'JPY',
+      taxIncluded: true,
+      condition: 'new',
+      status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(created._id)
+
+    await page.goto(`/edit-price?id=${created._id}`)
+
+    await page.locator('#p-buyer').selectOption('Tone')
+    const optionValue = await page.locator('#p-trip option', { hasText: tripLabel }).first().getAttribute('value')
+    await page.locator('#p-trip').selectOption(optionValue!)
+    await page.locator('#p-status').selectOption('bought')
+    // Tone's purchase is paid for with Kim's passport by default — override it here.
+    await page.locator('#p-passport').selectOption('Kim')
+
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+
+    const after = await sanity.fetch<{ createdFamilyPurchaseId: string | null }>(
+      `*[_id == $id][0]{ "createdFamilyPurchaseId": createdFamilyPurchase._ref }`,
+      { id: created._id }
+    )
+    trackDoc(after.createdFamilyPurchaseId)
+    const fp = await sanity.fetch<{ person: string; passportHolder: string }>(
+      '*[_id == $id][0]{ person, passportHolder }',
+      { id: after.createdFamilyPurchaseId }
+    )
+    expect(fp.person).toBe('Tone')
+    expect(fp.passportHolder).toBe('Kim')
   })
 
   test('marking Bought without a trip skips the familyPurchase but still creates the owner\'s collection item', async ({

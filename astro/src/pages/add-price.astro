@@ -188,6 +188,13 @@ const trips = await fetchTrips()
     <p class="hint buyer-trip-hint">Buyer is required to mark as Bought. Trip is optional — can be set now even while Considering, and without one it just won't count toward any trip budget.</p>
     <div id="p-no-trip-note" class="no-trip-note" hidden></div>
 
+    <div class="field" id="p-passport-field" hidden>
+      <label>Paid with passport</label>
+      <select id="p-passport" data-owner={OWNER}>
+        {PEOPLE_LIST.map((person) => <option value={person} selected={person === OWNER}>{person}</option>)}
+      </select>
+    </div>
+
     <div class="field">
       <label>Note</label>
       <textarea id="p-note" rows="2" placeholder="Anything worth remembering…"></textarea>
@@ -265,6 +272,8 @@ const trips = await fetchTrips()
     const buyerSel = document.querySelector('#p-buyer')
     const tripSel = document.querySelector('#p-trip')
     const noTripNote = document.querySelector('#p-no-trip-note')
+    const passportField = document.querySelector('#p-passport-field')
+    const passportSel = document.querySelector('#p-passport')
     const noteInput = document.querySelector('#p-note')
     const saveBtn = document.querySelector('#p-save')
     const msg = document.querySelector('#p-msg')
@@ -304,6 +313,12 @@ const trips = await fetchTrips()
     }
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
+
+    function updatePassportVisibility() {
+      passportField.hidden = statusSel.value !== 'bought'
+    }
+    statusSel.addEventListener('change', updatePassportVisibility)
+    updatePassportVisibility()
 
     const LAST_TRIP_KEY = 'ff-last-trip'
     let initialTripId = ''
@@ -1114,6 +1129,8 @@ const trips = await fetchTrips()
       extraInput.value = ''
       noteInput.value = ''
       statusSel.value = 'considering'
+      passportSel.value = passportSel.dataset.owner
+      updatePassportVisibility()
       productSel.value = ''
       renderSeenList([])
       resetPhoto()
@@ -1211,6 +1228,7 @@ const trips = await fetchTrips()
                 status: 'bought',
                 buyer: buyerSel.value,
                 tripId: tripSel.value,
+                passportHolder: passportSel.value,
                 sourceType: source,
                 shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
                 sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,

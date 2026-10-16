@@ -44,11 +44,9 @@ const TYPE_ICON: Record<string, string> = {
 <div class="trip-countdown" id="tc">
   <div class="tc-title" id="tc-title">Nedtelling til Japan 🇯🇵</div>
   <div class="tc-cells" id="tc-cells">
-    <div class="tc-cell" id="c-months"><span class="tc-num">–</span><span class="tc-lab">mnd</span></div>
-    <div class="tc-cell" id="c-weeks"><span class="tc-num">–</span><span class="tc-lab">uker</span></div>
-    <div class="tc-cell" id="c-days"><span class="tc-num">–</span><span class="tc-lab">dager</span></div>
-    <div class="tc-cell" id="c-hours"><span class="tc-num">–</span><span class="tc-lab">timer</span></div>
-    <div class="tc-cell" id="c-mins"><span class="tc-num">–</span><span class="tc-lab">min</span></div>
+    <div class="tc-cell" id="c-days"><span class="tc-num">–</span><span class="tc-lab">Days</span></div>
+    <div class="tc-cell" id="c-hours"><span class="tc-num">–</span><span class="tc-lab">Hours</span></div>
+    <div class="tc-cell" id="c-mins"><span class="tc-num">–</span><span class="tc-lab">Minutes</span></div>
   </div>
   <div class="tc-done" id="tc-done" hidden></div>
 </div>
@@ -62,22 +60,6 @@ const TYPE_ICON: Record<string, string> = {
     const el = (id) => document.getElementById(id)
     const setNum = (id, v) => { const c = el(id); if (c) c.querySelector('.tc-num').textContent = v }
     const pad = (n) => String(n).padStart(2, '0')
-
-    function calendarBreakdown(now, target) {
-      let months = 0
-      let cursor = new Date(now)
-      while (true) {
-        const next = new Date(cursor); next.setMonth(next.getMonth() + 1)
-        if (next <= target) { cursor = next; months++ } else break
-      }
-      let rem = target - cursor
-      const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR, WEEK = 7 * DAY
-      const weeks = Math.floor(rem / WEEK); rem -= weeks * WEEK
-      const days = Math.floor(rem / DAY); rem -= days * DAY
-      const hours = Math.floor(rem / HOUR); rem -= hours * HOUR
-      const minutes = Math.floor(rem / MIN)
-      return { months, weeks, days, hours, minutes }
-    }
 
     function dhm(now, target) {
       let rem = target - now
@@ -97,10 +79,7 @@ const TYPE_ICON: Record<string, string> = {
         // Phase 1 — countdown to leaving for Japan.
         title.textContent = 'Nedtelling til Japan 🇯🇵'
         cells.hidden = false; done.hidden = true
-        el('c-months').hidden = false; el('c-weeks').hidden = false
-        const b = calendarBreakdown(now, DEPART)
-        setNum('c-months', b.months)
-        setNum('c-weeks', b.weeks)
+        const b = dhm(now, DEPART)
         setNum('c-days', b.days)
         setNum('c-hours', pad(b.hours))
         setNum('c-mins', pad(b.minutes))
@@ -108,7 +87,6 @@ const TYPE_ICON: Record<string, string> = {
         // Phase 2 — countdown to flying home.
         title.textContent = 'Til hjemreise ✈️'
         cells.hidden = false; done.hidden = true
-        el('c-months').hidden = true; el('c-weeks').hidden = true
         const b = dhm(now, RETURN)
         setNum('c-days', b.days)
         setNum('c-hours', pad(b.hours))
@@ -122,7 +100,8 @@ const TYPE_ICON: Record<string, string> = {
     }
 
     tick()
-    setInterval(tick, 1000)
+    // Minutes only — no need to re-render every second.
+    setInterval(tick, 60000)
   })()
 </script>
 

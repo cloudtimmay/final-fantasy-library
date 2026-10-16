@@ -133,6 +133,16 @@ const PLAN = [
 
   <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
 
+  <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
+       safely convert to a module) and so can't use `import`. This tiny module script
+       imports the deterministic route optimizer and exposes it on window for that script
+       to call — by the time a user can click "Suggest route" the page has long finished
+       loading, so load order between the two scripts is never a concern. -->
+  <script>
+    import { optimizeRoute } from '../lib/route-optimizer'
+    window.__routeOptimizer = { optimizeRoute }
+  </script>
+
   <script is:inline>
     function loadLeaflet() {
       return new Promise((resolve) => {
@@ -158,6 +168,9 @@ const PLAN = [
 
     let mapInstances = []
     let leafletOk = false
+    // Per-day previous stop order, kept only in memory (not saved/synced) — lets "Undo"
+    // restore the order from right before the most recent "Apply", until the page reloads.
+    let undoByDay = {}
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
@@ -444,7 +457,9 @@ const PLAN = [
           </div>
           <div class="day-check-row">
             <button class="day-check-btn" data-day="${di}" type="button">🔍 Check day</button>
+            <button class="day-route-btn" data-day="${di}" type="button">🧭 Suggest route</button>
             <div class="day-check-results" data-day="${di}" hidden></div>
+            <div class="day-route-results" data-day="${di}" hidden></div>
           </div>
           <div class="day-startrow">
             <label>🕗 Dagen starter <input type="time" class="day-start-input" data-day="${di}" value="${day.startTime}" /></label>
@@ -539,6 +554,7 @@ const PLAN = [
       })
 
       state.forEach((day, di) => initMap(di, day))
+      state.forEach((day, di) => renderUndoAffordance(di))
       attachEvents()
     }
 
@@ -732,8 +748,126 @@ const PLAN = [
       }
     }
 
+    // --- "Suggest route" — a deterministic optimizer (src/lib/route-optimizer.ts via
+    // window.__routeOptimizer), never the AI. Computing/showing a suggestion never
+    // touches state/saveState; only clicking "Apply" does, through the same
+    // state[di].stops/saveState()/render() path every other edit on this page uses, so it
+    // behaves exactly like a manual reorder for sync/undo-on-reload purposes alike. ---
+    function renderUndoAffordance(di) {
+      const el = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
+      if (!el || undoByDay[di] === undefined) return
+      el.replaceChildren()
+      const p = document.createElement('p')
+      p.className = 'ir-good'
+      p.textContent = 'Route applied ✓'
+      const undoBtn = document.createElement('button')
+      undoBtn.type = 'button'
+      undoBtn.className = 'rt-undo-btn'
+      undoBtn.textContent = 'Undo'
+      undoBtn.addEventListener('click', () => {
+        state[di].stops = undoByDay[di]
+        delete undoByDay[di]
+        saveState(); render()
+      })
+      el.appendChild(p)
+      el.appendChild(undoBtn)
+      el.hidden = false
+    }
+
+    function renderRouteResults(resultsEl, di, day, result) {
+      resultsEl.replaceChildren()
+
+      const summary = document.createElement('p')
+      summary.className = 'rt-summary'
+      if (result.improved) {
+        const savedMin = Math.round(result.current.score - result.suggested.score)
+        summary.textContent = `Saves ~${savedMin} min travel.`
+      } else {
+        summary.textContent = 'Current order is already best.'
+      }
+      resultsEl.appendChild(summary)
+
+      if (result.usedFirstStopAsStart) {
+        const note = document.createElement('p')
+        note.className = 'rt-note'
+        note.textContent = 'No start location set for this day — using the first stop as the starting point.'
+        resultsEl.appendChild(note)
+      }
+
+      function buildColumn(title, order, schedule) {
+        const col = document.createElement('div')
+        col.className = 'rt-column'
+        const h = document.createElement('p')
+        h.className = 'rt-column-title'
+        h.textContent = title
+        col.appendChild(h)
+        const list = document.createElement('ol')
+        list.className = 'rt-list'
+        order.forEach((origIdx, pos) => {
+          const li = document.createElement('li')
+          li.className = 'rt-list-item'
+          const r = resolveStop(day.stops[origIdx])
+          li.textContent = `${fmt(schedule.times[pos])} ${r.name}`
+          list.appendChild(li)
+        })
+        col.appendChild(list)
+        return col
+      }
+
+      const cols = document.createElement('div')
+      cols.className = 'rt-columns'
+      cols.appendChild(buildColumn('Current', result.currentOrder, result.current))
+      cols.appendChild(buildColumn('Suggested', result.order, result.suggested))
+      resultsEl.appendChild(cols)
+
+      if (result.improved) {
+        const applyBtn = document.createElement('button')
+        applyBtn.type = 'button'
+        applyBtn.className = 'rt-apply-btn'
+        applyBtn.textContent = 'Apply'
+        applyBtn.addEventListener('click', () => {
+          undoByDay[di] = day.stops.slice()
+          state[di].stops = result.order.map((i) => day.stops[i])
+          saveState(); render()
+        })
+        resultsEl.appendChild(applyBtn)
+      }
+
+      resultsEl.hidden = false
+    }
+
+    function suggestRoute(di) {
+      const day = state[di]
+      const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
+      if (!day.stops.length) {
+        resultsEl.replaceChildren()
+        const p = document.createElement('p')
+        p.className = 'ir-error'
+        p.textContent = 'No stops to reorder.'
+        resultsEl.appendChild(p)
+        resultsEl.hidden = false
+        return
+      }
+      const startTime = parseT(day.startTime)
+      const start = (typeof base.lat === 'number' && typeof base.lng === 'number') ? { lat: base.lat, lng: base.lng } : null
+      const stops = day.stops.map((s) => {
+        const r = resolveStop(s)
+        return {
+          lat: r.lat,
+          lng: r.lng,
+          durationMin: (s.dur != null ? s.dur : defaultDur(s)),
+          fixedTime: s.fixedTime ? parseT(s.fixedTime) : null,
+          openingHours: s.hours || null,
+          note: stopNote(s),
+        }
+      })
+      const result = window.__routeOptimizer.optimizeRoute(stops, startTime != null ? startTime : parseT(DEFAULT_START), start)
+      renderRouteResults(resultsEl, di, day, result)
+    }
+
     function attachEvents() {
       document.querySelectorAll('.day-check-btn').forEach((btn) => btn.addEventListener('click', () => checkDay(+btn.dataset.day, btn)))
+      document.querySelectorAll('.day-route-btn').forEach((btn) => btn.addEventListener('click', () => suggestRoute(+btn.dataset.day)))
       document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
         state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
       }))
@@ -1038,5 +1172,31 @@ const PLAN = [
     .ir-item-message { margin: 0; color: var(--text); }
     .ir-item-suggestion { margin: 0.3rem 0 0; color: var(--muted); font-style: italic; }
     .stop.ir-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    /* "Suggest route" — deterministic optimizer, not AI. Same reasoning as the "ir-"
+       block above: JS-created via createElement, so is:global is required, and new
+       classes use an "rt-" prefix with explicit [hidden] overrides. */
+    .day-route-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; margin-left: 0.5rem;
+    }
+    .day-route-btn:disabled { opacity: 0.6; cursor: default; }
+    .day-route-results { margin-top: 0.6rem; }
+    .day-route-results[hidden] { display: none; }
+    .rt-summary { font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0 0 0.5rem; }
+    .rt-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin: 0 0 0.5rem; }
+    .rt-columns { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+    .rt-column { flex: 1; min-width: 140px; background: var(--surface); border-radius: 8px; padding: 0.6rem 0.7rem; }
+    .rt-column-title { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
+    .rt-list { list-style: decimal; margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+    .rt-list-item { font-size: 0.8rem; color: var(--text); overflow-wrap: anywhere; }
+    .rt-apply-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 0.55rem 1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    .rt-undo-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
+    }
   </style>
 </Base>

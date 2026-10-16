@@ -10,6 +10,7 @@ import {
   groupBoughtByPassportShopDay,
   NORWAY_DUTY_FREE_ALLOWANCE_NOK,
 } from '../lib/spending'
+import { isTaxFree } from '../lib/spending-grouping'
 
 const allTrips = await fetchTripsForSpending()
 
@@ -205,37 +206,50 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
         </div>
 
         {shopDayGroups.length > 0 && (
-          <div class="store-wrap">
+          <div class="store-wrap" id="store-wrap">
             <div class="store-title-row">
               <h3 class="store-title">Tax-free by shop / day</h3>
               <a href={`/checklist?trip=${activeTripId}`} class="checklist-link">✈️ Airport checklist</a>
             </div>
+            <p id="store-error" class="store-error" hidden></p>
             <div class="store-list">
               {shopDayGroups.map((g) => (
-                <div class:list={['store-row', { ok: g.reached && g.taxFreeShop === true, unknown: g.taxFreeShop === null }]}>
-                  <span class="store-name">{g.passportHolder} — {g.storeName} <span class="store-day">{g.day}</span></span>
-                  <span class="store-meta">
-                    {fmtYen(g.totalInclJpy)}
-                    {g.taxFreeShop === null ? (
-                      ' · check if tax-free'
-                    ) : g.taxFreeShop === false ? (
-                      ' · not a tax-free shop'
-                    ) : g.reached ? (
-                      ` · tax-free reached · ~${fmtYen(g.estimatedRefundJpy)} est. refund`
-                    ) : (
-                      ` · ${fmtYen(g.missingInclJpy)} more to reach tax-free`
-                    )}
-                  </span>
-                </div>
+                <details class:list={['store-row', { ok: g.reached && g.taxFreeShop === true, unknown: g.taxFreeShop === null }]} data-group-key={g.key}>
+                  <summary class="store-summary">
+                    <span class="store-name">{g.passportHolder} — {g.storeName} <span class="store-day">{g.day}</span></span>
+                    <span class="store-meta" data-meta-for={g.key}>
+                      {fmtYen(g.totalInclJpy)}
+                      {g.taxFreeShop === null ? (
+                        ' · check if tax-free'
+                      ) : g.taxFreeShop === false ? (
+                        ' · not a tax-free shop'
+                      ) : g.reached ? (
+                        ` · tax-free reached · ~${fmtYen(g.estimatedRefundJpy)} est. refund`
+                      ) : (
+                        ` · ${fmtYen(g.missingInclJpy)} more to reach tax-free`
+                      )}
+                    </span>
+                  </summary>
+                  <ul class="store-items">
+                    {g.items.map((item) => (
+                      <li class="store-item" data-item-row={item._id}>
+                        <label class="store-item-taxfree">
+                          <input type="checkbox" class="taxfree-checkbox" data-item-id={item._id} checked={isTaxFree(item)} />
+                          Tax-free
+                        </label>
+                        <span class="store-item-name">{item.name} <span class="store-item-owner">({item.person})</span></span>
+                        <span class="store-item-price">{fmtYen(item.priceYen || 0)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ))}
             </div>
-            {totalEstimatedRefundJpy > 0 && (
-              <p class="store-total">
-                Estimated total refund: {fmtYen(totalEstimatedRefundJpy)} ({fmtNok(totalEstimatedRefundJpy * rate)}) — estimated, before any service fees.
-              </p>
-            )}
+            <p class="store-total" id="store-total" hidden={totalEstimatedRefundJpy <= 0}>
+              Estimated total refund: <span id="store-total-text">{fmtYen(totalEstimatedRefundJpy)} ({fmtNok(totalEstimatedRefundJpy * rate)})</span> — estimated, before any service fees.
+            </p>
             <p class="store-note">
-              Tax-free threshold: ¥5,000 before tax (¥5,500 incl.) per shop per day, per passport shown at the register — pay the tax-included price in the shop, claim the refund at departure. Counts bought purchases only.
+              Tax-free threshold: ¥5,000 before tax (¥5,500 incl.) per shop per day, per passport shown at the register — pay the tax-included price in the shop, claim the refund at departure. Counts bought purchases only. Untick an item's "Tax-free" box if it was paid for without showing a passport (e.g. something eaten during the trip) — it still counts toward budgets, just not toward the tax-free threshold or the checklist.
             </p>
           </div>
         )}
@@ -344,6 +358,96 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
     updateFamily()
   </script>
 
+  <script type="application/json" id="store-toggle-data" set:html={JSON.stringify({ purchases: tripPurchases, rate })}></script>
+
+  <script>
+    import { groupBoughtByPassportShopDay } from '../lib/spending-grouping'
+
+    const storeWrap = document.querySelector('#store-wrap')
+    if (storeWrap) {
+      let DATA = { purchases: [], rate: 0.06 }
+      try {
+        DATA = JSON.parse(document.querySelector('#store-toggle-data')?.textContent || '{}')
+      } catch (e) {}
+      const purchases = DATA.purchases || []
+      const rate = DATA.rate || 0.06
+
+      const errorEl = document.querySelector('#store-error')
+      const totalEl = document.querySelector('#store-total')
+      const totalTextEl = document.querySelector('#store-total-text')
+
+      function fmtYen(n) { return '¥' + Math.round(n).toLocaleString('en-US') }
+      function fmtNok(n) { return Math.round(n).toLocaleString('nb-NO') + ' kr' }
+
+      function showError(msg) {
+        if (!errorEl) return
+        errorEl.textContent = msg
+        errorEl.hidden = false
+      }
+      function hideError() {
+        if (!errorEl) return
+        errorEl.hidden = true
+        errorEl.textContent = ''
+      }
+
+      function metaText(g) {
+        let text = fmtYen(g.totalInclJpy)
+        if (g.taxFreeShop === null) text += ' · check if tax-free'
+        else if (g.taxFreeShop === false) text += ' · not a tax-free shop'
+        else if (g.reached) text += ` · tax-free reached · ~${fmtYen(g.estimatedRefundJpy)} est. refund`
+        else text += ` · ${fmtYen(g.missingInclJpy)} more to reach tax-free`
+        return text
+      }
+
+      function render() {
+        const groups = groupBoughtByPassportShopDay(purchases)
+        groups.forEach((g) => {
+          const row = storeWrap.querySelector(`details.store-row[data-group-key="${CSS.escape(g.key)}"]`)
+          if (!row) return
+          row.classList.toggle('ok', g.reached && g.taxFreeShop === true)
+          row.classList.toggle('unknown', g.taxFreeShop === null)
+          const meta = row.querySelector(`[data-meta-for="${CSS.escape(g.key)}"]`)
+          if (meta) meta.textContent = metaText(g)
+        })
+
+        const totalRefundJpy = groups.reduce((sum, g) => sum + g.estimatedRefundJpy, 0)
+        if (totalEl && totalTextEl) {
+          if (totalRefundJpy > 0) {
+            totalTextEl.textContent = `${fmtYen(totalRefundJpy)} (${fmtNok(totalRefundJpy * rate)})`
+            totalEl.hidden = false
+          } else {
+            totalEl.hidden = true
+          }
+        }
+      }
+
+      storeWrap.querySelectorAll('.taxfree-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', async () => {
+          const itemId = checkbox.dataset.itemId
+          const newValue = checkbox.checked
+          hideError()
+          checkbox.disabled = true
+          try {
+            const res = await fetch('/api/family-purchase-taxfree', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: itemId, taxFree: newValue }),
+            })
+            if (!res.ok) throw new Error('Save failed')
+            const item = purchases.find((p) => p._id === itemId)
+            if (item) item.taxFree = newValue
+            render()
+          } catch (e) {
+            checkbox.checked = !newValue
+            showError('Could not save — try again.')
+          } finally {
+            checkbox.disabled = false
+          }
+        })
+      })
+    }
+  </script>
+
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
 
@@ -428,16 +532,30 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
     .store-title-row .store-title { margin: 0 0 0.6rem; }
     .checklist-link { font-size: 0.82rem; color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
     .checklist-link:hover { text-decoration: underline; }
+    .store-error { font-size: 0.8rem; color: #e74c3c; margin: 0 0 0.6rem; }
+    .store-error[hidden] { display: none; }
     .store-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .store-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.85rem; }
+    .store-row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; }
     .store-row.ok { border-color: #2ecc71; }
     .store-row.unknown { border-color: #f5c542; }
+    .store-summary { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; padding: 0.6rem 0.9rem; cursor: pointer; list-style: none; }
+    .store-summary::-webkit-details-marker { display: none; }
+    .store-summary::after { content: '▸'; color: var(--muted); font-size: 0.7rem; margin-left: 0.5rem; flex-shrink: 0; transition: transform 0.15s; }
+    .store-row[open] .store-summary::after { transform: rotate(90deg); }
     .store-name { font-weight: 600; }
     .store-day { font-weight: 400; color: var(--muted); font-size: 0.75rem; margin-left: 0.4rem; }
     .store-meta { color: var(--muted); text-align: right; }
     .store-row.ok .store-meta { color: #2ecc71; }
     .store-row.unknown .store-meta { color: #f5c542; }
+    .store-items { list-style: none; margin: 0; padding: 0.6rem 0.9rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border); }
+    .store-item { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; flex-wrap: wrap; }
+    .store-item-taxfree { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+    .store-item-taxfree input { width: auto; margin: 0; }
+    .store-item-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .store-item-owner { font-weight: 400; color: var(--muted); font-size: 0.75rem; }
+    .store-item-price { color: var(--muted); white-space: nowrap; }
     .store-total { font-size: 0.82rem; color: var(--text); font-weight: 600; margin: 0.75rem 0 0; }
+    .store-total[hidden] { display: none; }
     .store-note { font-size: 0.75rem; color: var(--muted); margin: 0.6rem 0 0; }
 
     .spend-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }

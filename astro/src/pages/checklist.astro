@@ -6,6 +6,7 @@ import {
   pickDefaultTrip,
   groupBoughtByPassportShopDay,
 } from '../lib/spending'
+import { isTaxFree } from '../lib/spending-grouping'
 
 const allTrips = await fetchTripsForSpending()
 
@@ -37,7 +38,10 @@ function fmtYen(n) {
   return '¥' + Math.round(n).toLocaleString('en-US')
 }
 
-const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
+// A purchase paid without showing a passport (e.g. something eaten during the trip)
+// never qualifies for a refund, so it has nothing to pack or declare — left off the
+// checklist entirely, even within a group that otherwise reached the threshold.
+const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.filter(isTaxFree).length, 0)
 ---
 <Base title="Airport checklist">
   <div class="page-header">
@@ -96,7 +100,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
                   </span>
                 </div>
                 <ul class="checklist-items">
-                  {g.items.map((item) => (
+                  {g.items.filter(isTaxFree).map((item) => (
                     <li class="checklist-item">
                       <label class="checklist-item-label">
                         <input type="checkbox" class="item-checkbox" data-item-id={item._id} />

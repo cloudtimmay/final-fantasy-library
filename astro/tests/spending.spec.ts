@@ -424,3 +424,112 @@ test.describe('spending: shop/day tax-free', () => {
     await expect(row).toContainText('tax-free reached')
   })
 })
+
+test.describe('spending: per-purchase tax-free toggle', () => {
+  test('unchecking an item excludes it from the threshold/refund and the checklist, persists after reload, and leaves budget totals unchanged', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Toggle Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      jpyToNokRate: 0.07,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }],
+    })
+    trackDoc(trip._id)
+
+    const day = '2026-03-17'
+    const shop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Toggle Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(shop._id)
+
+    const item = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Toggle Item ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 6000, // over the 5500-incl. threshold
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(item._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+
+    const card = page.locator('.person-card[data-person="Kim"]')
+    const boughtTextBefore = await card.locator('.person-spent').innerText()
+
+    const row = page.locator('details.store-row', { hasText: shop.shopName })
+    await expect(row).toHaveClass(/ok/)
+    await expect(row).toContainText('tax-free reached')
+
+    await row.locator('summary.store-summary').click()
+    const checkbox = row.locator(`.taxfree-checkbox[data-item-id="${item._id}"]`)
+    await expect(checkbox).toBeChecked()
+
+    await checkbox.uncheck()
+    await expect(row).not.toHaveClass(/ok/)
+    await expect(row).toContainText('more to reach tax-free')
+    await expect(page.locator('#store-error')).toBeHidden()
+
+    // Budgets/bought/duty-free never look at taxFree — the person card is unaffected.
+    const boughtTextAfter = await card.locator('.person-spent').innerText()
+    expect(boughtTextAfter).toBe(boughtTextBefore)
+
+    const stored = await sanity.fetch<{ taxFree: boolean }>('*[_id == $id][0]{ taxFree }', { id: item._id })
+    expect(stored.taxFree).toBe(false)
+
+    await page.reload()
+    const rowAfterReload = page.locator('details.store-row', { hasText: shop.shopName })
+    await expect(rowAfterReload).not.toHaveClass(/ok/)
+    await rowAfterReload.locator('summary.store-summary').click()
+    await expect(rowAfterReload.locator(`.taxfree-checkbox[data-item-id="${item._id}"]`)).not.toBeChecked()
+
+    await page.goto(`/checklist?trip=${trip._id}`)
+    await expect(page.locator('.shopday-card', { hasText: shop.shopName })).toHaveCount(0)
+  })
+
+  test('reverts the checkbox and shows an error when the save fails', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Toggle Fail Trip ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: tripLabel, jpyToNokRate: 0.07 })
+    trackDoc(trip._id)
+
+    const day = '2026-03-18'
+    const shop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Toggle Fail Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(shop._id)
+
+    const item = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Toggle Fail Item ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 6000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(item._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+    await page.route('**/api/family-purchase-taxfree', (route) => route.fulfill({ status: 500, body: '{}' }))
+
+    const row = page.locator('details.store-row', { hasText: shop.shopName })
+    await row.locator('summary.store-summary').click()
+    const checkbox = row.locator(`.taxfree-checkbox[data-item-id="${item._id}"]`)
+    await checkbox.uncheck()
+
+    await expect(checkbox).toBeChecked()
+    await expect(page.locator('#store-error')).toBeVisible()
+    await expect(row).toHaveClass(/ok/)
+  })
+})

@@ -13,7 +13,7 @@ let shops: any[] = []
 try {
   shops = await sanity.fetch(`
     *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
-      _id, shopName, area, placeType, openingHours, latitude, longitude
+      _id, shopName, area, placeType, openingHours, latitude, longitude, note
     } | order(area asc, shopName asc)
   `)
 } catch (e) { shops = [] }
@@ -442,6 +442,10 @@ const PLAN = [
             </div>
             <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
           </div>
+          <div class="day-check-row">
+            <button class="day-check-btn" data-day="${di}" type="button">🔍 Check day</button>
+            <div class="day-check-results" data-day="${di}" hidden></div>
+          </div>
           <div class="day-startrow">
             <label>🕗 Dagen starter <input type="time" class="day-start-input" data-day="${di}" value="${day.startTime}" /></label>
           </div>
@@ -470,6 +474,8 @@ const PLAN = [
           const noCoord = (r.lat == null || r.lng == null)
           const li = document.createElement('li')
           li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
+          li.dataset.day = di
+          li.dataset.idx = si
           const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
           const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
           const gmap = (r.lat != null) ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : ''
@@ -609,7 +615,125 @@ const PLAN = [
       }
     }
 
+    // --- "Check day" AI review — read-only: never touches state/saveState, so the plan
+    // itself is never changed by a review, only ever read to build the request. ---
+    function stopNote(s) {
+      if (!s.shopId) return null
+      const shop = shopById.get(s.shopId)
+      return (shop && shop.note) ? shop.note : null
+    }
+
+    function renderCheckError(resultsEl, text) {
+      resultsEl.replaceChildren()
+      const p = document.createElement('p')
+      p.className = 'ir-error'
+      p.textContent = text
+      resultsEl.appendChild(p)
+      resultsEl.hidden = false
+    }
+
+    function renderCheckResults(resultsEl, di, items) {
+      resultsEl.replaceChildren()
+      if (!items.length) {
+        const p = document.createElement('p')
+        p.className = 'ir-good'
+        p.textContent = '✓ Looks good.'
+        resultsEl.appendChild(p)
+        resultsEl.hidden = false
+        return
+      }
+
+      const list = document.createElement('ul')
+      list.className = 'ir-list'
+      items.forEach((item) => {
+        const li = document.createElement('li')
+        li.className = 'ir-item ' + (item.severity === 'warning' ? 'ir-warning' : 'ir-tip')
+
+        if (typeof item.stopIndex === 'number') {
+          const stopLi = daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${item.stopIndex}"]`)
+          const nameEl = stopLi ? stopLi.querySelector('.stop-name') : null
+          const stopName = nameEl ? nameEl.textContent : `Stop ${item.stopIndex + 1}`
+          const link = document.createElement('button')
+          link.type = 'button'
+          link.className = 'ir-item-stop-link'
+          link.textContent = `Stop ${item.stopIndex + 1}: ${stopName}`
+          link.addEventListener('click', () => {
+            if (!stopLi) return
+            stopLi.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            stopLi.classList.add('ir-highlight')
+            setTimeout(() => stopLi.classList.remove('ir-highlight'), 1600)
+          })
+          li.appendChild(link)
+        }
+
+        const msg = document.createElement('p')
+        msg.className = 'ir-item-message'
+        msg.textContent = item.message
+        li.appendChild(msg)
+
+        if (item.suggestion) {
+          const sug = document.createElement('p')
+          sug.className = 'ir-item-suggestion'
+          sug.textContent = `Suggestion: ${item.suggestion}`
+          li.appendChild(sug)
+        }
+
+        list.appendChild(li)
+      })
+      resultsEl.appendChild(list)
+      resultsEl.hidden = false
+    }
+
+    async function checkDay(di, btn) {
+      const day = state[di]
+      const { times } = computeTimes(day)
+      const resultsEl = daysEl.querySelector(`.day-check-results[data-day="${di}"]`)
+      const stopsPayload = day.stops.map((s, si) => {
+        const r = resolveStop(s)
+        return {
+          name: r.name,
+          plannedTime: times[si],
+          durationMin: (s.dur != null ? s.dur : defaultDur(s)),
+          lat: r.lat,
+          lng: r.lng,
+          openingHours: s.hours || null,
+          note: stopNote(s),
+        }
+      })
+
+      btn.disabled = true
+      const originalText = btn.textContent
+      btn.textContent = 'Checking…'
+      resultsEl.hidden = true
+      resultsEl.replaceChildren()
+
+      try {
+        const res = await fetch('/api/itinerary-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dayLabel: day.date,
+            dayArea: day.area,
+            dayStartTime: day.startTime,
+            stops: stopsPayload,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          renderCheckError(resultsEl, data.error || 'Check failed.')
+          return
+        }
+        renderCheckResults(resultsEl, di, data.items || [])
+      } catch (e) {
+        renderCheckError(resultsEl, 'Network error.')
+      } finally {
+        btn.disabled = false
+        btn.textContent = originalText
+      }
+    }
+
     function attachEvents() {
+      document.querySelectorAll('.day-check-btn').forEach((btn) => btn.addEventListener('click', () => checkDay(+btn.dataset.day, btn)))
       document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
         state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
       }))
@@ -882,5 +1006,37 @@ const PLAN = [
     .pin.must { background: #e74c3c; color: #fff; }
     .pin.food { background: #f5c542; color: #2a1a04; }
     .pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
+
+    /* "Check day" AI review — new classes use an "ir-" prefix (not an existing
+       convention on this page, but these are JS-created via createElement/innerHTML, so
+       is:global is required regardless; the prefix just avoids future collisions). Every
+       class here that's paired with the hidden attribute gets an explicit [hidden]
+       override, per this file's own established pattern above (.add-form[hidden] etc.) —
+       author CSS setting display always wins over the browser's default [hidden] rule. */
+    .day-check-row { margin: 0.75rem 0; }
+    .day-check-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+    }
+    .day-check-btn:disabled { opacity: 0.6; cursor: default; }
+    .day-check-results { margin-top: 0.6rem; }
+    .day-check-results[hidden] { display: none; }
+    .ir-error { font-size: 0.85rem; color: #e74c3c; margin: 0; }
+    .ir-good { font-size: 0.85rem; color: #2ecc71; margin: 0; }
+    .ir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+    .ir-item {
+      background: var(--surface); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.85rem;
+      border-left: 3px solid var(--border);
+    }
+    .ir-item.ir-warning { border-left-color: #e74c3c; }
+    .ir-item.ir-tip { border-left-color: #f5c542; }
+    .ir-item-stop-link {
+      display: block; background: none; border: none; padding: 0; margin: 0 0 0.3rem;
+      color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; text-align: left;
+    }
+    .ir-item-stop-link:hover { text-decoration: underline; }
+    .ir-item-message { margin: 0; color: var(--text); }
+    .ir-item-suggestion { margin: 0.3rem 0 0; color: var(--muted); font-style: italic; }
+    .stop.ir-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
   </style>
 </Base>

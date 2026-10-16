@@ -20,7 +20,12 @@ export type SpendingTrip = {
   endDate?: string
   budgetNok?: number
   budgetYen?: number
-  jpyToNokRate: number
+  // Left undefined when the trip genuinely has none set — callers that need a usable
+  // number for computation (not just to check whether one exists) apply their own
+  // fallback, same as this file's other optional numeric fields. Defaulting it here
+  // instead would make a real "no rate configured" indistinguishable from a trip whose
+  // rate actually happens to equal that default.
+  jpyToNokRate?: number
   childBudgets: ChildBudget[]
 }
 
@@ -38,7 +43,7 @@ export async function fetchTripsForSpending(): Promise<SpendingTrip[]> {
     endDate: t.endDate || undefined,
     budgetNok: t.budgetNok ?? undefined,
     budgetYen: t.budgetYen ?? undefined,
-    jpyToNokRate: t.jpyToNokRate ?? 0.06,
+    jpyToNokRate: t.jpyToNokRate ?? undefined,
     childBudgets: (t.childBudgets || []).filter((c: any) => c.person),
   }))
 }

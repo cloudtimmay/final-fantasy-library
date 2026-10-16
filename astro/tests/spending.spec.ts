@@ -89,12 +89,12 @@ test.describe('spending: person cards', () => {
     await page.goto(`/spending?trip=${trip._id}`)
     const card = page.locator('.person-card[data-person="Tone"]')
     await expect(card).toBeVisible()
-    // bought 700 / budget 900
-    await expect(card).toContainText('700 kr / 900 kr')
-    // planned: 300 (familyPurchase) + 100 (priceEntry, no barcode match) = 400
-    await expect(card).toContainText('+400 kr planned')
-    // remaining = budget(900) - bought(700) = 200
-    await expect(card).toContainText('200 kr left')
+    // bought 700 (≈¥10,000 at rate 0.07) / budget 900 (≈¥12,900)
+    await expect(card).toContainText('700 kr (≈ ¥10,000) / 900 kr (≈ ¥12,900)')
+    // planned: 300 (familyPurchase) + 100 (priceEntry, no barcode match) = 400 (≈¥5,700)
+    await expect(card).toContainText('+400 kr planned (≈ ¥5,700)')
+    // remaining = budget(900) - bought(700) = 200 (≈¥2,900)
+    await expect(card).toContainText('200 kr left (≈ ¥2,900)')
     // bought(700) + planned(400) = 1100 > budget(900)
     await expect(card.locator('.person-warning')).toBeVisible()
     await expect(card.locator('.person-warning')).toContainText('exceed the budget')
@@ -192,8 +192,70 @@ test.describe('spending: trip frame', () => {
 
     const frame = page.locator('#frame-card')
     await expect(frame).toBeVisible()
-    await expect(frame).toContainText('700 kr spent')
-    await expect(frame).toContainText('+500 kr planned')
+    // 10,000 NOK budget -> ≈¥142,900 at rate 0.07. The NOK side isn't asserted with its
+    // exact thousands separator here — nb-NO's grouping character can be a regular or a
+    // non-breaking space depending on the ICU data in use, which makes it an unreliable
+    // thing to hardcode in a test.
+    await expect(frame).toContainText('(≈ ¥142,900)')
+    await expect(frame).toContainText('700 kr spent (≈ ¥10,000)')
+    await expect(frame).toContainText('+500 kr planned (≈ ¥7,100)')
+  })
+})
+
+test.describe('spending: JPY estimates', () => {
+  test('shows an explicit childBudgets.budgetYen without the ≈ prefix', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Explicit Yen Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      jpyToNokRate: 0.07,
+      childBudgets: [{ _key: 'k1', person: 'Niklas', budgetYen: 50000 }],
+    })
+    trackDoc(trip._id)
+
+    const bought = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Bought Niklas ${Date.now()}`),
+      person: 'Niklas',
+      status: 'bought',
+      priceNok: 100,
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(bought._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+    const card = page.locator('.person-card[data-person="Niklas"]')
+    await expect(card).toBeVisible()
+    // Explicit budgetYen=50000 shown exactly, no "≈"
+    await expect(card).toContainText('(¥50,000)')
+    await expect(card).not.toContainText('≈ ¥50,000')
+  })
+
+  test('shows NOK only when the trip has no exchange rate', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`No Rate Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      // jpyToNokRate intentionally omitted
+      childBudgets: [{ _key: 'k1', person: 'Kristina', budgetNok: 500 }],
+    })
+    trackDoc(trip._id)
+
+    const bought = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Bought Kristina ${Date.now()}`),
+      person: 'Kristina',
+      status: 'bought',
+      priceNok: 200,
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(bought._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+    const card = page.locator('.person-card[data-person="Kristina"]')
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('200 kr')
+    await expect(card).not.toContainText('¥')
   })
 })
 

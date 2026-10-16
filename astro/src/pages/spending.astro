@@ -25,6 +25,11 @@ function tripLabel(trip, index) {
 const activeTripId = settings?._id ?? null
 // Always the trip's own stored rate — no live-editable override (see Trip Settings).
 const rate = settings?.jpyToNokRate ?? 0.06
+// Whether the trip actually HAS a configured rate, as opposed to silently falling back
+// to the 0.06 default above (which existing NOK totals still rely on — unchanged here).
+// Gates the new JPY-estimate display only: no rate means NOK-only display, not that the
+// underlying NOK sums stop being computed.
+const hasRate = (settings?.jpyToNokRate ?? 0) > 0
 const budgetNok = settings?.budgetNok ?? null
 const budgetYen = settings?.budgetYen ?? null
 const childBudgets = settings?.childBudgets ?? []
@@ -51,6 +56,17 @@ function fmtYen(n) {
 }
 function fmtNok(n) {
   return Math.round(n).toLocaleString('nb-NO') + ' kr'
+}
+// The JPY equivalent shown next to a NOK amount, e.g. " (≈ ¥33,300)". An explicit
+// budgetYen (when given) is shown as-is, without "≈" — it's real stored data, not a
+// conversion. Everything else is an estimate from the trip's rate, rounded to the
+// nearest ¥100. Returns '' with no rate at all (NOK-only display) unless an explicit
+// value was given, since that's independent of any conversion.
+function fmtYenPart(nok, explicitYen) {
+  if (explicitYen != null) return ` (¥${Math.round(explicitYen).toLocaleString('en-US')})`
+  if (!hasRate) return ''
+  const est = Math.round(nok / rate / 100) * 100
+  return ` (≈ ¥${est.toLocaleString('en-US')})`
 }
 function budgetBoth(bNok, bYen) {
   let nok = null, yen = null, nokExplicit = false, yenExplicit = false
@@ -103,19 +119,19 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
         <span>Family trip budget</span>
         <span class="frame-budget-label">
           {fmtNok(frameBudget.nok)}{!frameBudget.nokExplicit ? ' est.' : ''}
-          {frameBudget.yen ? ` (${fmtYen(frameBudget.yen)}${!frameBudget.yenExplicit ? ' est.' : ''})` : ''}
+          {fmtYenPart(frameBudget.nok, frameBudget.yenExplicit ? frameBudget.yen : undefined)}
         </span>
       </div>
       <div class="frame-bar">
         <div class:list={['frame-fill', { over: frameOverBudget }]} style={`width:${framePct.toFixed(1)}%`}></div>
       </div>
       <div class:list={['frame-meta', { over: frameOverBudget }]}>
-        {fmtNok(frameBoughtNok)} spent
-        {framePlannedNok > 0 && ` · +${fmtNok(framePlannedNok)} planned`}
+        {fmtNok(frameBoughtNok)} spent{fmtYenPart(frameBoughtNok)}
+        {framePlannedNok > 0 && ` · +${fmtNok(framePlannedNok)} planned${fmtYenPart(framePlannedNok)}`}
         {frameRemainingNok != null && (
           frameRemainingNok >= 0
-            ? ` · ${fmtNok(frameRemainingNok)} left`
-            : ` · ${fmtNok(-frameRemainingNok)} over`
+            ? ` · ${fmtNok(frameRemainingNok)} left${fmtYenPart(frameRemainingNok)}`
+            : ` · ${fmtNok(-frameRemainingNok)} over${fmtYenPart(-frameRemainingNok)}`
         )}
       </div>
       {framePlannedExcludedCount > 0 && (
@@ -145,12 +161,15 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
             const hasBudget = p.budgetNok != null && p.budgetNok > 0
             const pct = hasBudget ? Math.min(100, (p.boughtNok / p.budgetNok) * 100) : 0
             const overBudget = hasBudget && p.boughtNok > p.budgetNok
+            const personBudgetYen = childBudgets.find((c) => c.person === p.person)?.budgetYen ?? null
             return (
               <div class="person-card" data-person={p.person}>
                 <div class="person-head">
                   <span class="person-name">{p.person}</span>
                   <span class:list={['person-spent', { over: overBudget }]}>
-                    {hasBudget ? `${fmtNok(p.boughtNok)} / ${fmtNok(p.budgetNok)}` : `${fmtNok(p.boughtNok)} spent`}
+                    {hasBudget
+                      ? `${fmtNok(p.boughtNok)}${fmtYenPart(p.boughtNok)} / ${fmtNok(p.budgetNok)}${fmtYenPart(p.budgetNok, personBudgetYen)}`
+                      : `${fmtNok(p.boughtNok)} spent${fmtYenPart(p.boughtNok)}`}
                   </span>
                 </div>
                 {hasBudget && (
@@ -159,11 +178,11 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
                   </div>
                 )}
                 <div class:list={['person-meta', { over: overBudget }]}>
-                  {p.plannedNok > 0 && `+${fmtNok(p.plannedNok)} planned`}
+                  {p.plannedNok > 0 && `+${fmtNok(p.plannedNok)} planned${fmtYenPart(p.plannedNok)}`}
                   {p.remainingNok != null && (
                     p.remainingNok >= 0
-                      ? `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(p.remainingNok)} left`
-                      : `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(-p.remainingNok)} over`
+                      ? `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(p.remainingNok)} left${fmtYenPart(p.remainingNok)}`
+                      : `${p.plannedNok > 0 ? ' · ' : ''}${fmtNok(-p.remainingNok)} over${fmtYenPart(-p.remainingNok)}`
                   )}
                 </div>
                 {p.overBudgetWithPlanned && (

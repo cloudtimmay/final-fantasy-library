@@ -96,9 +96,12 @@ const generatedAt = new Date().toISOString()
     const TYPE_LABEL = { album: 'ALBUM', game: 'GAME', book: 'BOOK', figure: 'MERCH' }
     const TYPE_PATH = { album: 'albums', game: 'games', book: 'books', figure: 'merchandise' }
 
-    // --- Register the service worker so the page itself works offline ---
+    // --- Service worker status ---
+    // Registration itself happens on every page now (Base.astro), not just here — this
+    // just reports on it. `.ready` resolves once a worker is actually active and
+    // controlling the page, whether that happened just now or on an earlier visit.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
+      navigator.serviceWorker.ready
         .then((reg) => {
           swStatus.textContent = 'cached — will load offline'
           swStatus.style.color = '#2ecc71'

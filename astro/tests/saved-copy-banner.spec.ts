@@ -1,5 +1,9 @@
 import { test, expect } from './fixtures'
 
+// Overrides playwright.config.ts's default 'block' — the "genuinely offline" test below
+// needs a real, running service worker; the other tests in this file don't care either way.
+test.use({ serviceWorkers: 'allow' })
+
 // Dispatches a real 'pageshow' event with persisted set, the same event the inline
 // script in Base.astro listens for to recheck a bfcache-restored page. Built via a
 // plain Event + defineProperty rather than `new PageTransitionEvent(...)` so this works
@@ -91,14 +95,13 @@ test.describe('saved copy banner', () => {
     await expect(page.locator('#saved-copy-banner')).toBeHidden()
   })
 
-  // Real service worker, real offline emulation — no mocking. /offline is the only page
-  // that registers sw.js (src/pages/offline.astro), and sw.js (untouched, per
-  // instructions) is network-first with a cache fallback, re-caching every successful
-  // online response. So: prime the cache with one specific timestamp while online, go
-  // offline, reload, and the exact same timestamp coming back proves the page was served
-  // from that cache, not a live render (which would be impossible anyway while offline —
-  // the point is confirming *which* cached copy, and that the mechanism this banner
-  // relies on genuinely works end to end).
+  // Real service worker, real offline emulation — no mocking. sw.js is registered from
+  // every page (Base.astro) and is network-first with a cache fallback, re-caching every
+  // successful online response. So: prime the cache with one specific timestamp while
+  // online, go offline, reload, and the exact same timestamp coming back proves the page
+  // was served from that cache, not a live render (which would be impossible anyway while
+  // offline — the point is confirming *which* cached copy, and that the mechanism this
+  // banner relies on genuinely works end to end).
   test('a genuinely offline, service-worker-cached page is correctly identified as a saved copy', async ({
     page,
     context,

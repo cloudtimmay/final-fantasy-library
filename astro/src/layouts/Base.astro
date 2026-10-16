@@ -395,5 +395,14 @@ const renderedAt = Date.now()
       window.addEventListener('pageshow', checkAge)
     })()
   </script>
+
+  <script>
+    // Registered from every page (not just /offline) so sw.js's cache stays warm no
+    // matter where someone enters the site, and /offline, /checklist, /prices and
+    // /spending all work offline even if they're not the first page visited.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+  </script>
 </body>
 </html>

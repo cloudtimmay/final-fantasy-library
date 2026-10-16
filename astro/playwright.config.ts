@@ -19,6 +19,12 @@ export default defineConfig({
     baseURL: 'http://localhost:4321',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Blocked by default: with an active service worker, Playwright's page.route() can
+    // bypass the mocked AI/API routes most specs rely on (the request goes through the
+    // service worker's own fetch() instead of the page's). The handful of specs that
+    // actually need a real service worker (sw.spec.ts, the offline case in
+    // saved-copy-banner.spec.ts) opt back in with test.use({ serviceWorkers: 'allow' }).
+    serviceWorkers: 'block',
   },
   // iOS Safari (WebKit) specifically, not Chromium — this app's real bug history
   // (iOS ignoring <option>.hidden, [hidden] CSS cascade quirks) is WebKit/mobile-only,

@@ -34,6 +34,13 @@ export const familyPurchase = defineType({
       },
     }),
     defineField({
+      name: 'passportHolder',
+      title: 'Paid with passport',
+      type: 'string',
+      options: { list: peopleList, layout: 'dropdown' },
+      description: 'Whose passport was shown at the register. Empty means Kim.',
+    }),
+    defineField({
       name: 'store',
       title: 'Store',
       type: 'reference',

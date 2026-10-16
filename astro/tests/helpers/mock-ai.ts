@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-// Canned responses for the two AI endpoints, used by the default (mocked) suite so it
+// Canned responses for the three AI endpoints, used by the default (mocked) suite so it
 // never costs a real Anthropic API call and never depends on network/model variance.
 // tests-ai-live/ hits the real endpoints instead, deliberately without these mocks.
 
@@ -94,6 +94,60 @@ export async function mockFindPricesEmpty(page: Page): Promise<void> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ ok: true, results: [] }),
+    })
+  })
+}
+
+// shop-info.ts's real server-side validation (Japan bounding box/area proximity for
+// coordinates, parseable openingHours, website hostname must be a seen search result) is
+// mocked away by route.fulfill — these helpers return already-"validated" shaped results
+// by default (the endpoint itself is unit-tested by actually calling it, not by the UI
+// suite), except where a test is specifically about the UI handling a null/missing field.
+export async function mockShopInfoResult(
+  page: Page,
+  overrides: Partial<{
+    openingHours: string | null
+    address: string | null
+    latitude: number | null
+    longitude: number | null
+    taxFreeShop: boolean | null
+    website: string | null
+    note: string | null
+  }> = {},
+  sources: { title: string; url: string }[] = [{ title: 'Example Shop — Official Site', url: 'https://example-shop.test/en' }]
+): Promise<void> {
+  await page.route('**/api/shop-info', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        result: {
+          openingHours: '10:00–20:00, closed Tue',
+          address: '1-2-3 Example, Chiyoda-ku, Tokyo',
+          latitude: 35.6984,
+          longitude: 139.7731,
+          taxFreeShop: true,
+          website: 'https://example-shop.test/en',
+          note: 'Known for retro games.',
+          ...overrides,
+        },
+        sources,
+      }),
+    })
+  })
+}
+
+export async function mockShopInfoEmpty(page: Page): Promise<void> {
+  await page.route('**/api/shop-info', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        result: { openingHours: null, address: null, latitude: null, longitude: null, taxFreeShop: null, website: null, note: null },
+        sources: [],
+      }),
     })
   })
 }

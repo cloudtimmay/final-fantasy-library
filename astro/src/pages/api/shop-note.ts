@@ -37,6 +37,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (body.address) doc.address = String(body.address).trim()
   if (num(body.latitude) != null) doc.latitude = num(body.latitude)
   if (num(body.longitude) != null) doc.longitude = num(body.longitude)
+  if (typeof body.taxFreeShop === 'boolean') doc.taxFreeShop = body.taxFreeShop
+  if (body.website && String(body.website).trim()) doc.website = String(body.website).trim().slice(0, 500)
 
   try {
     const created = await sanityWrite.create(doc)

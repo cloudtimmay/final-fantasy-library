@@ -57,6 +57,14 @@ export const POST: APIRoute = async ({ request }) => {
   if (num(body.longitude) != null) set.longitude = num(body.longitude)
   else unset.push('longitude')
 
+  // Deliberately tri-state: true/false from the client means "known", anything else
+  // (including the absence of the key) means "leave unknown" — never forced to false.
+  if (typeof body.taxFreeShop === 'boolean') set.taxFreeShop = body.taxFreeShop
+  else unset.push('taxFreeShop')
+
+  if (body.website && String(body.website).trim()) set.website = String(body.website).trim().slice(0, 500)
+  else unset.push('website')
+
   try {
     const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type }`, { id })
     if (!existing || existing._type !== 'shopNote') {

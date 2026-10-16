@@ -9,6 +9,7 @@ if (id) {
   shop = await sanity.fetch(
     `*[_type == "shopNote" && _id == $id][0]{
       _id, shopName, placeType, area, openingHours, note, priority, address, latitude, longitude,
+      taxFreeShop, website,
       "tripIds": trips[]._ref
     }`,
     { id }
@@ -46,6 +47,12 @@ const currentTripIds: string[] = shop?.tripIds || []
         <div class="field">
           <label>Shop / Place *</label>
           <input id="s-name" type="text" value={shop.shopName || ''} />
+        </div>
+
+        <div class="field" id="s-ai-fill-wrap">
+          <button id="s-ai-fill-btn" type="button" class="ai-fill-btn">✨ Fill in from web</button>
+          <p id="s-ai-fill-msg" class="ai-fill-msg" hidden></p>
+          <div id="s-ai-fill-results" class="ai-fill-results" hidden></div>
         </div>
 
         <div class="field">
@@ -104,6 +111,20 @@ const currentTripIds: string[] = shop?.tripIds || []
         </div>
 
         <div class="field">
+          <label>Tax-free shop</label>
+          <select id="s-taxfree">
+            <option value="" selected={shop.taxFreeShop == null}>Unknown</option>
+            <option value="true" selected={shop.taxFreeShop === true}>Yes</option>
+            <option value="false" selected={shop.taxFreeShop === false}>No</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Website</label>
+          <input id="s-website" type="url" value={shop.website || ''} placeholder="https://…" />
+        </div>
+
+        <div class="field">
           <label>Address / how to find</label>
           <input id="s-address" type="text" value={shop.address || ''} />
           <a id="s-map-link" class="map-open-btn" href="#" target="_blank" rel="noopener">🗺️ Open in Maps</a>
@@ -142,6 +163,8 @@ const currentTripIds: string[] = shop?.tripIds || []
       const hoursInput = document.querySelector('#s-hours')
       const noteInput = document.querySelector('#s-note')
       const prioritySel = document.querySelector('#s-priority')
+      const taxFreeSel = document.querySelector('#s-taxfree')
+      const websiteInput = document.querySelector('#s-website')
       const addressInput = document.querySelector('#s-address')
       const mapLink = document.querySelector('#s-map-link')
       const coordPaste = document.querySelector('#s-coord-paste')
@@ -254,6 +277,200 @@ const currentTripIds: string[] = shop?.tripIds || []
         msg.style.color = ok ? '#2ecc71' : '#e74c3c'
       }
 
+      // --- AI "fill in from web" — suggests values, never touches #s-note (that field is
+      // the user's own train directions, never read or written here), and never saves
+      // anything itself: "Apply selected" only fills the live form fields below, same as
+      // picking from a dropdown would. The real save still goes through the Save button. ---
+      const aiFillBtn = document.querySelector('#s-ai-fill-btn')
+      const aiFillMsg = document.querySelector('#s-ai-fill-msg')
+      const aiFillResults = document.querySelector('#s-ai-fill-results')
+
+      function escapeHtml(s) {
+        return String(s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#039;')
+      }
+
+      function showAiFillMsg(text, ok) {
+        aiFillMsg.hidden = false
+        aiFillMsg.textContent = text
+        aiFillMsg.style.color = ok ? 'var(--muted)' : '#e74c3c'
+      }
+      function hideAiFillMsg() {
+        aiFillMsg.hidden = true
+        aiFillMsg.textContent = ''
+      }
+
+      function renderAiFillResults(result, sources) {
+        aiFillResults.replaceChildren()
+        const fields = []
+
+        if (result.openingHours) {
+          fields.push({
+            key: 'openingHours',
+            label: 'Opening hours',
+            current: hoursInput.value.trim() || '(empty)',
+            suggested: result.openingHours,
+            checkedByDefault: !hoursInput.value.trim(),
+          })
+        }
+        if (result.address) {
+          fields.push({
+            key: 'address',
+            label: 'Address',
+            current: addressInput.value.trim() || '(empty)',
+            suggested: result.address,
+            checkedByDefault: !addressInput.value.trim(),
+          })
+        }
+        if (typeof result.latitude === 'number' && typeof result.longitude === 'number') {
+          const hasCurrentCoords = readCoordFields() && typeof lat === 'number' && typeof lng === 'number'
+          fields.push({
+            key: 'coords',
+            label: 'Coordinates',
+            current: hasCurrentCoords ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '(empty)',
+            suggested: `${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}`,
+            checkedByDefault: !hasCurrentCoords,
+          })
+        }
+        if (result.taxFreeShop === true || result.taxFreeShop === false) {
+          const currentLabel = taxFreeSel.value === 'true' ? 'Yes' : taxFreeSel.value === 'false' ? 'No' : 'Unknown'
+          fields.push({
+            key: 'taxFreeShop',
+            label: 'Tax-free shop',
+            current: currentLabel,
+            suggested: result.taxFreeShop ? 'Yes' : 'No',
+            checkedByDefault: taxFreeSel.value === '',
+          })
+        }
+        if (result.website) {
+          fields.push({
+            key: 'website',
+            label: 'Website',
+            current: websiteInput.value.trim() || '(empty)',
+            suggested: result.website,
+            checkedByDefault: !websiteInput.value.trim(),
+          })
+        }
+
+        if (fields.length === 0 && !result.note) {
+          aiFillResults.hidden = true
+          showAiFillMsg('Nothing reliable found for this shop.', false)
+          return
+        }
+        hideAiFillMsg()
+
+        const card = document.createElement('div')
+        card.className = 'es-ai-card'
+        let list = null
+
+        if (fields.length > 0) {
+          list = document.createElement('ul')
+          list.className = 'es-ai-list'
+          fields.forEach((f) => {
+            const li = document.createElement('li')
+            li.className = 'es-ai-item'
+            const label = document.createElement('label')
+            label.className = 'es-ai-item-label'
+            const checkbox = document.createElement('input')
+            checkbox.type = 'checkbox'
+            checkbox.className = 'es-ai-checkbox'
+            checkbox.dataset.field = f.key
+            checkbox.checked = f.checkedByDefault
+            const text = document.createElement('span')
+            text.className = 'es-ai-item-text'
+            text.innerHTML = `<strong>${escapeHtml(f.label)}</strong><br>Current: ${escapeHtml(f.current)}<br>Suggested: ${escapeHtml(f.suggested)}`
+            label.appendChild(checkbox)
+            label.appendChild(text)
+            li.appendChild(label)
+            list.appendChild(li)
+          })
+          card.appendChild(list)
+        }
+
+        if (result.note) {
+          const noteP = document.createElement('p')
+          noteP.className = 'es-ai-note'
+          noteP.textContent = `Note from search: ${result.note}`
+          card.appendChild(noteP)
+        }
+
+        if (fields.length > 0) {
+          const applyBtn = document.createElement('button')
+          applyBtn.type = 'button'
+          applyBtn.className = 'es-ai-apply-btn'
+          applyBtn.textContent = 'Apply selected'
+          applyBtn.addEventListener('click', () => {
+            list.querySelectorAll('.es-ai-checkbox').forEach((cb) => {
+              if (!cb.checked) return
+              const f = fields.find((x) => x.key === cb.dataset.field)
+              if (!f) return
+              if (f.key === 'openingHours') hoursInput.value = result.openingHours
+              else if (f.key === 'address') { addressInput.value = result.address; updateMapLink() }
+              else if (f.key === 'coords') setCoords(result.latitude, result.longitude)
+              else if (f.key === 'taxFreeShop') taxFreeSel.value = result.taxFreeShop ? 'true' : 'false'
+              else if (f.key === 'website') websiteInput.value = result.website
+            })
+            showAiFillMsg('Applied — review and press Save to keep it.', true)
+            aiFillResults.hidden = true
+          })
+          card.appendChild(applyBtn)
+        }
+
+        if (sources && sources.length > 0) {
+          const sourcesWrap = document.createElement('p')
+          sourcesWrap.className = 'es-ai-sources'
+          sourcesWrap.appendChild(document.createTextNode('Sources: '))
+          sources.forEach((s, i) => {
+            const a = document.createElement('a')
+            a.className = 'es-ai-source-link'
+            a.href = s.url
+            a.target = '_blank'
+            a.rel = 'noopener'
+            a.textContent = s.title || s.url
+            sourcesWrap.appendChild(a)
+            if (i < sources.length - 1) sourcesWrap.appendChild(document.createTextNode(' · '))
+          })
+          card.appendChild(sourcesWrap)
+        }
+
+        aiFillResults.appendChild(card)
+        aiFillResults.hidden = false
+      }
+
+      async function fillFromWeb() {
+        if (!nameInput.value.trim()) return showAiFillMsg('Enter a shop name first.', false)
+        aiFillResults.hidden = true
+        aiFillResults.replaceChildren()
+        hideAiFillMsg()
+        aiFillBtn.disabled = true
+        aiFillBtn.textContent = 'Looking…'
+        try {
+          const res = await fetch('/api/shop-info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shopName: nameInput.value.trim(),
+              area: chosenArea() || undefined,
+              address: addressInput.value.trim() || undefined,
+              openingHours: hoursInput.value.trim() || undefined,
+            }),
+          })
+          const data = await res.json()
+          if (!res.ok) {
+            showAiFillMsg(data.error || 'Lookup failed.', false)
+            return
+          }
+          renderAiFillResults(data.result || {}, data.sources || [])
+        } catch (e) {
+          showAiFillMsg('Network error.', false)
+        } finally {
+          aiFillBtn.disabled = false
+          aiFillBtn.textContent = '✨ Fill in from web'
+        }
+      }
+      aiFillBtn.addEventListener('click', fillFromWeb)
+
       locateBtn.addEventListener('click', () => {
         if (!('geolocation' in navigator)) {
           locateMsg.hidden = false
@@ -303,6 +520,8 @@ const currentTripIds: string[] = shop?.tripIds || []
               openingHours: hoursInput.value.trim() || undefined,
               note: noteInput.value.trim() || undefined,
               priority: prioritySel.value,
+              taxFreeShop: taxFreeSel.value === 'true' ? true : taxFreeSel.value === 'false' ? false : undefined,
+              website: websiteInput.value.trim() || undefined,
               address: addressInput.value.trim() || undefined,
               latitude: lat,
               longitude: lng,
@@ -372,5 +591,40 @@ const currentTripIds: string[] = shop?.tripIds || []
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+
+    .ai-fill-btn {
+      width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.7rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+    }
+    .ai-fill-btn:disabled { opacity: 0.6; cursor: default; }
+    .ai-fill-msg { font-size: 0.85rem; margin: 0.6rem 0 0; }
+    .ai-fill-msg[hidden] { display: none; }
+    .ai-fill-results { margin-top: 0.75rem; }
+    .ai-fill-results[hidden] { display: none; }
+  </style>
+
+  <!-- Suggestion card content is built with document.createElement/innerHTML in the
+       script above, so it never gets Astro's scoped-CSS attribute — these rules have to
+       be global. "es-ai-" prefix keeps them from colliding with anything else on the
+       page or with add-store.astro's own (separately duplicated) copy of this feature. -->
+  <style is:global>
+    .es-ai-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.9rem; display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .es-ai-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+    .es-ai-item { border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+    .es-ai-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .es-ai-item-label { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; font-size: 0.85rem; }
+    .es-ai-item-label input { width: auto; margin: 0.2rem 0 0; flex-shrink: 0; }
+    .es-ai-item-text { line-height: 1.5; overflow-wrap: anywhere; }
+    .es-ai-note { font-size: 0.85rem; color: var(--muted); font-style: italic; margin: 0; }
+    .es-ai-apply-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 0.6rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    .es-ai-sources { font-size: 0.78rem; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+    .es-ai-source-link { color: var(--accent); text-decoration: none; }
+    .es-ai-source-link:hover { text-decoration: underline; }
   </style>
 </Base>

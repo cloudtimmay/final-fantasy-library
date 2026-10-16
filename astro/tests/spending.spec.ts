@@ -256,6 +256,25 @@ test.describe('spending: JPY estimates', () => {
     await expect(card).toBeVisible()
     await expect(card).toContainText('200 kr')
     await expect(card).not.toContainText('¥')
+
+    await expect(page.locator('.rate-warning')).toBeVisible()
+    await expect(page.locator('.rate-warning')).toContainText(
+      'No exchange rate set for this trip. NOK amounts use 0.06 as a fallback. Set the rate in Trip Settings.'
+    )
+  })
+
+  test('does not show the no-rate warning when the trip has a rate set', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Has Rate Trip ${Date.now()}`)
+    const trip = await sanity.create({
+      _type: 'tripSettings',
+      label: tripLabel,
+      jpyToNokRate: 0.07,
+      childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 500 }],
+    })
+    trackDoc(trip._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+    await expect(page.locator('.rate-warning')).toHaveCount(0)
   })
 })
 
@@ -526,7 +545,11 @@ test.describe('spending: per-purchase tax-free toggle', () => {
     const row = page.locator('details.store-row', { hasText: shop.shopName })
     await row.locator('summary.store-summary').click()
     const checkbox = row.locator(`.taxfree-checkbox[data-item-id="${item._id}"]`)
-    await checkbox.uncheck()
+    // A plain click, not .uncheck() — the app reverts the checkbox back to checked so
+    // quickly (the mocked 500 rejects almost immediately) that Playwright's own built-in
+    // "did the state actually change" verification inside .uncheck() can flag that as the
+    // click having failed, even though the revert is exactly the behavior under test.
+    await checkbox.click()
 
     await expect(checkbox).toBeChecked()
     await expect(page.locator('#store-error')).toBeVisible()

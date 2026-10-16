@@ -99,6 +99,12 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
     <h1>Spending</h1>
   </div>
 
+  {activeTripId && !hasRate && (
+    <p class="rate-warning">
+      No exchange rate set for this trip. NOK amounts use 0.06 as a fallback. Set the rate in Trip Settings.
+    </p>
+  )}
+
   <p class="hint">Family shopping list for the selected trip is below. Budgets are set in Studio (Trip Settings).</p>
 
   {allTrips.length > 1 && (
@@ -450,6 +456,11 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
 
   <style>
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.5rem 0 1.25rem; }
+    .rate-warning {
+      font-size: 0.85rem; color: #f5c542; background: rgba(245,197,66,0.1);
+      border: 1px solid rgba(245,197,66,0.4); border-radius: 8px;
+      padding: 0.65rem 0.9rem; margin: 0.5rem 0 1rem;
+    }
 
     .trip-switcher { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
     .trip-switcher-label { font-size: 0.85rem; color: var(--muted); }

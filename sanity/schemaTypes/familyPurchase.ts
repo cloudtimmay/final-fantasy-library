@@ -41,6 +41,12 @@ export const familyPurchase = defineType({
       description: 'Whose passport was shown at the register. Empty means Kim.',
     }),
     defineField({
+      name: 'taxFree',
+      title: 'Tax-free (paid with passport)',
+      type: 'boolean',
+      description: 'Unset means tax-free.',
+    }),
+    defineField({
       name: 'store',
       title: 'Store',
       type: 'reference',

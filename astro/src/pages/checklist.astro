@@ -4,7 +4,7 @@ import {
   fetchTripsForSpending,
   fetchFamilyPurchasesForTrip,
   pickDefaultTrip,
-  groupBoughtByPersonShopDay,
+  groupBoughtByPassportShopDay,
 } from '../lib/spending'
 
 const allTrips = await fetchTripsForSpending()
@@ -20,15 +20,18 @@ function tripLabel(trip, index) {
 }
 
 const allPurchases = activeTripId ? await fetchFamilyPurchasesForTrip(activeTripId) : []
-const groups = groupBoughtByPersonShopDay(allPurchases)
+const groups = groupBoughtByPassportShopDay(allPurchases)
 
 // Main checklist: shop-days that actually clear the threshold at a shop confirmed
 // tax-free. "Check the receipt": same threshold cleared, but the shop's tax-free status
 // is unknown — nothing to check off yet, just a reminder to find out before departure.
+// Grouped by passport holder, not by whose budget an item counts against — Japan checks
+// the threshold against the passport shown at the register, and Kim usually pays for
+// everyone (see groupBoughtByPassportShopDay for details).
 const qualifyingGroups = groups.filter((g) => g.reached && g.taxFreeShop === true)
 const unknownGroups = groups.filter((g) => g.reached && g.taxFreeShop === null)
 
-const peopleWithQualifying = [...new Set(qualifyingGroups.map((g) => g.person))]
+const passportHoldersWithQualifying = [...new Set(qualifyingGroups.map((g) => g.passportHolder))]
 
 function fmtYen(n) {
   return '¥' + Math.round(n).toLocaleString('en-US')
@@ -75,10 +78,10 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
       </div>
 
       <div class="person-sections" id="checklist-trip" data-trip-id={activeTripId}>
-        {peopleWithQualifying.map((person) => (
+        {passportHoldersWithQualifying.map((passportHolder) => (
           <section class="person-section">
-            <h2 class="person-section-title">{person}</h2>
-            {qualifyingGroups.filter((g) => g.person === person).map((g) => (
+            <h2 class="person-section-title">{passportHolder}'s passport</h2>
+            {qualifyingGroups.filter((g) => g.passportHolder === passportHolder).map((g) => (
               <div class="shopday-card">
                 <div class="shopday-head">
                   <label class="shopday-receipt">
@@ -102,7 +105,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
                         ) : (
                           <span class="item-thumb item-thumb-placeholder">🏷️</span>
                         )}
-                        <span class="item-name">{item.name}</span>
+                        <span class="item-name">{item.name} <span class="item-owner">({item.person})</span></span>
                         <span class="item-price">{fmtYen(item.priceYen || 0)}</span>
                       </label>
                     </li>
@@ -130,7 +133,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
     <ul class="unknown-list" id="unknown-list">
       {unknownGroups.map((g) => (
         <li class="unknown-row">
-          <span class="unknown-name">{g.person} — {g.storeName} <span class="shopday-day">{g.day}</span></span>
+          <span class="unknown-name">{g.passportHolder}'s passport — {g.storeName} <span class="shopday-day">{g.day}</span></span>
           <span class="unknown-total">{fmtYen(g.totalInclJpy)}</span>
         </li>
       ))}
@@ -267,6 +270,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.length, 0)
     .item-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--border); }
     .item-thumb-placeholder { display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
     .item-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .item-owner { font-weight: 400; color: var(--muted); font-size: 0.75rem; }
     .item-price { color: var(--muted); font-size: 0.78rem; flex-shrink: 0; }
     .checklist-item:has(.item-checkbox:checked) .item-name { text-decoration: line-through; opacity: 0.6; }
 

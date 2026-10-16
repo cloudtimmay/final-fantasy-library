@@ -7,7 +7,7 @@ import {
   pickDefaultTrip,
   computePersonSpending,
   sumBoughtNok,
-  groupShopDays,
+  groupBoughtByPassportShopDay,
   NORWAY_DUTY_FREE_ALLOWANCE_NOK,
 } from '../lib/spending'
 
@@ -85,11 +85,12 @@ const frameOverBudget = frameBudget.nok != null && frameBoughtNok > frameBudget.
 const framePct = frameBudget.nok ? Math.min(100, (frameBoughtNok / frameBudget.nok) * 100) : 0
 const frameRemainingNok = frameBudget.nok != null ? frameBudget.nok - frameBoughtNok : null
 
-// Shop/day tax-free grouping — bought purchases only (see groupShopDays' own comment for
-// why), on the post-1-Nov-2026 refund system: pay tax-included in the shop, claim the
-// refund at departure. Shops with an unknown taxFreeShop status are shown separately
-// rather than assumed either way.
-const shopDayGroups = groupShopDays(tripPurchases)
+// Tax-free grouping by passport holder, shop and day — bought purchases only, on the
+// post-1-Nov-2026 refund system: pay tax-included in the shop, claim the refund at
+// departure. Shops with an unknown taxFreeShop status are shown separately rather than
+// assumed either way. See groupBoughtByPassportShopDay's own comment for why this groups
+// by passport holder rather than by whose budget each item counts against.
+const shopDayGroups = groupBoughtByPassportShopDay(tripPurchases)
 const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimatedRefundJpy, 0)
 ---
 <Base title="Spending">
@@ -212,7 +213,7 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
             <div class="store-list">
               {shopDayGroups.map((g) => (
                 <div class:list={['store-row', { ok: g.reached && g.taxFreeShop === true, unknown: g.taxFreeShop === null }]}>
-                  <span class="store-name">{g.storeName} <span class="store-day">{g.day}</span></span>
+                  <span class="store-name">{g.passportHolder} — {g.storeName} <span class="store-day">{g.day}</span></span>
                   <span class="store-meta">
                     {fmtYen(g.totalInclJpy)}
                     {g.taxFreeShop === null ? (
@@ -234,7 +235,7 @@ const totalEstimatedRefundJpy = shopDayGroups.reduce((sum, g) => sum + g.estimat
               </p>
             )}
             <p class="store-note">
-              Tax-free threshold: ¥5,000 before tax (¥5,500 incl.) per shop per day, all goods combined — pay the tax-included price in the shop, claim the refund at departure. Counts bought purchases only.
+              Tax-free threshold: ¥5,000 before tax (¥5,500 incl.) per shop per day, per passport shown at the register — pay the tax-included price in the shop, claim the refund at departure. Counts bought purchases only.
             </p>
           </div>
         )}

@@ -372,4 +372,55 @@ test.describe('spending: shop/day tax-free', () => {
     await expect(total).toBeVisible()
     await expect(total).toContainText('estimated, before any service fees')
   })
+
+  test('groups by passport holder, not by whose budget the purchase counts against', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Passport Shop Day Trip ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: tripLabel, jpyToNokRate: 0.07 })
+    trackDoc(trip._id)
+
+    const day = '2026-03-16'
+    const shop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Passport Row Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(shop._id)
+
+    // Two different buyers, neither sets passportHolder — both default to Kim, so their
+    // totals combine into a single row for the threshold, even though they count against
+    // different people's budgets.
+    const itemKim = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Passport Row Kim ${Date.now()}`),
+      person: 'Kim',
+      status: 'bought',
+      priceYen: 3000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(itemKim._id)
+    const itemTone = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Passport Row Tone ${Date.now()}`),
+      person: 'Tone',
+      status: 'bought',
+      priceYen: 3000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(itemTone._id)
+
+    await page.goto(`/spending?trip=${trip._id}`)
+    const row = page.locator('.store-row', { hasText: shop.shopName })
+    await expect(row).toHaveCount(1)
+    await expect(row).toContainText('Kim')
+    await expect(row).toContainText('¥6,000')
+    await expect(row).toContainText('tax-free reached')
+  })
 })

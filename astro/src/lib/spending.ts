@@ -1,5 +1,6 @@
 import { sanity } from './sanity'
 import { productKey } from './price-products'
+import { OWNER } from './price-entry-fields'
 
 // Norway's duty-free (toll-free) import allowance for goods brought back from outside
 // the EU. Verify the current threshold on toll.no before relying on this — it changes
@@ -76,7 +77,8 @@ export function pickDefaultTrip(trips: SpendingTrip[], today: Date = new Date())
 export type FamilyPurchaseDoc = {
   _id: string
   name: string
-  person: string
+  person: string // whose budget this counts against
+  passportHolder?: string // whose passport was shown at the register — missing means OWNER
   status: 'planned' | 'bought'
   priceNok?: number
   priceYen?: number
@@ -91,7 +93,7 @@ export type FamilyPurchaseDoc = {
 export async function fetchFamilyPurchasesForTrip(tripId: string): Promise<FamilyPurchaseDoc[]> {
   const raw: any[] = await sanity.fetch(
     `*[_type == "familyPurchase" && !(_id in path("drafts.**")) && trip._ref == $tripId] {
-      _id, name, person, status, priceNok, priceYen, purchaseDate, barcode,
+      _id, name, person, passportHolder, status, priceNok, priceYen, purchaseDate, barcode,
       "storeId": store._ref,
       "storeName": store->shopName,
       "taxFreeShop": store->taxFreeShop,
@@ -100,6 +102,13 @@ export async function fetchFamilyPurchasesForTrip(tripId: string): Promise<Famil
     { tripId }
   )
   return raw.map((p) => ({ ...p, taxFreeShop: p.taxFreeShop ?? null, photoUrl: p.photoUrl ?? undefined }))
+}
+
+// Japan's tax-free threshold and refund are per passport shown at the register, not per
+// budget owner — Kim usually pays for everyone regardless of whose budget an item counts
+// against (FamilyPurchaseDoc.person). A missing passportHolder means Kim paid.
+function passportHolderOf(p: FamilyPurchaseDoc): string {
+  return p.passportHolder || OWNER
 }
 
 export type PlannedPriceDoc = {
@@ -230,76 +239,50 @@ export function computePersonSpending(
   }
 }
 
-export type ShopDayGroup = {
+export type PassportShopDayGroup = {
+  key: string // stable id for this (passportHolder, store, day) group, for localStorage/DOM
+  passportHolder: string
   storeName: string
   day: string
-  totalInclJpy: number
   taxFreeShop: boolean | null
+  items: FamilyPurchaseDoc[] // each item carries its own `person` — whose budget it counts against
+  totalInclJpy: number
   reached: boolean
   missingInclJpy: number
   estimatedRefundJpy: number
 }
 
-// Groups BOUGHT familyPurchase rows by store+day (Japan's tax-free threshold is per shop
-// per day, all goods combined) — bought only, since the threshold is about purchases
-// that actually happened, not ones still being considered. The previous implementation
-// of this grouping (spending.astro's old updateStores()) included planned purchases too;
-// that's corrected here.
-export function groupShopDays(familyPurchases: FamilyPurchaseDoc[]): ShopDayGroup[] {
-  const groups = new Map<string, { storeName: string; day: string; totalInclJpy: number; taxFreeShop: boolean | null }>()
+// Groups BOUGHT familyPurchase rows by (passport holder, shop, day) — Japan's tax-free
+// threshold and refund are checked per passport shown at the register, not per budget
+// owner, so e.g. two family members' purchases both paid for with Kim's passport at the
+// same shop/day DO combine toward the threshold, even though they count against different
+// people's budgets. Bought only, since the threshold is about purchases that actually
+// happened, not ones still being considered. Shared by the spending page's overview and
+// the airport checklist — the only difference between them is which groups each one shows
+// (the checklist only cares about ones that have reached the threshold).
+export function groupBoughtByPassportShopDay(familyPurchases: FamilyPurchaseDoc[]): PassportShopDayGroup[] {
+  const groups = new Map<string, PassportShopDayGroup>()
   for (const p of familyPurchases) {
     if (p.status !== 'bought') continue
     if (!p.priceYen) continue // only JPY shop purchases are relevant to Japan's tax-free system
+    const passportHolder = passportHolderOf(p)
     const storeName = (p.storeName && p.storeName.trim()) || '— No store —'
     const day = p.purchaseDate || '— No date —'
-    const key = storeName + '||' + day
-    const existing = groups.get(key)
-    if (existing) {
-      existing.totalInclJpy += p.priceYen
-    } else {
-      groups.set(key, { storeName, day, totalInclJpy: p.priceYen, taxFreeShop: p.taxFreeShop })
-    }
-  }
-  return [...groups.values()]
-    .map((g) => {
-      const reached = g.totalInclJpy >= TAX_FREE_THRESHOLD_INCL_JPY
-      const missingInclJpy = reached ? 0 : TAX_FREE_THRESHOLD_INCL_JPY - g.totalInclJpy
-      const estimatedRefundJpy = reached && g.taxFreeShop === true ? g.totalInclJpy / 11 : 0
-      return { ...g, reached, missingInclJpy, estimatedRefundJpy }
-    })
-    .sort((a, b) => b.day.localeCompare(a.day) || a.storeName.localeCompare(b.storeName))
-}
-
-export type ChecklistGroup = {
-  key: string // stable id for this (person, store, day) group, for localStorage/DOM
-  person: string
-  storeName: string
-  day: string
-  taxFreeShop: boolean | null
-  items: FamilyPurchaseDoc[]
-  totalInclJpy: number
-  reached: boolean
-  estimatedRefundJpy: number
-}
-
-// Groups BOUGHT familyPurchase rows by (person, shop, day) rather than shop+day alone —
-// Japan's tax-free threshold is checked per purchaser's passport at the register, so
-// combining several people's purchases together (as groupShopDays() does, for the
-// page-level spending overview) would be wrong for an actual airport checklist: it could
-// show a shop-day as "qualifying" that no single person's receipts actually clear. Also
-// carries the individual line items, which groupShopDays() doesn't, since the checklist
-// needs to list and check off each one.
-export function groupBoughtByPersonShopDay(familyPurchases: FamilyPurchaseDoc[]): ChecklistGroup[] {
-  const groups = new Map<string, ChecklistGroup>()
-  for (const p of familyPurchases) {
-    if (p.status !== 'bought') continue
-    if (!p.priceYen) continue
-    const storeName = (p.storeName && p.storeName.trim()) || '— No store —'
-    const day = p.purchaseDate || '— No date —'
-    const key = `${p.person}||${storeName}||${day}`
+    const key = `${passportHolder}||${storeName}||${day}`
     let g = groups.get(key)
     if (!g) {
-      g = { key, person: p.person, storeName, day, taxFreeShop: p.taxFreeShop, items: [], totalInclJpy: 0, reached: false, estimatedRefundJpy: 0 }
+      g = {
+        key,
+        passportHolder,
+        storeName,
+        day,
+        taxFreeShop: p.taxFreeShop,
+        items: [],
+        totalInclJpy: 0,
+        reached: false,
+        missingInclJpy: 0,
+        estimatedRefundJpy: 0,
+      }
       groups.set(key, g)
     }
     g.items.push(p)
@@ -308,8 +291,9 @@ export function groupBoughtByPersonShopDay(familyPurchases: FamilyPurchaseDoc[])
   return [...groups.values()]
     .map((g) => {
       const reached = g.totalInclJpy >= TAX_FREE_THRESHOLD_INCL_JPY
+      const missingInclJpy = reached ? 0 : TAX_FREE_THRESHOLD_INCL_JPY - g.totalInclJpy
       const estimatedRefundJpy = reached && g.taxFreeShop === true ? g.totalInclJpy / 11 : 0
-      return { ...g, reached, estimatedRefundJpy }
+      return { ...g, reached, missingInclJpy, estimatedRefundJpy }
     })
-    .sort((a, b) => a.person.localeCompare(b.person) || b.day.localeCompare(a.day) || a.storeName.localeCompare(b.storeName))
+    .sort((a, b) => a.passportHolder.localeCompare(b.passportHolder) || b.day.localeCompare(a.day) || a.storeName.localeCompare(b.storeName))
 }

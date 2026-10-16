@@ -1,7 +1,7 @@
 import { test, expect, testName } from './fixtures'
 
 test.describe('checklist: grouping', () => {
-  test('does not combine two people\'s purchases at the same shop/day toward the threshold', async ({
+  test('combines two different buyers\' purchases paid with the same (default) passport at the same shop/day', async ({
     page,
     trackDoc,
     sanity,
@@ -18,8 +18,9 @@ test.describe('checklist: grouping', () => {
     })
     trackDoc(shop._id)
 
-    // Each person is under the 5500-incl. threshold alone; combined they'd be over it.
-    // The threshold is checked per individual passport, so neither should qualify.
+    // Neither item sets passportHolder, so both default to Kim — even though they count
+    // against different people's budgets, Kim paid for both with the same passport, so
+    // the threshold is checked against their combined total.
     const itemA = await sanity.create({
       _type: 'familyPurchase',
       name: testName(`Combine Item A ${Date.now()}`),
@@ -44,12 +45,68 @@ test.describe('checklist: grouping', () => {
     trackDoc(itemB._id)
 
     await page.goto(`/checklist?trip=${trip._id}`)
-    await expect(page.locator('.person-section-title', { hasText: 'Kim' })).toHaveCount(0)
-    await expect(page.locator('.person-section-title', { hasText: 'Tone' })).toHaveCount(0)
+    await expect(page.locator('.person-section-title', { hasText: "Kim's passport" })).toBeVisible()
+    const card = page.locator('.shopday-card', { hasText: shop.shopName })
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('¥6,000')
+    await expect(card).toContainText(itemA.name)
+    await expect(card).toContainText(itemB.name)
+    // Each item still shows whose budget it counts against.
+    await expect(card.locator('.checklist-item', { hasText: itemA.name })).toContainText('(Kim)')
+    await expect(card.locator('.checklist-item', { hasText: itemB.name })).toContainText('(Tone)')
+  })
+
+  test('keeps two different passport holders separate even at the same shop/day', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const tripLabel = testName(`Checklist Separate Trip ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: tripLabel, jpyToNokRate: 0.07 })
+    trackDoc(trip._id)
+
+    const day = '2026-03-24'
+    const shop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Separate Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(shop._id)
+
+    // Each is under the 5500-incl. threshold alone; combined they'd be over it. But they
+    // were shown at the register separately (different passports), so neither qualifies.
+    const itemA = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Separate Item A ${Date.now()}`),
+      person: 'Kim',
+      passportHolder: 'Kim',
+      status: 'bought',
+      priceYen: 3000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(itemA._id)
+    const itemB = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Separate Item B ${Date.now()}`),
+      person: 'Tone',
+      passportHolder: 'Tone',
+      status: 'bought',
+      priceYen: 3000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(itemB._id)
+
+    await page.goto(`/checklist?trip=${trip._id}`)
+    await expect(page.locator('.person-section-title', { hasText: "Kim's passport" })).toHaveCount(0)
+    await expect(page.locator('.person-section-title', { hasText: "Tone's passport" })).toHaveCount(0)
     await expect(page.locator('.shopday-card', { hasText: shop.shopName })).toHaveCount(0)
   })
 
-  test('qualifies a single person\'s shop/day once their own total reaches the threshold', async ({
+  test('qualifies a single passport holder\'s own total, showing whose budget each item belongs to', async ({
     page,
     trackDoc,
     sanity,
@@ -66,10 +123,12 @@ test.describe('checklist: grouping', () => {
     })
     trackDoc(shop._id)
 
+    // Richard's passport was used, but the item counts against Niklas's budget.
     const item = await sanity.create({
       _type: 'familyPurchase',
       name: testName(`Qualify Item ${Date.now()}`),
-      person: 'Richard',
+      person: 'Niklas',
+      passportHolder: 'Richard',
       status: 'bought',
       priceYen: 6000,
       purchaseDate: day,
@@ -81,7 +140,8 @@ test.describe('checklist: grouping', () => {
     const planned = await sanity.create({
       _type: 'familyPurchase',
       name: testName(`Qualify Planned ${Date.now()}`),
-      person: 'Richard',
+      person: 'Niklas',
+      passportHolder: 'Richard',
       status: 'planned',
       priceYen: 10000,
       purchaseDate: day,
@@ -91,13 +151,48 @@ test.describe('checklist: grouping', () => {
     trackDoc(planned._id)
 
     await page.goto(`/checklist?trip=${trip._id}`)
-    await expect(page.locator('.person-section-title', { hasText: 'Richard' })).toBeVisible()
+    await expect(page.locator('.person-section-title', { hasText: "Richard's passport" })).toBeVisible()
     const card = page.locator('.shopday-card', { hasText: shop.shopName })
     await expect(card).toBeVisible()
     await expect(card).toContainText(item.name)
+    await expect(card).toContainText('(Niklas)')
     await expect(card).not.toContainText(planned.name)
     await expect(card).toContainText('¥6,000')
     await expect(card).toContainText('¥545') // estimated refund, 6000 / 11 rounded
+  })
+
+  test('a missing passportHolder counts as Kim', async ({ page, trackDoc, sanity }) => {
+    const tripLabel = testName(`Checklist Missing Passport Trip ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: tripLabel, jpyToNokRate: 0.07 })
+    trackDoc(trip._id)
+
+    const day = '2026-03-25'
+    const shop = await sanity.create({
+      _type: 'shopNote',
+      shopName: testName(`Missing Passport Shop ${Date.now()}`),
+      taxFreeShop: true,
+    })
+    trackDoc(shop._id)
+
+    // passportHolder intentionally omitted — the item still counts against Tone's budget.
+    const item = await sanity.create({
+      _type: 'familyPurchase',
+      name: testName(`Missing Passport Item ${Date.now()}`),
+      person: 'Tone',
+      status: 'bought',
+      priceYen: 6000,
+      purchaseDate: day,
+      store: { _type: 'reference', _ref: shop._id },
+      trip: { _type: 'reference', _ref: trip._id },
+    })
+    trackDoc(item._id)
+
+    await page.goto(`/checklist?trip=${trip._id}`)
+    await expect(page.locator('.person-section-title', { hasText: "Kim's passport" })).toBeVisible()
+    const card = page.locator('.shopday-card', { hasText: shop.shopName })
+    await expect(card).toBeVisible()
+    await expect(card).toContainText(item.name)
+    await expect(card).toContainText('(Tone)')
   })
 })
 
@@ -137,7 +232,7 @@ test.describe('checklist: check the receipt', () => {
     await expect(unknownSection).toBeVisible()
     await expect(unknownSection).toContainText('Check the receipt')
     await expect(unknownSection).toContainText(unknownShop.shopName)
-    await expect(unknownSection).toContainText('Niklas')
+    await expect(unknownSection).toContainText("Kim's passport")
     await expect(unknownSection.locator('input[type="checkbox"]')).toHaveCount(0)
   })
 })
@@ -164,6 +259,7 @@ test.describe('checklist: persistence', () => {
       _type: 'familyPurchase',
       name: testName(`Persist Item ${Date.now()}`),
       person: 'Kristina',
+      passportHolder: 'Kristina',
       status: 'bought',
       priceYen: 6000,
       purchaseDate: day,

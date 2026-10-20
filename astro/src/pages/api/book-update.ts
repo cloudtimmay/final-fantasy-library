@@ -30,6 +30,7 @@ export const POST: APIRoute = async ({ request }) => {
     { from: 'language', type: 'enum', values: BOOK_LANGUAGES },
     { from: 'readStatus', type: 'enum', values: READ_STATUS_VALUES },
     { from: 'readDate' },
+    { from: 'externalImageUrl' },
     { from: 'status', type: 'enum', values: STATUSES },
     { from: 'acquiredDate' },
     { from: 'purchasePriceYen', type: 'num' },

@@ -258,6 +258,83 @@ test.describe('books/[id]: edit mode', () => {
   })
 })
 
+test.describe('books/[id]: "Fill in from web"', () => {
+  test('ISBN is always unchecked by default and shows a source, even though it was empty', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const title = testName(`AI Fill Book ISBN ${Date.now()}`)
+    const book = await sanity.create({ _type: 'book', title, author: 'Jane Doe', status: 'owned' })
+    trackDoc(book._id)
+
+    await mockItemInfoResult(
+      page,
+      { genre: 'Fiction', isbn: '9784001234567' },
+      [{ title: 'Example Books Source', url: 'https://books.example.test/isbn/9784001234567' }]
+    )
+
+    await page.goto(`/books/${book._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+
+    const isbnRow = page.locator('.aif-item', { hasText: 'ISBN' })
+    await expect(isbnRow).toBeVisible()
+    await expect(isbnRow.locator('.aif-checkbox')).not.toBeChecked()
+    await expect(isbnRow).toContainText('books.example.test')
+
+    // A normal (non-barcode-like) field, also empty, is checked by default for contrast.
+    const genreRow = page.locator('.aif-item', { hasText: 'Genre' })
+    await expect(genreRow.locator('.aif-checkbox')).toBeChecked()
+
+    await page.locator('.aif-apply-btn').click()
+    await expect(page.locator('#e-genre')).toHaveValue('Fiction')
+    await expect(page.locator('#e-isbn')).toHaveValue('')
+  })
+
+  test('applies selected suggestions and saves them', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`AI Fill Book ${Date.now()}`)
+    const book = await sanity.create({ _type: 'book', title, author: 'Jane Doe', status: 'owned' })
+    trackDoc(book._id)
+
+    await mockItemInfoResult(page, {
+      genre: 'Fantasy',
+      publisher: 'Square Enix Books',
+      year: 2021,
+      pages: 320,
+      language: 'Japanese',
+      isbn: '9784001234567',
+      externalImageUrl: 'https://example-source.test/cover.jpg',
+    })
+
+    await page.goto(`/books/${book._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+    await page.locator('.aif-item', { hasText: 'ISBN' }).locator('.aif-checkbox').check()
+    await page.locator('.aif-apply-btn').click()
+
+    await expect(page.locator('#e-genre')).toHaveValue('Fantasy')
+    await expect(page.locator('#e-publisher')).toHaveValue('Square Enix Books')
+    await expect(page.locator('#e-year')).toHaveValue('2021')
+    await expect(page.locator('#e-pages')).toHaveValue('320')
+    await expect(page.locator('#e-language')).toHaveValue('Japanese')
+    await expect(page.locator('#e-isbn')).toHaveValue('9784001234567')
+    await expect(page.locator('#e-external-image')).toHaveValue('https://example-source.test/cover.jpg')
+
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ genre, publisher, year, pages, language, isbn, externalImageUrl }`, { id: book._id })
+    expect(doc.genre).toBe('Fantasy')
+    expect(doc.publisher).toBe('Square Enix Books')
+    expect(doc.year).toBe(2021)
+    expect(doc.pages).toBe(320)
+    expect(doc.language).toBe('Japanese')
+    expect(doc.isbn).toBe('9784001234567')
+    expect(doc.externalImageUrl).toBe('https://example-source.test/cover.jpg')
+  })
+})
+
 test.describe('merchandise/[id]: edit mode', () => {
   test('Edit reveals a prefilled form, Save updates the document', async ({ page, trackDoc, sanity }) => {
     const title = testName(`Edit Figure ${Date.now()}`)

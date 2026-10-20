@@ -240,3 +240,89 @@ test.describe('merchandise/[id]: edit mode', () => {
     expect(doc.manufacturer).toBeNull()
   })
 })
+
+test.describe('albums/[id]: edit mode', () => {
+  test('an album with no tracklist still gets a working Edit button', async ({ page, trackDoc, sanity }) => {
+    // Regression test: closeBtn.addEventListener() used to run unguarded even when the
+    // album has no tracklist (so #yt-close doesn't exist), throwing and skipping every
+    // script after it on the page — including the new edit-mode wiring.
+    const title = testName(`No Tracklist Album ${Date.now()}`)
+    const album = await sanity.create({ _type: 'album', title, status: 'owned' })
+    trackDoc(album._id)
+
+    await page.goto(`/albums/${album._id}`)
+    await expect(page.locator('.tracklist')).toHaveCount(0)
+    await page.locator('#edit-toggle').click()
+    await expect(page.locator('#edit-mode')).toBeVisible()
+  })
+
+  test('Edit reveals a prefilled form, Save updates the document (tracklist stays untouched)', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const title = testName(`Edit Album ${Date.now()}`)
+    const album = await sanity.create({
+      _type: 'album', title, artist: 'Nobuo Uematsu', format: 'cd', status: 'owned',
+      tracklist: [{ _key: 't1', trackNumber: '1', title: 'Opening Theme' }],
+    })
+    trackDoc(album._id)
+
+    await page.goto(`/albums/${album._id}`)
+    await page.locator('#edit-toggle').click()
+    await expect(page.locator('#e-title')).toHaveValue(title)
+    await expect(page.locator('#e-artist')).toHaveValue('Nobuo Uematsu')
+    await expect(page.locator('#e-format')).toHaveValue('cd')
+
+    await page.locator('#e-genre').selectOption('Soundtrack')
+    await page.locator('#e-format').selectOption('vinyl_lp')
+    await page.locator('#e-label').fill('Square Enix Music')
+    await page.locator('#e-catalog').fill('SQEX-10130')
+    await page.locator('#e-vgmdb-url').fill('https://vgmdb.net/album/1')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('.detail h1')).toHaveText(title)
+    await expect(page.locator('#edit-mode')).toBeHidden()
+    await expect(page.locator('.tracklist')).toContainText('Opening Theme')
+
+    const doc = await sanity.fetch(
+      `*[_id == $id][0]{ genre, format, label, catalogNumber, vgmdbUrl, "trackCount": count(tracklist) }`,
+      { id: album._id }
+    )
+    expect(doc.genre).toBe('Soundtrack')
+    expect(doc.format).toBe('vinyl_lp')
+    expect(doc.label).toBe('Square Enix Music')
+    expect(doc.catalogNumber).toBe('SQEX-10130')
+    expect(doc.vgmdbUrl).toBe('https://vgmdb.net/album/1')
+    expect(doc.trackCount).toBe(1)
+  })
+
+  test('rejects an empty title without saving', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Album Required ${Date.now()}`)
+    const album = await sanity.create({ _type: 'album', title, status: 'owned' })
+    trackDoc(album._id)
+
+    await page.goto(`/albums/${album._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-title').fill('')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('#e-msg')).toContainText('title')
+    await expect(page.locator('#edit-mode')).toBeVisible()
+  })
+
+  test('clearing the label unsets it', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Album Clear ${Date.now()}`)
+    const album = await sanity.create({ _type: 'album', title, label: 'Some Label', status: 'owned' })
+    trackDoc(album._id)
+
+    await page.goto(`/albums/${album._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-label').fill('')
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ label }`, { id: album._id })
+    expect(doc.label).toBeNull()
+  })
+})

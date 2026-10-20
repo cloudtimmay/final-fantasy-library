@@ -1,14 +1,15 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+import { ALBUM_GENRES, ALBUM_FORMATS } from '../../lib/collection-fields'
 
 const { id } = Astro.params
 
 const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
-    title, artist, composer, year, genre, format, label,
+    title, series, artist, composer, year, genre, format, label, publisher, distributor,
     catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl, youtubePlaylistId,
-    needsInfo, barcode,
+    needsInfo, barcode, releaseDate, releasePrice,
     tracklist[]{ disc, trackNumber, title, duration, youtubeId },
     ${SHARED_FIELDS}
   }`,
@@ -16,6 +17,8 @@ const a = await sanity.fetch(
 )
 
 if (!a) return Astro.redirect('/albums')
+
+const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
 
 function ytId(raw) {
   if (!raw) return ''
@@ -56,6 +59,8 @@ const multiDisc = discNumbers.length > 1
     <h1>{a.title}</h1>
     <div class="detail-sub">{a.artist}</div>
 
+    <button id="edit-toggle" class="edit-toggle-btn" type="button">✏️ Edit</button>
+
     {a.needsInfo && (
       <div class="needsinfo-banner">
         This album is missing information{a.barcode ? <> (barcode: <span class="mono">{a.barcode}</span>)</> : null}. Check the details and fill them in via Studio.
@@ -81,27 +86,151 @@ const multiDisc = discNumbers.length > 1
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>
 
-    <table class="meta-table">
-      {a.composer  && <tr><td>Composer</td><td>{a.composer}</td></tr>}
-      {a.year      && <tr><td>Year</td><td>{a.year}</td></tr>}
-      {a.genre     && <tr><td>Genre</td><td>{a.genre}</td></tr>}
-      {a.format    && <tr><td>Format</td><td>{a.format}</td></tr>}
-      {a.label     && <tr><td>Label</td><td>{a.label}</td></tr>}
-      {a.status    && <tr><td>Status</td><td>{a.status}</td></tr>}
-      {a.rating    && <tr><td>Rating</td><td class="rating">{a.rating} / 10</td></tr>}
-      {a.acquiredDate && <tr><td>Acquired</td><td>{a.acquiredDate}</td></tr>}
-      {a.catalogNumber && <tr><td>Catalog</td><td>{a.catalogNumber}</td></tr>}
-      {a.vgmdbUrl && <tr><td>VGMdb</td><td><a href={a.vgmdbUrl} target="_blank">Open VGMdb</a></td></tr>}
-      {a.youtubeMusicUrl && <tr><td>YouTube Music</td><td><a href={a.youtubeMusicUrl} target="_blank" rel="noopener">▶ Spill av i YouTube Music</a></td></tr>}
-      {a.purchasePrice && <tr><td>Paid</td><td>{a.purchasePrice} NOK</td></tr>}
-    </table>
+    <div id="view-mode">
+      <table class="meta-table">
+        {a.series    && <tr><td>Series</td><td>{a.series}</td></tr>}
+        {a.composer  && <tr><td>Composer</td><td>{a.composer}</td></tr>}
+        {a.year      && <tr><td>Year</td><td>{a.year}</td></tr>}
+        {a.genre     && <tr><td>Genre</td><td>{a.genre}</td></tr>}
+        {a.format    && <tr><td>Format</td><td>{a.format}</td></tr>}
+        {a.label     && <tr><td>Label</td><td>{a.label}</td></tr>}
+        {a.publisher && <tr><td>Publisher</td><td>{a.publisher}</td></tr>}
+        {a.distributor && <tr><td>Distributor</td><td>{a.distributor}</td></tr>}
+        {a.barcode   && <tr><td>Barcode</td><td class="mono">{a.barcode}</td></tr>}
+        {a.releaseDate && <tr><td>Release date</td><td>{a.releaseDate}</td></tr>}
+        {a.releasePrice && <tr><td>Release price</td><td>{a.releasePrice}</td></tr>}
+        {a.status    && <tr><td>Status</td><td>{a.status}</td></tr>}
+        {a.rating    && <tr><td>Rating</td><td class="rating">{a.rating} / 10</td></tr>}
+        {a.acquiredDate && <tr><td>Acquired</td><td>{a.acquiredDate}</td></tr>}
+        {a.catalogNumber && <tr><td>Catalog</td><td>{a.catalogNumber}</td></tr>}
+        {a.vgmdbUrl && <tr><td>VGMdb</td><td><a href={a.vgmdbUrl} target="_blank">Open VGMdb</a></td></tr>}
+        {a.youtubeMusicUrl && <tr><td>YouTube Music</td><td><a href={a.youtubeMusicUrl} target="_blank" rel="noopener">▶ Spill av i YouTube Music</a></td></tr>}
+        {a.purchasePrice && <tr><td>Paid</td><td>{a.purchasePrice} NOK</td></tr>}
+      </table>
 
-    {a.tags?.length > 0 && (
-      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-        {a.tags.map((t) => <span class="tag">{t}</span>)}
+      {a.tags?.length > 0 && (
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+          {a.tags.map((t) => <span class="tag">{t}</span>)}
+        </div>
+      )}
+      {a.notes && <div class="notes-block">{a.notes}</div>}
+    </div>
+
+    <form id="edit-mode" class="edit-form" hidden>
+      <div class="field">
+        <label>Title *</label>
+        <input id="e-title" type="text" value={a.title} />
       </div>
-    )}
-    {a.notes && <div class="notes-block">{a.notes}</div>}
+      <div class="field">
+        <label>Artist / Band</label>
+        <input id="e-artist" type="text" value={a.artist} />
+      </div>
+      <div class="field">
+        <label>Composer(s)</label>
+        <input id="e-composer" type="text" value={a.composer} />
+      </div>
+      <div class="field">
+        <label>Series</label>
+        <input id="e-series" type="text" value={a.series} />
+      </div>
+      <div class="field">
+        <label>Genre</label>
+        <select id="e-genre">
+          <option value="">Select…</option>
+          {ALBUM_GENRES.map((g) => <option value={g} selected={g === a.genre}>{g}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Format</label>
+        <select id="e-format">
+          <option value="">Select…</option>
+          {ALBUM_FORMATS.map((f) => <option value={f.value} selected={f.value === a.format}>{f.label}</option>)}
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Catalog number</label>
+          <input id="e-catalog" type="text" value={a.catalogNumber} />
+        </div>
+        <div class="field">
+          <label>Barcode</label>
+          <input id="e-barcode" type="text" value={a.barcode} />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Label</label>
+          <input id="e-label" type="text" value={a.label} />
+        </div>
+        <div class="field">
+          <label>Distributor</label>
+          <input id="e-distributor" type="text" value={a.distributor} />
+        </div>
+      </div>
+      <div class="field">
+        <label>Publisher</label>
+        <input id="e-publisher" type="text" value={a.publisher} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Release date</label>
+          <input id="e-release-date" type="text" value={a.releaseDate} placeholder="e.g. 2020-03-20" />
+        </div>
+        <div class="field">
+          <label>Release price</label>
+          <input id="e-release-price" type="text" value={a.releasePrice} />
+        </div>
+      </div>
+      <div class="field">
+        <label>VGMdb ID</label>
+        <input id="e-vgmdb-id" type="text" value={a.vgmdbId} />
+      </div>
+      <div class="field">
+        <label>VGMdb URL</label>
+        <input id="e-vgmdb-url" type="url" value={a.vgmdbUrl} />
+      </div>
+      <div class="field">
+        <label>YouTube Music URL</label>
+        <input id="e-yt-music" type="url" value={a.youtubeMusicUrl} />
+      </div>
+      <div class="field">
+        <label>YouTube playlist/video (ID or URL)</label>
+        <input id="e-yt-playlist" type="text" value={a.youtubePlaylistId} />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="e-status">
+          {STATUSES.map((s) => <option value={s} selected={s === a.status}>{s}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Acquired date</label>
+        <input id="e-acquired" type="date" value={a.acquiredDate} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Price (JPY)</label>
+          <input id="e-price-yen" type="number" inputmode="numeric" value={a.purchasePriceYen} />
+        </div>
+        <div class="field">
+          <label>Price (NOK)</label>
+          <input id="e-price-nok" type="number" inputmode="numeric" value={a.purchasePrice} />
+        </div>
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="e-notes" rows="2">{a.notes}</textarea>
+      </div>
+      <div class="field checkbox-field">
+        <label><input id="e-needs-info" type="checkbox" checked={a.needsInfo === true} /> Missing info</label>
+      </div>
+
+      <div class="edit-actions">
+        <button id="e-save" type="button" class="save-btn">Save</button>
+        <button id="e-cancel" type="button" class="cancel-btn">Cancel</button>
+      </div>
+      <p id="e-msg" class="save-msg" hidden></p>
+    </form>
 
     {tracks.length > 0 && (
       <section class="tracklist">
@@ -156,6 +285,35 @@ const multiDisc = discNumbers.length > 1
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
     .upload-msg { font-size: 0.85rem; width: 100%; }
+
+    .edit-toggle-btn {
+      display: inline-block; margin-bottom: 1rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.45rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .edit-toggle-btn:hover { background: #241826; }
+    .edit-form[hidden] { display: none; }
+    .edit-form .field { margin-bottom: 1rem; }
+    .edit-form .field-row { display: flex; gap: 1rem; }
+    .edit-form .field-row .field { flex: 1; }
+    .edit-form .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .edit-form .field input, .edit-form .field select, .edit-form .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .edit-form .checkbox-field label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text); }
+    .edit-form .checkbox-field input { width: auto; }
+    .edit-actions { display: flex; gap: 0.75rem; }
+    .save-btn {
+      flex: 1; background: var(--accent); color: #fff; border: none;
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .cancel-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.8rem 1.2rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+    }
+    .save-msg { font-size: 0.9rem; margin-top: 0.75rem; }
 
     .tracklist { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
     .tracklist h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 0.75rem; }
@@ -218,11 +376,94 @@ const multiDisc = discNumbers.length > 1
       })
     }
 
-    closeBtn.addEventListener('click', () => {
-      frame.src = ''
-      player.hidden = true
-    })
+    // Only present when the album has a tracklist (tracks.length > 0 in the frontmatter) —
+    // without this guard, an album with none (every brand-new album, until Studio adds
+    // one) threw here and silently skipped everything below it, including the edit-mode
+    // wiring and initImageUpload().
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        frame.src = ''
+        player.hidden = true
+      })
+    }
 
     initImageUpload()
+
+    const docId = window.location.pathname.split('/').pop()
+    const viewMode = document.querySelector('#view-mode')
+    const editMode = document.querySelector('#edit-mode')
+    const editToggle = document.querySelector('#edit-toggle')
+    const cancelBtn = document.querySelector('#e-cancel')
+    const saveBtn = document.querySelector('#e-save')
+    const msg = document.querySelector('#e-msg')
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    editToggle.addEventListener('click', () => {
+      viewMode.hidden = true
+      editToggle.hidden = true
+      editMode.hidden = false
+    })
+    cancelBtn.addEventListener('click', () => {
+      editMode.reset()
+      editMode.hidden = true
+      editToggle.hidden = false
+      viewMode.hidden = false
+      msg.hidden = true
+    })
+
+    saveBtn.addEventListener('click', async () => {
+      const title = document.querySelector('#e-title').value.trim()
+      if (!title) return showMsg('Please enter a title.', false)
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+      try {
+        const res = await fetch('/api/album-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: docId,
+            title,
+            artist: document.querySelector('#e-artist').value,
+            composer: document.querySelector('#e-composer').value,
+            series: document.querySelector('#e-series').value,
+            genre: document.querySelector('#e-genre').value,
+            format: document.querySelector('#e-format').value,
+            catalogNumber: document.querySelector('#e-catalog').value,
+            barcode: document.querySelector('#e-barcode').value,
+            label: document.querySelector('#e-label').value,
+            distributor: document.querySelector('#e-distributor').value,
+            publisher: document.querySelector('#e-publisher').value,
+            releaseDate: document.querySelector('#e-release-date').value,
+            releasePrice: document.querySelector('#e-release-price').value,
+            vgmdbId: document.querySelector('#e-vgmdb-id').value,
+            vgmdbUrl: document.querySelector('#e-vgmdb-url').value,
+            youtubeMusicUrl: document.querySelector('#e-yt-music').value,
+            youtubePlaylistId: document.querySelector('#e-yt-playlist').value,
+            status: document.querySelector('#e-status').value,
+            acquiredDate: document.querySelector('#e-acquired').value,
+            purchasePriceYen: document.querySelector('#e-price-yen').value,
+            purchasePrice: document.querySelector('#e-price-nok').value,
+            notes: document.querySelector('#e-notes').value,
+            needsInfo: document.querySelector('#e-needs-info').checked,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          showMsg((data && data.error) || 'Save failed.', false)
+          return
+        }
+        window.location.reload()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save'
+      }
+    })
   </script>
 </Base>

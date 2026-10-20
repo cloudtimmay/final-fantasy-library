@@ -36,6 +36,48 @@ export async function mockIdentifyNoResult(page: Page): Promise<void> {
   })
 }
 
+// Lets a test control exactly what identify-product "found", so it can be matched (or not)
+// against a specific price-list fixture it just created.
+export async function mockIdentifyCustomResult(page: Page, result: Record<string, unknown>): Promise<void> {
+  await page.route('**/api/identify-product', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, result }),
+    })
+  })
+}
+
+// Replaces the real barcode-scanner.js (which lazy-loads html5-qrcode and needs real camera
+// access) with a stub that exposes its start() callback on window.__scannerDecode, so a test
+// can simulate a decoded barcode with `page.evaluate((code) => window.__scannerDecode(code), jan)`
+// instead of driving an actual camera.
+export async function mockBarcodeScanner(page: Page): Promise<void> {
+  await page.route('**/barcode-scanner.js', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: `
+        window.createBarcodeScanner = function (containerId) {
+          let running = false
+          return {
+            start: function (onDecode) {
+              window.__scannerDecode = onDecode
+              running = true
+              return Promise.resolve()
+            },
+            stop: function () {
+              running = false
+              return Promise.resolve()
+            },
+            isRunning: function () { return running },
+          }
+        }
+      `,
+    })
+  })
+}
+
 export async function mockFindPricesResults(page: Page): Promise<void> {
   await page.route('**/api/find-prices', async (route) => {
     await route.fulfill({

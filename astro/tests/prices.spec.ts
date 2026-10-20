@@ -1,4 +1,8 @@
+import path from 'node:path'
 import { test, expect, testName } from './fixtures'
+import { mockIdentifyCustomResult, mockBarcodeScanner } from './helpers/mock-ai'
+
+const ALBUM_PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 
 test.describe('prices list', () => {
   test('search filters by name, expand shows history, and ?open= deep-links to a product', async ({
@@ -232,5 +236,63 @@ test.describe('prices: filters and grouping', () => {
     const toneSection = page.locator('.person-section[data-person="Tone"]')
     await expect(toneSection).toBeVisible()
     await expect(page.locator('.person-section[data-person="Kim"]')).toBeHidden()
+  })
+})
+
+test.describe('prices: barcode and photo identify', () => {
+  test('barcode scan finds a JAN match, filters the list and opens it', async ({ page, trackDoc, sanity }) => {
+    const productName = testName(`Prices Scan Barcode Product ${Date.now()}`)
+    const jan = `49887002${Date.now().toString().slice(-5)}`
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName, jan, category: 'game', sourceType: 'japanStore',
+      price: 4200, currency: 'JPY', condition: 'new', status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+
+    await mockBarcodeScanner(page)
+    await page.goto('/prices')
+    await page.locator('#p-scan-btn').click()
+    await page.waitForFunction(() => typeof (window as any).__scannerDecode === 'function')
+    await page.evaluate((code) => (window as any).__scannerDecode(code), jan)
+
+    await expect(page.locator('#p-scan-msg')).toContainText('match')
+    const row = page.locator('#product-group-view li.price-row', { hasText: productName })
+    await expect(row).toBeVisible()
+    await expect(page.locator(`#product-group-view details[data-key="${jan}"]`)).toHaveJSProperty('open', true)
+  })
+
+  test('photo identify finds a similar-name match, filters the list and opens it', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const suffix = Date.now()
+    const productName = testName(`Prices Scan Photo Product ${suffix}`)
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName, category: 'book', sourceType: 'japanStore',
+      price: 1800, currency: 'JPY', condition: 'new', status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+
+    await mockIdentifyCustomResult(page, { productName: `prices scan photo product ${suffix}`, jan: null })
+    await page.goto('/prices')
+    await page.locator('#p-photo-gallery').setInputFiles(ALBUM_PHOTO)
+
+    await expect(page.locator('#p-identified-line')).toContainText('prices scan photo product')
+    await expect(page.locator('#p-scan-msg')).toContainText('match')
+    const row = page.locator('#product-group-view li.price-row', { hasText: productName })
+    await expect(row).toBeVisible()
+  })
+
+  test('photo identify with no match in the price list shows a "no match" message', async ({ page }) => {
+    const nothingName = `Totally Unmatched Prices Fixture ${Date.now()}`
+    await mockIdentifyCustomResult(page, { productName: nothingName, jan: null })
+    await page.goto('/prices')
+    await page.locator('#p-photo-gallery').setInputFiles(ALBUM_PHOTO)
+
+    await expect(page.locator('#p-identified-line')).toContainText(nothingName)
+    await expect(page.locator('#p-scan-msg')).toContainText('No match found')
   })
 })

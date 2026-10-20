@@ -97,12 +97,14 @@ Nesten ordrett samme ~50-linjers `<script>`-blokk (inkl. `handleUpload`, feilhå
 `albums/[id].astro`, `games/[id].astro`, `books/[id].astro`, `merchandise/[id].astro`.
 **Gjennomført.** Trukket ut til `astro/src/scripts/image-upload.js` (`initImageUpload()`), etter samme mønster som `got-it.js`. Før sammenslåingen ble de fire kopiene bekreftet identiske i alt som betyr noe (element-ID-er, FormData-felt, endepunkt) bortsett fra placeholder-selektoren — `albums/[id].astro` brukte `.detail-photo` alene, de tre andre brukte den sammensatte `.detail-photo, .detail-photo-placeholder`. Den sammensatte selektoren ble valgt som felles løsning siden den dekker albums sin markup uendret. I `albums/[id].astro` ble kun opplastingsdelen fjernet fra `<script>`-blokken — YouTube-sporspilleren (`openPlayer`, `.track-play`/`.album-play`-håndtering, lukkeknapp) står urørt i samme blokk, med importen lagt til øverst. Testet med og uten eksisterende bilde på alle fire sidetyper.
 
-### 2.3 Strekkodeskanner (html5-qrcode start/stop) — 4 kopier
-`add.astro`, `add-item.astro`, `scan.astro` og `offline.astro` implementerer hver sin variant av samme skanner-livssyklus (`startScan`/`stopScan`, feilmeldinger, cleanup). Det er noen reelle forskjeller å ta hensyn til ved uttrekk:
-- `offline.astro` laster skript-filen lokalt (`/html5-qrcode.min.js`, cachet av service workeren for offline bruk), mens de tre andre laster den fra CDN (`unpkg.com`).
-- `add-item.astro` laster biblioteket lat (kun ved behov), de andre laster det eagerly med `<script is:inline src="...">`.
+### 2.3 Strekkodeskanner (html5-qrcode start/stop) — delvis gjennomført
+`add.astro`, `add-item.astro`, `scan.astro` og `offline.astro` implementerte hver sin variant av samme skanner-livssyklus (`startScan`/`stopScan`, feilmeldinger, cleanup).
 
-Fortsatt god kandidat for en delt modul (f.eks. `astro/src/scripts/barcode-scanner.js` med en konfigurerbar kilde-URL), men krever litt mer omtanke enn 2.1/2.2 pga. disse forskjellene.
+**Delvis gjennomført:** `scan.astro` og `prices.astro` bruker nå en delt modul, `astro/public/barcode-scanner.js` (`window.createBarcodeScanner(containerId)` → `{ start(onDecode), stop(), isRunning() }`), som laster `/html5-qrcode.min.js` (selv-hostet) lat — først ved første `.start()`-kall, ikke ved sidelasting. Begge sidene laster modulen via `<script is:inline src="/barcode-scanner.js">` og kaller `window.createBarcodeScanner(...)`.
+
+**Fortsatt ikke rørt — egne kopier gjenstår bevisst:** `add.astro`, `add-item.astro` og `offline.astro` har fortsatt hver sin separate `startScan`/`stopScan`-implementasjon. Reelle forskjeller å ta hensyn til hvis/når disse tre også skal migreres til samme modul:
+- `offline.astro` laster skript-filen lokalt (`/html5-qrcode.min.js`, cachet av service workeren for offline bruk) — det samme som `barcode-scanner.js` nå gjør, så denne bør være uproblematisk å migrere.
+- `add-item.astro` laster biblioteket lat (kun ved behov, som `barcode-scanner.js` nå også gjør), mens `add.astro` laster det eagerly.
 
 ### 2.4 `add-store.astro` og `edit-store.astro` — nesten identisk skjema-script
 De to sidene deler et ~150 linjer langt script for koordinathåndtering, kart-lenke-bygging og «lim inn lat,lng»-parsing (`readCoordFields`, `setCoords`, `renderCoords`, `updateMapLink`, `applyPaste`, geolokasjon). Forskjellen mellom filene er stort sett bare at edit-varianten prefylles fra eksisterende data og kaller et annet API-endepunkt (`/api/shop-note` vs. `/api/shop-note-update`). Dette er den største enkelt-duplikasjonen i prosjektet og en god kandidat for enten (a) et delt script-modul, eller (b) å slå sammen de to sidene til ett skjema som tar en valgfri `?id=`-parameter.

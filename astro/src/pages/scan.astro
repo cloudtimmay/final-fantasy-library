@@ -1,10 +1,28 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
+import { fetchProducts } from '../lib/price-products'
+import { findProductMatches } from '../lib/product-match'
 
 const STUDIO_URL = 'https://fflibrary.sanity.studio'
 
 const q = (Astro.url.searchParams.get('q') || '').trim()
+
+// Carried over from a barcode decode or a "📷 Identify by photo" result (see the script
+// below) — present on the URL so a price-list match survives the full-page reload that
+// submitting the search form causes. Absent on a plain manual search.
+const ijan = (Astro.url.searchParams.get('ijan') || '').trim()
+const iname = (Astro.url.searchParams.get('iname') || '').trim()
+const inamejp = (Astro.url.searchParams.get('inamejp') || '').trim()
+
+const priceMatches = ijan || iname || inamejp
+  ? findProductMatches(await fetchProducts(), { jan: ijan, productName: iname, productNameJp: inamejp })
+  : []
+
+function lowestJpy(prices: { price: number; currency: string }[]): number | null {
+  const jpy = prices.filter((p) => p.currency === 'JPY').map((p) => p.price)
+  return jpy.length ? Math.min(...jpy) : null
+}
 
 let results: any[] = []
 if (q) {
@@ -58,6 +76,9 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
         placeholder="Title, catalog no., barcode..."
         autocomplete="off"
       />
+      <input id="scan-ijan" name="ijan" type="hidden" value={ijan} />
+      <input id="scan-iname" name="iname" type="hidden" value={iname} />
+      <input id="scan-inamejp" name="inamejp" type="hidden" value={inamejp} />
       <button type="submit">Search</button>
     </form>
 
@@ -65,9 +86,53 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     <div id="scan-reader" class="scan-reader" hidden></div>
     <p id="scan-msg" class="scan-msg" hidden></p>
 
+    <div class="identify-buttons">
+      <label class="upload-btn">
+        📷 Identify by photo
+        <input id="scan-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="upload-btn">
+        🖼️ From gallery
+        <input id="scan-photo-gallery" type="file" accept="image/*" hidden />
+      </label>
+    </div>
+    <p id="scan-identify-msg" class="scan-identify-msg" hidden></p>
+
     <button id="family-register" class="scan-fam-btn" type="button">
       🛍️ Register as family purchase
     </button>
+
+    {(ijan || iname || inamejp) && (
+      <p class="identified-line">
+        Identified: <strong>{iname || inamejp || '(no name)'}</strong>
+        {ijan && ` · JAN ${ijan}`}
+      </p>
+    )}
+
+    {priceMatches.length > 0 && (
+      <div class="price-matches">
+        <h2>In your price list</h2>
+        <div class="price-match-list">
+          {priceMatches.map(({ product, label }) => (
+            <a class="price-match-row" href={`/prices?open=${encodeURIComponent(product.key)}`}>
+              {product.image ? (
+                <img class="price-match-thumb" src={`${product.image.url}?w=100`} alt={product.productName} />
+              ) : (
+                <div class="price-match-thumb placeholder">🏷️</div>
+              )}
+              <div class="price-match-info">
+                <div class="price-match-name">{product.productName}</div>
+                <div class="price-match-sub">
+                  <span class="price-match-badge">{label}</span>
+                  <span>{product.prices.length} price{product.prices.length === 1 ? '' : 's'}</span>
+                  {lowestJpy(product.prices) != null && <span>from ¥{(lowestJpy(product.prices) as number).toLocaleString('en-US')}</span>}
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
 
     {q && (
       <div class="scan-results">
@@ -171,6 +236,39 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     }
     .scan-fam-btn:hover { border-color: var(--accent); }
 
+    .identify-buttons { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .upload-btn {
+      flex: 1; min-width: 140px; text-align: center;
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.7rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem;
+    }
+    .upload-btn:hover { background: rgba(244,162,76,0.08); }
+    .scan-identify-msg { font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem; }
+    .scan-identify-msg[hidden] { display: none; }
+
+    .identified-line { font-size: 0.9rem; color: var(--text); margin-bottom: 1rem; }
+    .identified-line strong { color: var(--accent); }
+
+    .price-matches { margin-bottom: 1.5rem; }
+    .price-matches h2 { font-size: 1rem; margin-bottom: 0.6rem; }
+    .price-match-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .price-match-row {
+      display: flex; gap: 0.75rem; align-items: center; padding: 0.6rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      text-decoration: none; color: inherit;
+    }
+    .price-match-row:hover { border-color: var(--accent); }
+    .price-match-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--bg); flex-shrink: 0; }
+    .price-match-thumb.placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.2rem; border: 1px solid var(--border); }
+    .price-match-info { flex: 1; min-width: 0; }
+    .price-match-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
+    .price-match-sub { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+    .price-match-badge {
+      font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px;
+      background: rgba(244,162,76,0.15); color: var(--accent);
+    }
+
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
     .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
     .result-row:hover { background: rgba(255,255,255,0.03); }
@@ -200,15 +298,18 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     .ext-group a:hover { border-color: var(--accent); }
   </style>
 
-  <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script is:inline src="/barcode-scanner.js"></script>
+  <script is:inline src="/resize-image.js"></script>
   <script is:inline>
     (function () {
       const toggle = document.getElementById('scan-toggle')
       const reader = document.getElementById('scan-reader')
       const msg = document.getElementById('scan-msg')
       const input = document.getElementById('scan-input')
-      let scanner = null
-      let running = false
+      const ijanField = document.getElementById('scan-ijan')
+      const inameField = document.getElementById('scan-iname')
+      const inamejpField = document.getElementById('scan-inamejp')
+      const scanner = window.createBarcodeScanner('scan-reader')
 
       function showMsg(text) {
         msg.hidden = false
@@ -216,42 +317,31 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
       }
 
       async function startScan() {
-        if (typeof Html5Qrcode === 'undefined') {
-          showMsg('Scanner could not be loaded. Check your connection.')
-          return
-        }
         reader.hidden = false
         msg.hidden = true
-        scanner = new Html5Qrcode('scan-reader')
         try {
-          await scanner.start(
-            { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
-            (decodedText) => {
-              input.value = decodedText.replace(/[^0-9Xx]/g, '')
-              stopScan().then(() => { input.form.submit() })
-            },
-            () => {}
-          )
-          running = true
+          await scanner.start((code) => {
+            input.value = code
+            ijanField.value = code
+            inameField.value = ''
+            inamejpField.value = ''
+            stopScan().then(() => { input.form.submit() })
+          })
           toggle.textContent = '✕ Close scanner'
         } catch (err) {
-          showMsg('Could not access camera. Allow camera in your browser and try again.')
+          showMsg(err && err.message ? err.message : 'Could not access camera. Allow camera in your browser and try again.')
           reader.hidden = true
         }
       }
 
       async function stopScan() {
-        if (scanner && running) {
-          try { await scanner.stop() } catch (e) {}
-          running = false
-        }
+        await scanner.stop()
         reader.hidden = true
         toggle.textContent = '📷 Scan barcode'
       }
 
       toggle.addEventListener('click', () => {
-        if (running) stopScan()
+        if (scanner.isRunning()) stopScan()
         else startScan()
       })
 
@@ -267,6 +357,70 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
       if (params.get('scan') === '1') {
         startScan()
       }
+
+      // --- "📷 Identify by photo" — resize/identify the same way add-price.astro does,
+      // then search the collection with the result (and carry it along as ijan/iname/
+      // inamejp so the "In your price list" section below can match it after the reload).
+      const identifyMsg = document.getElementById('scan-identify-msg')
+      const photoCamera = document.getElementById('scan-photo-camera')
+      const photoGallery = document.getElementById('scan-photo-gallery')
+
+      function showIdentifyMsg(text, ok) {
+        identifyMsg.hidden = false
+        identifyMsg.textContent = text
+        identifyMsg.style.color = ok ? 'var(--muted)' : '#e74c3c'
+      }
+
+      function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const result = String(reader.result || '')
+            const commaIdx = result.indexOf(',')
+            resolve(commaIdx !== -1 ? result.slice(commaIdx + 1) : result)
+          }
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+      }
+
+      async function identifyPhoto(file) {
+        if (!file) return
+        showIdentifyMsg('Identifying…', true)
+        try {
+          let forApi = file
+          try {
+            if (window.resizeImage) forApi = await window.resizeImage(file, 1024, 0.8)
+          } catch (e) {}
+          const image = await fileToBase64(forApi)
+          const res = await fetch('/api/identify-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ images: [image] }),
+          })
+          const data = await res.json().catch(() => null)
+          if (!res.ok) {
+            showIdentifyMsg((data && data.error) || 'Identification failed.', false)
+            return
+          }
+          const result = data && data.result ? data.result : {}
+          if (!result.productName && !result.jan) {
+            showIdentifyMsg('Could not identify anything useful in this photo.', false)
+            return
+          }
+          const url = new URL('/scan', window.location.origin)
+          url.searchParams.set('q', result.productName || result.jan || '')
+          if (result.jan) url.searchParams.set('ijan', result.jan)
+          if (result.productName) url.searchParams.set('iname', result.productName)
+          if (result.productNameJp) url.searchParams.set('inamejp', result.productNameJp)
+          window.location.href = url.toString()
+        } catch (e) {
+          showIdentifyMsg('Network error.', false)
+        }
+      }
+
+      if (photoCamera) photoCamera.addEventListener('change', () => { identifyPhoto(photoCamera.files && photoCamera.files[0]); photoCamera.value = '' })
+      if (photoGallery) photoGallery.addEventListener('change', () => { identifyPhoto(photoGallery.files && photoGallery.files[0]); photoGallery.value = '' })
     })()
   </script>
 </Base>

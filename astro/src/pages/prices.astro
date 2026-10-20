@@ -34,6 +34,11 @@ function buildPersonSections(allProducts: Product[]): PersonSection[] {
 }
 
 const personSections = buildPersonSections(products)
+
+// Lightweight projection for the client-side scan/identify matching below (findProductMatches
+// runs in the browser, against whatever was just scanned or identified) — just enough to
+// find the best match and know which product's <details> to open, not the full price history.
+const matchableProducts = products.map((p) => ({ key: p.key, productName: p.productName, productNameJp: p.productNameJp, jan: p.jan }))
 ---
 <Base title="Prices">
   <div class="prices-wrap">
@@ -42,6 +47,21 @@ const personSections = buildPersonSections(products)
 
     <div class="filters-bar">
       <input id="p-search" class="search-input" type="search" placeholder="Search name, Japanese name or JAN…" autocomplete="off" />
+
+      <div class="scan-row">
+        <button id="p-scan-btn" class="scan-btn" type="button">📷 Scan barcode</button>
+        <label class="upload-btn">
+          📷 Identify by photo
+          <input id="p-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn">
+          🖼️ From gallery
+          <input id="p-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+      <div id="p-scan-reader" class="scan-reader" hidden></div>
+      <p id="p-scan-msg" class="scan-msg" hidden></p>
+      <p id="p-identified-line" class="identified-line" hidden></p>
 
       <div class="filter-row">
         <span class="filter-label">Person</span>
@@ -96,7 +116,14 @@ const personSections = buildPersonSections(products)
     )}
   </div>
 
+  <script type="application/json" id="price-match-data" set:html={JSON.stringify(matchableProducts)}></script>
+
+  <script is:inline src="/barcode-scanner.js"></script>
+  <script is:inline src="/resize-image.js"></script>
+
   <script>
+    import { findProductMatches } from '../lib/product-match'
+
     const STORAGE_KEY = 'ff-prices-filters'
     const DEFAULTS = { person: 'all', status: 'all', group: 'product' }
 
@@ -251,17 +278,134 @@ const personSections = buildPersonSections(products)
     searchInput.addEventListener('input', applyFilters)
     applyFilters()
 
-    // Arriving back from /add-price, /edit-product or /edit-price with ?open=<key> —
-    // expand that product and bring it into view (filters were reset to show everything
-    // above, so the target is guaranteed visible here).
-    const openKey = new URLSearchParams(window.location.search).get('open')
-    if (openKey) {
-      const target = document.querySelector('details[data-key="' + CSS.escape(openKey) + '"]')
+    function openProductByKey(key) {
+      const target = document.querySelector('details[data-key="' + CSS.escape(key) + '"]')
       if (target) {
         target.open = true
         target.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
+      return !!target
     }
+
+    // Arriving back from /add-price, /edit-product or /edit-price with ?open=<key> —
+    // expand that product and bring it into view (filters were reset to show everything
+    // above, so the target is guaranteed visible here).
+    const openKey = new URLSearchParams(window.location.search).get('open')
+    if (openKey) openProductByKey(openKey)
+
+    // --- Barcode scan + "Identify by photo" — same shared findProductMatches() scan.astro
+    // uses: exact JAN match first, then name similarity. The match sets the search text
+    // (so the existing filter mechanism narrows the list) and opens the best match.
+    let matchableProducts = []
+    try {
+      matchableProducts = JSON.parse(document.querySelector('#price-match-data')?.textContent || '[]')
+    } catch (e) {}
+
+    const scanBtn = document.querySelector('#p-scan-btn')
+    const scanReader = document.querySelector('#p-scan-reader')
+    const scanMsg = document.querySelector('#p-scan-msg')
+    const identifiedLine = document.querySelector('#p-identified-line')
+    const photoCamera = document.querySelector('#p-photo-camera')
+    const photoGallery = document.querySelector('#p-photo-gallery')
+
+    function showScanMsg(text, ok) {
+      scanMsg.hidden = false
+      scanMsg.textContent = text
+      scanMsg.style.color = ok ? 'var(--muted)' : '#e74c3c'
+    }
+
+    function showIdentifiedLine(identified) {
+      const name = identified.productName || identified.productNameJp || ''
+      identifiedLine.hidden = false
+      identifiedLine.textContent = `Identified: ${name || '(no name)'}${identified.jan ? ' · JAN ' + identified.jan : ''}`
+    }
+
+    function searchAndOpenBestMatch(identified) {
+      const matches = findProductMatches(matchableProducts, identified)
+      const term = identified.productName || identified.productNameJp || identified.jan || ''
+      searchInput.value = term
+      applyFilters()
+      if (matches.length > 0) {
+        openProductByKey(matches[0].product.key)
+        showScanMsg(`${matches.length} match${matches.length === 1 ? '' : 'es'} found in your price list.`, true)
+      } else if (term) {
+        showScanMsg('No match found in your price list for "' + term + '".', false)
+      }
+    }
+
+    if (scanBtn && window.createBarcodeScanner) {
+      const scanner = window.createBarcodeScanner('p-scan-reader')
+      scanBtn.addEventListener('click', async () => {
+        if (scanner.isRunning()) {
+          await scanner.stop()
+          scanReader.hidden = true
+          scanBtn.textContent = '📷 Scan barcode'
+          return
+        }
+        scanReader.hidden = false
+        scanMsg.hidden = true
+        try {
+          await scanner.start((code) => {
+            scanner.stop()
+            scanReader.hidden = true
+            scanBtn.textContent = '📷 Scan barcode'
+            identifiedLine.hidden = true
+            searchAndOpenBestMatch({ jan: code })
+          })
+          scanBtn.textContent = '✕ Close scanner'
+        } catch (err) {
+          showScanMsg(err && err.message ? err.message : 'Could not access camera.', false)
+          scanReader.hidden = true
+        }
+      })
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = String(reader.result || '')
+          const commaIdx = result.indexOf(',')
+          resolve(commaIdx !== -1 ? result.slice(commaIdx + 1) : result)
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    }
+
+    async function identifyPhoto(file) {
+      if (!file) return
+      showScanMsg('Identifying…', true)
+      try {
+        let forApi = file
+        try {
+          if (window.resizeImage) forApi = await window.resizeImage(file, 1024, 0.8)
+        } catch (e) {}
+        const image = await fileToBase64(forApi)
+        const res = await fetch('/api/identify-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: [image] }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          showScanMsg((data && data.error) || 'Identification failed.', false)
+          return
+        }
+        const result = data && data.result ? data.result : {}
+        if (!result.productName && !result.jan) {
+          showScanMsg('Could not identify anything useful in this photo.', false)
+          return
+        }
+        showIdentifiedLine(result)
+        searchAndOpenBestMatch(result)
+      } catch (e) {
+        showScanMsg('Network error.', false)
+      }
+    }
+
+    if (photoCamera) photoCamera.addEventListener('change', () => { identifyPhoto(photoCamera.files && photoCamera.files[0]); photoCamera.value = '' })
+    if (photoGallery) photoGallery.addEventListener('change', () => { identifyPhoto(photoGallery.files && photoGallery.files[0]); photoGallery.value = '' })
   </script>
 
   <style>
@@ -275,6 +419,21 @@ const personSections = buildPersonSections(products)
       font-size: 1rem; box-sizing: border-box;
     }
     .search-input:focus { outline: none; border-color: var(--accent); }
+
+    .scan-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .scan-btn, .upload-btn {
+      flex: 1; min-width: 140px; text-align: center;
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.6rem 0.8rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.85rem;
+    }
+    .scan-btn:hover, .upload-btn:hover { background: rgba(244,162,76,0.08); }
+    .scan-reader { width: 100%; max-width: 400px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+    .scan-reader[hidden] { display: none; }
+    .scan-msg { font-size: 0.85rem; color: var(--muted); margin: 0; }
+    .scan-msg[hidden] { display: none; }
+    .identified-line { font-size: 0.85rem; color: var(--text); margin: 0; }
+    .identified-line[hidden] { display: none; }
 
     .filter-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .filter-label { font-size: 0.78rem; color: var(--muted); flex-shrink: 0; min-width: 52px; }

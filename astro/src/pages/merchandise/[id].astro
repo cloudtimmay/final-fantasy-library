@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+import { FIGURE_CATEGORIES } from '../../lib/collection-fields'
 
 const CATEGORY_LABELS: Record<string, string> = {
   figure: 'Figure',
@@ -10,11 +11,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 const { id } = Astro.params
+// `location` is queried on purpose nowhere here — it's not a field on the figure schema
+// (see CLEANUP.md); the read-only view below used to request it, which just always
+// produced undefined, so it's been dropped instead of carried into the new edit form.
 const f = await sanity.fetch(
-  `*[_type == "figure" && _id == $id][0] { _id, title, category, series, manufacturer, year, scale, condition, location, needsInfo, externalImageUrl, image, ${SHARED_FIELDS} }`,
+  `*[_type == "figure" && _id == $id][0] { _id, title, category, series, manufacturer, year, scale, condition, barcode, needsInfo, externalImageUrl, image, ${SHARED_FIELDS} }`,
   { id }
 )
 if (!f) return Astro.redirect('/merchandise')
+
+const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
 ---
 <Base title={f.title}>
   <div class="detail">
@@ -22,6 +28,8 @@ if (!f) return Astro.redirect('/merchandise')
     <br /><br />
     <h1>{f.title}</h1>
     <div class="detail-sub">{[CATEGORY_LABELS[f.category] || f.category, f.series].filter(Boolean).join(' · ')}</div>
+
+    <button id="edit-toggle" class="edit-toggle-btn" type="button">✏️ Edit</button>
 
     {f.needsInfo && (
       <div class="needsinfo-banner">
@@ -48,31 +56,173 @@ if (!f) return Astro.redirect('/merchandise')
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>
 
-    <table class="meta-table">
-      {f.category     && <tr><td>Type</td><td>{CATEGORY_LABELS[f.category] || f.category}</td></tr>}
-      {f.manufacturer && <tr><td>Manufacturer</td><td>{f.manufacturer}</td></tr>}
-      {f.year         && <tr><td>Year</td><td>{f.year}</td></tr>}
-      {f.scale        && <tr><td>Scale</td><td>{f.scale}</td></tr>}
-      {f.condition    && <tr><td>Condition</td><td>{f.condition}</td></tr>}
-      {f.location     && <tr><td>Location</td><td>{f.location}</td></tr>}
-      {f.status       && <tr><td>Status</td><td>{f.status}</td></tr>}
-      {f.rating       && <tr><td>Rating</td><td class="rating">{f.rating} / 10</td></tr>}
-      {f.acquiredDate && <tr><td>Acquired</td><td>{f.acquiredDate}</td></tr>}
-      {f.purchasePrice && <tr><td>Paid</td><td>{f.purchasePrice} NOK</td></tr>}
-      {f.purchasePriceYen && <tr><td>Paid (JPY)</td><td>¥{f.purchasePriceYen}</td></tr>}
-    </table>
+    <div id="view-mode">
+      <table class="meta-table">
+        {f.category     && <tr><td>Type</td><td>{CATEGORY_LABELS[f.category] || f.category}</td></tr>}
+        {f.manufacturer && <tr><td>Manufacturer</td><td>{f.manufacturer}</td></tr>}
+        {f.year         && <tr><td>Year</td><td>{f.year}</td></tr>}
+        {f.scale        && <tr><td>Scale</td><td>{f.scale}</td></tr>}
+        {f.condition    && <tr><td>Condition</td><td>{f.condition}</td></tr>}
+        {f.barcode      && <tr><td>Barcode</td><td class="mono">{f.barcode}</td></tr>}
+        {f.status       && <tr><td>Status</td><td>{f.status}</td></tr>}
+        {f.rating       && <tr><td>Rating</td><td class="rating">{f.rating} / 10</td></tr>}
+        {f.acquiredDate && <tr><td>Acquired</td><td>{f.acquiredDate}</td></tr>}
+        {f.purchasePrice && <tr><td>Paid</td><td>{f.purchasePrice} NOK</td></tr>}
+        {f.purchasePriceYen && <tr><td>Paid (JPY)</td><td>¥{f.purchasePriceYen}</td></tr>}
+      </table>
 
-    {f.tags?.length > 0 && (
-      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-        {f.tags.map((t: string) => <span class="tag">{t}</span>)}
+      {f.tags?.length > 0 && (
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+          {f.tags.map((t: string) => <span class="tag">{t}</span>)}
+        </div>
+      )}
+      {f.notes && <div class="notes-block">{f.notes}</div>}
+    </div>
+
+    <form id="edit-mode" class="edit-form" hidden>
+      <div class="field">
+        <label>Title *</label>
+        <input id="e-title" type="text" value={f.title} />
       </div>
-    )}
-    {f.notes && <div class="notes-block">{f.notes}</div>}
+      <div class="field">
+        <label>Category</label>
+        <select id="e-category">
+          {FIGURE_CATEGORIES.map((c) => <option value={c.value} selected={c.value === f.category}>{c.label}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Series</label>
+        <input id="e-series" type="text" value={f.series} />
+      </div>
+      <div class="field">
+        <label>Manufacturer</label>
+        <input id="e-manufacturer" type="text" value={f.manufacturer} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Year</label>
+          <input id="e-year" type="number" inputmode="numeric" value={f.year} />
+        </div>
+        <div class="field">
+          <label>Scale</label>
+          <input id="e-scale" type="text" value={f.scale} placeholder="e.g. 1/7" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Condition</label>
+        <input id="e-condition" type="text" value={f.condition} placeholder="e.g. New in box" />
+      </div>
+      <div class="field">
+        <label>Barcode</label>
+        <input id="e-barcode" type="text" value={f.barcode} />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="e-status">
+          {STATUSES.map((s) => <option value={s} selected={s === f.status}>{s}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Acquired date</label>
+        <input id="e-acquired" type="date" value={f.acquiredDate} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Price (JPY)</label>
+          <input id="e-price-yen" type="number" inputmode="numeric" value={f.purchasePriceYen} />
+        </div>
+        <div class="field">
+          <label>Price (NOK)</label>
+          <input id="e-price-nok" type="number" inputmode="numeric" value={f.purchasePrice} />
+        </div>
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="e-notes" rows="2">{f.notes}</textarea>
+      </div>
+      <div class="field checkbox-field">
+        <label><input id="e-needs-info" type="checkbox" checked={f.needsInfo === true} /> Missing info</label>
+      </div>
+
+      <div class="edit-actions">
+        <button id="e-save" type="button" class="save-btn">Save</button>
+        <button id="e-cancel" type="button" class="cancel-btn">Cancel</button>
+      </div>
+      <p id="e-msg" class="save-msg" hidden></p>
+    </form>
   </div>
 
   <script>
     import { initImageUpload } from '../../scripts/image-upload.js'
     initImageUpload()
+
+    const docId = window.location.pathname.split('/').pop()
+    const viewMode = document.querySelector('#view-mode')
+    const editMode = document.querySelector('#edit-mode')
+    const editToggle = document.querySelector('#edit-toggle')
+    const cancelBtn = document.querySelector('#e-cancel')
+    const saveBtn = document.querySelector('#e-save')
+    const msg = document.querySelector('#e-msg')
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    editToggle.addEventListener('click', () => {
+      viewMode.hidden = true
+      editToggle.hidden = true
+      editMode.hidden = false
+    })
+    cancelBtn.addEventListener('click', () => {
+      editMode.reset()
+      editMode.hidden = true
+      editToggle.hidden = false
+      viewMode.hidden = false
+      msg.hidden = true
+    })
+
+    saveBtn.addEventListener('click', async () => {
+      const title = document.querySelector('#e-title').value.trim()
+      if (!title) return showMsg('Please enter a title.', false)
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+      try {
+        const res = await fetch('/api/figure-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: docId,
+            title,
+            category: document.querySelector('#e-category').value,
+            series: document.querySelector('#e-series').value,
+            manufacturer: document.querySelector('#e-manufacturer').value,
+            year: document.querySelector('#e-year').value,
+            scale: document.querySelector('#e-scale').value,
+            condition: document.querySelector('#e-condition').value,
+            barcode: document.querySelector('#e-barcode').value,
+            status: document.querySelector('#e-status').value,
+            acquiredDate: document.querySelector('#e-acquired').value,
+            purchasePriceYen: document.querySelector('#e-price-yen').value,
+            purchasePrice: document.querySelector('#e-price-nok').value,
+            notes: document.querySelector('#e-notes').value,
+            needsInfo: document.querySelector('#e-needs-info').checked,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          showMsg((data && data.error) || 'Save failed.', false)
+          return
+        }
+        window.location.reload()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save'
+      }
+    })
   </script>
 
   <style>
@@ -83,5 +233,35 @@ if (!f) return Astro.redirect('/merchandise')
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
     .upload-msg { font-size: 0.85rem; width: 100%; }
+    .mono { font-family: monospace; }
+
+    .edit-toggle-btn {
+      display: inline-block; margin-bottom: 1rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.45rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .edit-toggle-btn:hover { background: #241826; }
+    .edit-form[hidden] { display: none; }
+    .edit-form .field { margin-bottom: 1rem; }
+    .edit-form .field-row { display: flex; gap: 1rem; }
+    .edit-form .field-row .field { flex: 1; }
+    .edit-form .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .edit-form .field input, .edit-form .field select, .edit-form .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .edit-form .checkbox-field label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text); }
+    .edit-form .checkbox-field input { width: auto; }
+    .edit-actions { display: flex; gap: 0.75rem; }
+    .save-btn {
+      flex: 1; background: var(--accent); color: #fff; border: none;
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .cancel-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.8rem 1.2rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+    }
+    .save-msg { font-size: 0.9rem; margin-top: 0.75rem; }
   </style>
 </Base>

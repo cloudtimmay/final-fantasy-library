@@ -182,3 +182,61 @@ test.describe('books/[id]: edit mode', () => {
     expect(doc.publisher).toBeNull()
   })
 })
+
+test.describe('merchandise/[id]: edit mode', () => {
+  test('Edit reveals a prefilled form, Save updates the document', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Figure ${Date.now()}`)
+    const figure = await sanity.create({ _type: 'figure', title, category: 'figure', status: 'owned' })
+    trackDoc(figure._id)
+
+    await page.goto(`/merchandise/${figure._id}`)
+    await page.locator('#edit-toggle').click()
+    await expect(page.locator('#e-title')).toHaveValue(title)
+    await expect(page.locator('#e-category')).toHaveValue('figure')
+
+    await page.locator('#e-category').selectOption('plushie')
+    await page.locator('#e-manufacturer').fill('Square Enix')
+    await page.locator('#e-scale').fill('1/7')
+    await page.locator('#e-barcode').fill('4988603333333')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('.detail h1')).toHaveText(title)
+    await expect(page.locator('#edit-mode')).toBeHidden()
+    await expect(page.locator('.meta-table')).toContainText('4988603333333')
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ category, manufacturer, scale, barcode }`, { id: figure._id })
+    expect(doc.category).toBe('plushie')
+    expect(doc.manufacturer).toBe('Square Enix')
+    expect(doc.scale).toBe('1/7')
+    expect(doc.barcode).toBe('4988603333333')
+  })
+
+  test('rejects an empty title without saving', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Figure Required ${Date.now()}`)
+    const figure = await sanity.create({ _type: 'figure', title, status: 'owned' })
+    trackDoc(figure._id)
+
+    await page.goto(`/merchandise/${figure._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-title').fill('')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('#e-msg')).toContainText('title')
+    await expect(page.locator('#edit-mode')).toBeVisible()
+  })
+
+  test('clearing the manufacturer unsets it', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Figure Clear ${Date.now()}`)
+    const figure = await sanity.create({ _type: 'figure', title, manufacturer: 'Good Smile Company', status: 'owned' })
+    trackDoc(figure._id)
+
+    await page.goto(`/merchandise/${figure._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-manufacturer').fill('')
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ manufacturer }`, { id: figure._id })
+    expect(doc.manufacturer).toBeNull()
+  })
+})

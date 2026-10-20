@@ -1,4 +1,5 @@
 import { test, expect, testName } from './fixtures'
+import { mockItemInfoResult, mockItemInfoEmpty } from './helpers/mock-ai'
 
 test.describe('collection detail pages: needsInfo banner', () => {
   test('album detail page shows a needsInfo banner with the barcode when flagged', async ({ page, trackDoc, sanity }) => {
@@ -121,6 +122,80 @@ test.describe('games/[id]: edit mode', () => {
 
     await expect(page.locator('#e-msg')).toContainText('title')
     await expect(page.locator('#edit-mode')).toBeVisible()
+  })
+})
+
+test.describe('games/[id]: "Fill in from web"', () => {
+  test('suggests only the fields with a value, checked by default only when empty, applies on request', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const title = testName(`AI Fill Game ${Date.now()}`)
+    const game = await sanity.create({ _type: 'game', title, developer: 'Square Enix', status: 'owned' })
+    trackDoc(game._id)
+
+    await mockItemInfoResult(page, {
+      genre: 'RPG',
+      platform: 'PS5',
+      developer: 'Square Enix Co.',
+      publisher: 'Square Enix',
+      year: 2023,
+      externalImageUrl: 'https://example-source.test/cover.jpg',
+    })
+
+    await page.goto(`/games/${game._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+
+    const card = page.locator('.aif-card')
+    await expect(card).toBeVisible()
+
+    // "Developer" already has a value ("Square Enix") — unchecked by default. Everything
+    // else was empty — checked by default.
+    const devRow = page.locator('.aif-item', { hasText: 'Developer' })
+    await expect(devRow.locator('.aif-checkbox')).not.toBeChecked()
+    const genreRow = page.locator('.aif-item', { hasText: 'Genre' })
+    await expect(genreRow.locator('.aif-checkbox')).toBeChecked()
+    const platformRow = page.locator('.aif-item', { hasText: 'Platform' })
+    await expect(platformRow.locator('.aif-checkbox')).toBeChecked()
+
+    // Check "Developer" too (so applying also overwrites an already-filled field), and
+    // uncheck "Platform" (so applying proves an unchecked field is left alone).
+    await devRow.locator('.aif-checkbox').check()
+    await platformRow.locator('.aif-checkbox').uncheck()
+    await page.locator('.aif-apply-btn').click()
+
+    await expect(page.locator('#e-genre')).toHaveValue('RPG')
+    await expect(page.locator('#e-platform')).toHaveValue('')
+    await expect(page.locator('#e-developer')).toHaveValue('Square Enix Co.')
+    await expect(page.locator('#e-external-image')).toHaveValue('https://example-source.test/cover.jpg')
+    // Publisher was empty too, so it was also checked by default and applied.
+    await expect(page.locator('#e-publisher')).toHaveValue('Square Enix')
+
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ genre, platform, developer, publisher, externalImageUrl }`, { id: game._id })
+    expect(doc.genre).toBe('RPG')
+    expect(doc.platform).toBeNull()
+    expect(doc.developer).toBe('Square Enix Co.')
+    expect(doc.publisher).toBe('Square Enix')
+    expect(doc.externalImageUrl).toBe('https://example-source.test/cover.jpg')
+  })
+
+  test('shows a message when nothing reliable is found', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`AI Fill Game Empty ${Date.now()}`)
+    const game = await sanity.create({ _type: 'game', title, status: 'owned' })
+    trackDoc(game._id)
+
+    await mockItemInfoEmpty(page)
+    await page.goto(`/games/${game._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+
+    await expect(page.locator('#e-ai-fill-msg')).toContainText('Nothing reliable found')
+    await expect(page.locator('.aif-card')).toHaveCount(0)
   })
 })
 

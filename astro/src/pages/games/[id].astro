@@ -73,6 +73,13 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
         <label>Title *</label>
         <input id="e-title" type="text" value={g.title} />
       </div>
+
+      <div class="field ai-fill-field">
+        <button id="e-ai-fill-btn" type="button" class="ai-fill-btn">✨ Fill in from web</button>
+        <p id="e-ai-fill-msg" class="ai-fill-msg" hidden></p>
+        <div id="e-ai-fill-results" class="ai-fill-results" hidden></div>
+      </div>
+
       <div class="field">
         <label>Series</label>
         <input id="e-series" type="text" value={g.series} />
@@ -121,6 +128,10 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
         <input id="e-playtime" type="number" inputmode="numeric" value={g.playtimeHours} />
       </div>
       <div class="field">
+        <label>Cover image URL</label>
+        <input id="e-external-image" type="url" value={g.externalImageUrl} />
+      </div>
+      <div class="field">
         <label>Status</label>
         <select id="e-status">
           {STATUSES.map((s) => <option value={s} selected={s === g.status}>{s}</option>)}
@@ -156,6 +167,8 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
     </form>
   </div>
 
+  <script is:inline src="/item-info-flow.js"></script>
+
   <script>
     import { initImageUpload } from '../../scripts/image-upload.js'
     initImageUpload()
@@ -185,6 +198,29 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
       editToggle.hidden = false
       viewMode.hidden = false
       msg.hidden = true
+      document.querySelector('#e-ai-fill-results').hidden = true
+      document.querySelector('#e-ai-fill-msg').hidden = true
+    })
+
+    window.createItemInfoFlow({
+      type: 'game',
+      els: {
+        btn: document.querySelector('#e-ai-fill-btn'),
+        msg: document.querySelector('#e-ai-fill-msg'),
+        resultsWrap: document.querySelector('#e-ai-fill-results'),
+      },
+      getQuery: () => ({
+        title: document.querySelector('#e-title').value.trim(),
+        creator: document.querySelector('#e-developer').value.trim() || document.querySelector('#e-publisher').value.trim(),
+      }),
+      fields: [
+        { key: 'genre', label: 'Genre', getCurrent: () => document.querySelector('#e-genre').value, apply: (v) => { document.querySelector('#e-genre').value = v } },
+        { key: 'platform', label: 'Platform', getCurrent: () => document.querySelector('#e-platform').value, apply: (v) => { document.querySelector('#e-platform').value = v } },
+        { key: 'developer', label: 'Developer', getCurrent: () => document.querySelector('#e-developer').value, apply: (v) => { document.querySelector('#e-developer').value = v } },
+        { key: 'publisher', label: 'Publisher', getCurrent: () => document.querySelector('#e-publisher').value, apply: (v) => { document.querySelector('#e-publisher').value = v } },
+        { key: 'year', label: 'Year', getCurrent: () => document.querySelector('#e-year').value, apply: (v) => { document.querySelector('#e-year').value = v } },
+        { key: 'externalImageUrl', label: 'Cover image URL', getCurrent: () => document.querySelector('#e-external-image').value, apply: (v) => { document.querySelector('#e-external-image').value = v } },
+      ],
     })
 
     saveBtn.addEventListener('click', async () => {
@@ -206,6 +242,7 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
             publisher: document.querySelector('#e-publisher').value,
             year: document.querySelector('#e-year').value,
             barcode: document.querySelector('#e-barcode').value,
+            externalImageUrl: document.querySelector('#e-external-image').value,
             completionStatus: document.querySelector('#e-completion').value,
             playtimeHours: document.querySelector('#e-playtime').value,
             status: document.querySelector('#e-status').value,
@@ -269,5 +306,42 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
       padding: 0.8rem 1.2rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
     }
     .save-msg { font-size: 0.9rem; margin-top: 0.75rem; }
+
+    .ai-fill-field { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1rem 0; }
+    .ai-fill-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+    }
+    .ai-fill-btn:hover { background: #241826; }
+    .ai-fill-btn:disabled { opacity: 0.6; cursor: default; }
+    .ai-fill-msg { font-size: 0.85rem; margin: 0.6rem 0 0; }
+    .ai-fill-msg[hidden] { display: none; }
+    .ai-fill-results[hidden] { display: none; }
+    .ai-fill-results { margin-top: 0.75rem; }
+  </style>
+
+  <!-- Suggestion card content is built with document.createElement by the shared
+       item-info-flow.js module, so it never gets Astro's scoped-CSS attribute — these
+       rules have to be global. "aif-" prefix (AI Fill) keeps them from colliding with
+       identify-flow.js's own "idf-" classes or anything else on the page; duplicated
+       verbatim across all four edit-mode pages since the module is loaded on each one. -->
+  <style is:global>
+    .aif-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.9rem; display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .aif-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+    .aif-item { border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+    .aif-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .aif-item-label { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; font-size: 0.85rem; }
+    .aif-item-label input { width: auto; margin: 0.2rem 0 0; flex-shrink: 0; }
+    .aif-item-text { line-height: 1.5; overflow-wrap: anywhere; }
+    .aif-apply-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 0.6rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    .aif-sources { font-size: 0.78rem; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+    .aif-source-link { color: var(--accent); text-decoration: none; }
+    .aif-source-link:hover { text-decoration: underline; }
   </style>
 </Base>

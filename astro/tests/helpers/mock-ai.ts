@@ -193,3 +193,29 @@ export async function mockShopInfoEmpty(page: Page): Promise<void> {
     })
   })
 }
+
+// "✨ Fill in from web" for the four collection-item edit modes (games/books/merchandise/
+// albums) — see item-info-flow.js and item-info.ts.
+export async function mockItemInfoResult(
+  page: Page,
+  result: Record<string, unknown>,
+  sources: { title: string; url: string }[] = [{ title: 'Example Source', url: 'https://example-source.test/item' }]
+): Promise<void> {
+  await page.route('**/api/item-info', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, result, sources }),
+    })
+  })
+}
+
+export async function mockItemInfoEmpty(page: Page): Promise<void> {
+  await page.route('**/api/item-info', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, result: {}, sources: [] }),
+    })
+  })
+}

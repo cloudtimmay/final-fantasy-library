@@ -24,6 +24,7 @@ export const POST: APIRoute = async ({ request }) => {
     { from: 'publisher' },
     { from: 'year', type: 'num' },
     { from: 'barcode' },
+    { from: 'externalImageUrl' },
     { from: 'platform', type: 'enum', values: GAME_PLATFORMS },
     { from: 'genre', type: 'enum', values: GAME_GENRES },
     { from: 'completionStatus', type: 'enum', values: COMPLETION_VALUES },

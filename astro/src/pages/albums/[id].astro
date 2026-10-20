@@ -8,6 +8,7 @@ const a = await sanity.fetch(
   `*[_type == "album" && _id == $id][0] {
     title, artist, composer, year, genre, format, label,
     catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl, youtubeMusicUrl, youtubePlaylistId,
+    needsInfo, barcode,
     tracklist[]{ disc, trackNumber, title, duration, youtubeId },
     ${SHARED_FIELDS}
   }`,
@@ -54,6 +55,12 @@ const multiDisc = discNumbers.length > 1
     <br /><br />
     <h1>{a.title}</h1>
     <div class="detail-sub">{a.artist}</div>
+
+    {a.needsInfo && (
+      <div class="needsinfo-banner">
+        This album is missing information{a.barcode ? <> (barcode: <span class="mono">{a.barcode}</span>)</> : null}. Check the details and fill them in via Studio.
+      </div>
+    )}
 
     {a.image
       ? <img class="detail-photo" src={urlFor(a.image).width(640).url()} alt={a.title} />
@@ -143,6 +150,8 @@ const multiDisc = discNumbers.length > 1
 
   <style>
     .detail-photo.placeholder { display: flex; align-items: center; justify-content: center; font-size: 4rem; height: 280px; background: var(--surface); }
+    .needsinfo-banner { background: var(--surface); border: 1px solid var(--accent); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+    .mono { font-family: monospace; }
     .upload-row { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0 1.5rem; flex-wrap: wrap; }
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }

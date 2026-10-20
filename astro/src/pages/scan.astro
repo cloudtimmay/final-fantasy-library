@@ -19,6 +19,13 @@ const identified = { jan: ijan, productName: iname, productNameJp: inamejp }
 const priceMatches = ijan || iname || inamejp ? findProductMatches(await fetchProducts(), identified) : []
 const ownerMatches = ijan || iname || inamejp ? findOwnersOf(await fetchOwnedByPerson(), identified) : []
 
+// _type -> route segment — every type pluralizes to its own route except "figure",
+// whose collection page is /merchandise, not /figures.
+function detailHref(type: string, id: string): string {
+  const segment = type === 'figure' ? 'merchandise' : `${type}s`
+  return `/${segment}/${id}`
+}
+
 function lowestJpy(prices: { price: number; currency: string }[]): number | null {
   const jpy = prices.filter((p) => p.currency === 'JPY').map((p) => p.price)
   return jpy.length ? Math.min(...jpy) : null
@@ -29,7 +36,7 @@ if (q) {
   const term = `*${q}*`
   results = await sanity.fetch(
     `*[
-      _type in ["album","game","book"] &&
+      _type in ["album","game","book","figure"] &&
       !(_id in path("drafts.**")) &&
       (
         title match $term ||
@@ -38,15 +45,17 @@ if (q) {
         isbn match $term ||
         artist match $term ||
         composer match $term ||
-        author match $term
+        author match $term ||
+        manufacturer match $term
       )
     ] | order(_type asc, title asc) {
       _id, _type, title, status, image, externalImageUrl,
       catalogNumber, barcode, isbn,
       "sub": select(
-        _type == "album" => coalesce(composer, artist),
-        _type == "game"  => platform,
-        _type == "book"  => author
+        _type == "album"  => coalesce(composer, artist),
+        _type == "game"   => platform,
+        _type == "book"   => author,
+        _type == "figure" => manufacturer
       )
     }`,
     { term }
@@ -155,12 +164,12 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
           </div>
         ) : (
           results.map((r: any) => (
-            <a class="result-row" href={`/${r._type}s/${r._id}`}>
+            <a class="result-row" href={detailHref(r._type, r._id)}>
               {r.image
                 ? <img class="result-thumb" src={urlFor(r.image).height(120).url()} alt={r.title} />
                 : r.externalImageUrl
                 ? <img class="result-thumb" src={r.externalImageUrl} alt={r.title} />
-                : <div class="result-thumb placeholder">{r._type === 'album' ? '🎵' : r._type === 'game' ? '🎮' : '📚'}</div>
+                : <div class="result-thumb placeholder">{r._type === 'album' ? '🎵' : r._type === 'game' ? '🎮' : r._type === 'book' ? '📚' : '🧸'}</div>
               }
               <div class="result-info">
                 <div class="result-title">{r.title}</div>
@@ -204,6 +213,12 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
           <a target="_blank" rel="noopener" href={`https://www.mobygames.com/search/?q=${encodeURIComponent(q)}`}>MobyGames ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.igdb.com/search?type=1&q=${encodeURIComponent(q)}`}>IGDB ↗</a>
           <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' game')}`}>Google ↗</a>
+        </div>
+
+        <div class="ext-group">
+          <span class="ext-label">Merch</span>
+          <a target="_blank" rel="noopener" href={`https://myfigurecollection.net/?_tb=item&keywords=${encodeURIComponent(q)}`}>MyFigureCollection ↗</a>
+          <a target="_blank" rel="noopener" href={`https://www.google.com/search?q=${encodeURIComponent(q + ' figure')}`}>Google ↗</a>
         </div>
 
         <div class="ext-group">

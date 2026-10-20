@@ -181,3 +181,24 @@ test.describe('scan: "already has this" (family items and bought purchases)', ()
     await expect(page.locator('.owner-matches')).toHaveCount(0)
   })
 })
+
+test.describe('scan: merchandise/figure search', () => {
+  test('a figure shows up in collection results and links to /merchandise/<id>', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Scan Figure ${Date.now()}`)
+    const figure = await sanity.create({ _type: 'figure', title, manufacturer: 'Square Enix', status: 'owned' })
+    trackDoc(figure._id)
+
+    await page.goto(`/scan?q=${encodeURIComponent(title)}`)
+    const row = page.locator('.result-row', { hasText: title })
+    await expect(row).toBeVisible()
+    await expect(row).toContainText('Square Enix')
+    await expect(row).toHaveAttribute('href', `/merchandise/${figure._id}`)
+  })
+
+  test('shows a "Merch" external lookup group', async ({ page }) => {
+    await page.goto('/scan?q=test')
+    const group = page.locator('.ext-group', { hasText: 'Merch' })
+    await expect(group).toBeVisible()
+    await expect(group.locator('a', { hasText: 'MyFigureCollection' })).toBeVisible()
+  })
+})

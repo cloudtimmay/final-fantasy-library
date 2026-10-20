@@ -39,8 +39,11 @@ test.describe('prices list', () => {
 
     await page.goto('/prices')
 
-    const matchedRow = page.locator('li.price-row', { hasText: matchName })
-    const otherRow = page.locator('li.price-row', { hasText: otherName })
+    // Scoped to the Product-grouped view specifically — /prices now also always renders a
+    // (hidden-by-default) Person-grouped copy of every product, so an unscoped locator
+    // would match both and trip Playwright's strict mode.
+    const matchedRow = page.locator('#product-group-view li.price-row', { hasText: matchName })
+    const otherRow = page.locator('#product-group-view li.price-row', { hasText: otherName })
     await expect(matchedRow).toBeVisible()
     await expect(otherRow).toBeVisible()
 
@@ -53,6 +56,181 @@ test.describe('prices list', () => {
     await expect(matchedRow.locator('.history-note').first()).toContainText('fixture note for list test')
 
     await page.goto(`/prices?open=${encodeURIComponent(matchJan)}`)
-    await expect(page.locator(`details[data-key="${matchJan}"]`)).toHaveJSProperty('open', true)
+    await expect(page.locator(`#product-group-view details[data-key="${matchJan}"]`)).toHaveJSProperty('open', true)
+  })
+})
+
+test.describe('prices: filters and grouping', () => {
+  test('Person filter shows only matching products', async ({ page, trackDoc, sanity }) => {
+    const kimName = testName(`Kim Product ${Date.now()}`)
+    const kim = await sanity.create({
+      _type: 'priceEntry', productName: kimName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(kim._id)
+
+    const toneName = testName(`Tone Product ${Date.now()}`)
+    const tone = await sanity.create({
+      _type: 'priceEntry', productName: toneName, category: 'game', sourceType: 'japanStore',
+      price: 2000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Tone',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(tone._id)
+
+    await page.goto('/prices')
+    const kimRow = page.locator('#product-group-view li.price-row', { hasText: kimName })
+    const toneRow = page.locator('#product-group-view li.price-row', { hasText: toneName })
+    await expect(kimRow).toBeVisible()
+    await expect(toneRow).toBeVisible()
+
+    await page.locator('#person-filter .chip', { hasText: 'Kim' }).click()
+    await expect(kimRow).toBeVisible()
+    await expect(toneRow).toBeHidden()
+    await expect(page.locator('#person-filter .chip.active')).toHaveText('Kim')
+  })
+
+  test('"No buyer" filter shows only prices without a buyer', async ({ page, trackDoc, sanity }) => {
+    const withBuyerName = testName(`Has Buyer Product ${Date.now()}`)
+    const withBuyer = await sanity.create({
+      _type: 'priceEntry', productName: withBuyerName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(withBuyer._id)
+
+    const noBuyerName = testName(`No Buyer Product ${Date.now()}`)
+    const noBuyer = await sanity.create({
+      _type: 'priceEntry', productName: noBuyerName, category: 'game', sourceType: 'japanStore',
+      price: 2000, currency: 'JPY', condition: 'new', status: 'considering',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(noBuyer._id)
+
+    await page.goto('/prices')
+    await page.locator('#person-filter .chip', { hasText: 'No buyer' }).click()
+    await expect(page.locator('#product-group-view li.price-row', { hasText: noBuyerName })).toBeVisible()
+    await expect(page.locator('#product-group-view li.price-row', { hasText: withBuyerName })).toBeHidden()
+  })
+
+  test('Status filter shows only matching prices within a product, updating the count badge', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const name = testName(`Status Filter Product ${Date.now()}`)
+    const jan = `49886022${Date.now().toString().slice(-5)}`
+    const considering = await sanity.create({
+      _type: 'priceEntry', productName: name, jan, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(considering._id)
+    const bought = await sanity.create({
+      _type: 'priceEntry', productName: name, jan, category: 'game', sourceType: 'japanStore',
+      price: 2800, currency: 'JPY', condition: 'new', status: 'bought', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(bought._id)
+
+    await page.goto('/prices')
+    const row = page.locator('#product-group-view li.price-row', { hasText: name })
+    await row.locator('summary').click()
+    await expect(row.locator('.count-badge')).toHaveText('2 prices')
+
+    await page.locator('#status-filter .chip', { hasText: 'Bought' }).click()
+    await expect(row).toBeVisible()
+    await expect(row.locator('.count-badge')).toHaveText('1 price')
+    await expect(row.locator('.history-item[hidden]')).toHaveCount(1)
+  })
+
+  test('Group by Person shows one section per buyer with their matching products', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const kimName = testName(`Group Kim Product ${Date.now()}`)
+    const kim = await sanity.create({
+      _type: 'priceEntry', productName: kimName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(kim._id)
+    const toneName = testName(`Group Tone Product ${Date.now()}`)
+    const tone = await sanity.create({
+      _type: 'priceEntry', productName: toneName, category: 'game', sourceType: 'japanStore',
+      price: 2000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Tone',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(tone._id)
+
+    await page.goto('/prices')
+    await page.locator('#group-toggle .chip', { hasText: 'Person' }).click()
+
+    await expect(page.locator('#product-group-view')).toBeHidden()
+    const personView = page.locator('#person-group-view')
+    await expect(personView).toBeVisible()
+
+    const kimSection = personView.locator('.person-section[data-person="Kim"]')
+    const toneSection = personView.locator('.person-section[data-person="Tone"]')
+    await expect(kimSection.locator('.person-section-title')).toHaveText('Kim')
+    await expect(kimSection.locator('li.price-row', { hasText: kimName })).toBeVisible()
+    await expect(kimSection.locator('li.price-row', { hasText: toneName })).toHaveCount(0)
+    await expect(toneSection.locator('li.price-row', { hasText: toneName })).toBeVisible()
+  })
+
+  test('filters combine with search', async ({ page, trackDoc, sanity }) => {
+    const kimMatchName = testName(`Combo Match Kim ${Date.now()}`)
+    const kimMatch = await sanity.create({
+      _type: 'priceEntry', productName: kimMatchName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(kimMatch._id)
+    const kimOtherName = testName(`Combo Other Kim ${Date.now()}`)
+    const kimOther = await sanity.create({
+      _type: 'priceEntry', productName: kimOtherName, category: 'game', sourceType: 'japanStore',
+      price: 1500, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(kimOther._id)
+
+    await page.goto('/prices')
+    await page.locator('#person-filter .chip', { hasText: 'Kim' }).click()
+    await page.locator('#p-search').fill('Combo Match')
+
+    await expect(page.locator('#product-group-view li.price-row', { hasText: kimMatchName })).toBeVisible()
+    await expect(page.locator('#product-group-view li.price-row', { hasText: kimOtherName })).toBeHidden()
+  })
+
+  test('remembers filter choices after a reload', async ({ page, trackDoc, sanity }) => {
+    const toneName = testName(`Persist Tone Product ${Date.now()}`)
+    const tone = await sanity.create({
+      _type: 'priceEntry', productName: toneName, category: 'game', sourceType: 'japanStore',
+      price: 2000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Tone',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(tone._id)
+    const kimName = testName(`Persist Kim Product ${Date.now()}`)
+    const kim = await sanity.create({
+      _type: 'priceEntry', productName: kimName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(kim._id)
+
+    await page.goto('/prices')
+    await page.locator('#person-filter .chip', { hasText: 'Tone' }).click()
+    await page.locator('#group-toggle .chip', { hasText: 'Person' }).click()
+    await expect(page).toHaveURL(/person=Tone/)
+    await expect(page).toHaveURL(/group=person/)
+
+    await page.reload()
+    await expect(page.locator('#person-filter .chip.active')).toHaveText('Tone')
+    await expect(page.locator('#group-toggle .chip.active')).toHaveText('Person')
+    await expect(page.locator('#person-group-view')).toBeVisible()
+    const toneSection = page.locator('.person-section[data-person="Tone"]')
+    await expect(toneSection).toBeVisible()
+    await expect(page.locator('.person-section[data-person="Kim"]')).toBeHidden()
   })
 })

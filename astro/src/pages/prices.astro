@@ -1,116 +1,259 @@
 ---
 import Base from '../layouts/Base.astro'
-import { fetchProducts } from '../lib/price-products'
+import PriceProductRow from '../components/PriceProductRow.astro'
+import { fetchProducts, type Product, type ProductPrice } from '../lib/price-products'
+import { PEOPLE_LIST } from '../lib/price-entry-fields'
 
 const products = await fetchProducts()
 
-const CATEGORY_LABELS: Record<string, string> = {
-  album: 'Album',
-  game: 'Game',
-  book: 'Book',
-  figure: 'Merchandise',
-  other: 'Other',
-}
-const CONDITION_LABELS: Record<string, string> = {
-  new: 'New',
-  used: 'Used',
-  used_complete: 'Used, complete (box/obi)',
+// One section per person who has at least one matching price, plus "No buyer" last (if
+// any price has none) — a buyer value outside PEOPLE_LIST (stale/legacy data) also counts
+// as "No buyer" rather than silently vanishing. Built once server-side so Group by Person
+// is real markup, not something assembled by JS.
+type PersonSection = { key: string; label: string; items: { product: Product; prices: ProductPrice[] }[] }
+
+function buildPersonSections(allProducts: Product[]): PersonSection[] {
+  const sections = new Map<string, PersonSection>(PEOPLE_LIST.map((name) => [name, { key: name, label: name, items: [] }]))
+  const none: PersonSection = { key: '__none__', label: 'No buyer', items: [] }
+
+  for (const product of allProducts) {
+    const byKey = new Map<string, ProductPrice[]>()
+    for (const price of product.prices) {
+      const key = price.buyer && sections.has(price.buyer) ? price.buyer : '__none__'
+      const list = byKey.get(key) ?? []
+      list.push(price)
+      byKey.set(key, list)
+    }
+    for (const [key, prices] of byKey) {
+      if (key === '__none__') none.items.push({ product, prices })
+      else sections.get(key)!.items.push({ product, prices })
+    }
+  }
+
+  return [...[...sections.values()].filter((s) => s.items.length > 0), ...(none.items.length > 0 ? [none] : [])]
 }
 
-function lowestJpy(prices: { price: number; currency: string }[]): number | null {
-  const jpy = prices.filter((p) => p.currency === 'JPY').map((p) => p.price)
-  return jpy.length ? Math.min(...jpy) : null
-}
-
-function formatMoney(price: number, currency: string): string {
-  return `${price.toLocaleString('en-US')} ${currency}`
-}
-
-function formatDate(iso: string | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
+const personSections = buildPersonSections(products)
 ---
 <Base title="Prices">
   <div class="prices-wrap">
     <h1>Prices</h1>
     <p class="hint">Everything you've logged. Tap a product to see its full price history.</p>
 
-    <input id="p-search" class="search-input" type="search" placeholder="Search name, Japanese name or JAN…" autocomplete="off" />
+    <div class="filters-bar">
+      <input id="p-search" class="search-input" type="search" placeholder="Search name, Japanese name or JAN…" autocomplete="off" />
+
+      <div class="filter-row">
+        <span class="filter-label">Person</span>
+        <div class="chip-group" id="person-filter">
+          <button class="chip active" data-value="all" type="button">All</button>
+          {PEOPLE_LIST.map((name) => <button class="chip" data-value={name} type="button">{name}</button>)}
+          <button class="chip" data-value="__none__" type="button">No buyer</button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">Status</span>
+        <div class="chip-group" id="status-filter">
+          <button class="chip active" data-value="all" type="button">All</button>
+          <button class="chip" data-value="considering" type="button">Considering</button>
+          <button class="chip" data-value="bought" type="button">Bought</button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">Group by</span>
+        <div class="chip-group" id="group-toggle">
+          <button class="chip active" data-value="product" type="button">Product</button>
+          <button class="chip" data-value="person" type="button">Person</button>
+        </div>
+      </div>
+    </div>
 
     {products.length === 0 ? (
       <p class="empty">No prices logged yet. <a href="/add-price">Add the first one →</a></p>
     ) : (
-      <ul class="price-list">
-        {products.map((p) => {
-          const low = lowestJpy(p.prices)
-          const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toLowerCase()
-          return (
-            <li class="price-row" data-search={searchHay}>
-              <details data-key={p.key}>
-                <summary>
-                  {p.image ? (
-                    <img class="thumb" src={`${p.image.url}?w=100`} alt={p.productName} />
-                  ) : (
-                    <div class="thumb thumb-placeholder">🏷️</div>
-                  )}
-                  <div class="summary-info">
-                    <div class="summary-name">{p.productName}</div>
-                    {p.productNameJp && <div class="summary-jp">{p.productNameJp}</div>}
-                    <div class="summary-sub">
-                      {p.category && <span class="cat-badge">{CATEGORY_LABELS[p.category] || p.category}</span>}
-                      <span class="count-badge">{p.prices.length} price{p.prices.length === 1 ? '' : 's'}</span>
-                      {low != null && <span class="low-badge">from {formatMoney(low, 'JPY')}</span>}
-                    </div>
-                  </div>
-                </summary>
+      <>
+        <div id="product-group-view" class="group-view">
+          <ul class="price-list">
+            {products.map((p) => <PriceProductRow product={p} prices={p.prices} />)}
+          </ul>
+          <p class="empty-filtered" hidden>No prices match these filters.</p>
+        </div>
 
-                <ul class="history-list">
-                  {p.prices.map((price) => (
-                    <li>
-                      <a class="history-row" href={`/edit-price?id=${price._id}`}>
-                        <div class="history-main">
-                          <span class="history-source">{price.source}</span>
-                          <span class="history-price">{formatMoney(price.price, price.currency)}</span>
-                          {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
-                          {price.status === 'bought' && <span class="history-bought">✅</span>}
-                          <span class="history-date">{formatDate(price.seenAt)}</span>
-                        </div>
-                        {price.note && <div class="history-note">{price.note}</div>}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-
-                <div class="product-actions">
-                  <a class="add-price-link" href={`/add-price?product=${encodeURIComponent(p.key)}`}>+ Add price</a>
-                  <a class="edit-product-link" href={`/edit-product?product=${encodeURIComponent(p.key)}`}>✏️ Edit product</a>
-                </div>
-              </details>
-            </li>
-          )
-        })}
-      </ul>
+        <div id="person-group-view" class="group-view" hidden>
+          {personSections.map((section) => (
+            <section class="person-section" data-person={section.key}>
+              <h2 class="person-section-title">{section.label}</h2>
+              <ul class="price-list">
+                {section.items.map(({ product, prices }) => <PriceProductRow product={product} prices={prices} />)}
+              </ul>
+            </section>
+          ))}
+          <p class="empty-filtered" hidden>No prices match these filters.</p>
+        </div>
+      </>
     )}
   </div>
 
   <script>
-    const searchInput = document.querySelector('#p-search')
-    const rows = Array.from(document.querySelectorAll('.price-row'))
+    const STORAGE_KEY = 'ff-prices-filters'
+    const DEFAULTS = { person: 'all', status: 'all', group: 'product' }
 
-    function applySearch() {
-      const q = searchInput.value.trim().toLowerCase()
-      rows.forEach((row) => {
-        const hay = row.getAttribute('data-search') || ''
-        row.hidden = q !== '' && !hay.includes(q)
+    const searchInput = document.querySelector('#p-search')
+    const personFilterEl = document.querySelector('#person-filter')
+    const statusFilterEl = document.querySelector('#status-filter')
+    const groupToggleEl = document.querySelector('#group-toggle')
+    const productView = document.querySelector('#product-group-view')
+    const personView = document.querySelector('#person-group-view')
+
+    function loadState() {
+      const url = new URLSearchParams(window.location.search)
+      if (url.has('person') || url.has('status') || url.has('group')) {
+        return {
+          person: url.get('person') || DEFAULTS.person,
+          status: url.get('status') || DEFAULTS.status,
+          group: url.get('group') || DEFAULTS.group,
+        }
+      }
+      // Arriving via ?open=<key> (from /add-price, /edit-product, /edit-price) — always
+      // show everything unfiltered, so the deep-linked product is never hidden by a
+      // filter saved from an earlier session.
+      if (url.has('open')) return { ...DEFAULTS }
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) return { ...DEFAULTS, ...JSON.parse(raw) }
+      } catch (e) {}
+      return { ...DEFAULTS }
+    }
+
+    function persistState(state) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch (e) {}
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('person', state.person)
+        url.searchParams.set('status', state.status)
+        url.searchParams.set('group', state.group)
+        window.history.replaceState(null, '', url.toString())
+      } catch (e) {}
+    }
+
+    const state = loadState()
+
+    function setActiveChip(container, value) {
+      container.querySelectorAll('.chip').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.value === value)
       })
     }
-    searchInput.addEventListener('input', applySearch)
+
+    function fmtMoney(price, currency) {
+      return `${Math.round(price).toLocaleString('en-US')} ${currency}`
+    }
+
+    function applyFilters() {
+      if (!productView || !personView) return
+      const q = searchInput.value.trim().toLowerCase()
+
+      productView.hidden = state.group !== 'product'
+      personView.hidden = state.group !== 'person'
+      const activeView = state.group === 'person' ? personView : productView
+      const inPersonView = activeView === personView
+
+      const sections = inPersonView
+        ? Array.from(personView.querySelectorAll('.person-section'))
+        : [activeView]
+
+      let anyVisibleOverall = false
+
+      sections.forEach((section) => {
+        if (inPersonView && state.person !== 'all') {
+          const sectionPerson = section.getAttribute('data-person')
+          section.hidden = sectionPerson !== state.person
+          if (section.hidden) return
+        }
+
+        let anyVisibleInSection = false
+        const rows = Array.from(section.querySelectorAll('.price-row'))
+        rows.forEach((row) => {
+          const hay = row.getAttribute('data-search') || ''
+          const searchMatches = q === '' || hay.includes(q)
+
+          const items = Array.from(row.querySelectorAll('.history-item'))
+          let visibleCount = 0
+          let lowestJpy = null
+          items.forEach((item) => {
+            // The person filter only needs to narrow individual rows in Product-grouped
+            // view — in Person-grouped view the section itself already fixes the buyer,
+            // so every row within a shown section already matches.
+            const buyer = item.getAttribute('data-buyer') || ''
+            const buyerMatches =
+              inPersonView || state.person === 'all'
+                ? true
+                : state.person === '__none__'
+                  ? buyer === ''
+                  : buyer === state.person
+            const statusMatches = state.status === 'all' || item.getAttribute('data-status') === state.status
+            const visible = buyerMatches && statusMatches
+            item.hidden = !visible
+            if (visible) {
+              visibleCount++
+              if (item.getAttribute('data-currency') === 'JPY') {
+                const p = Number(item.getAttribute('data-price'))
+                if (!isNaN(p) && (lowestJpy === null || p < lowestJpy)) lowestJpy = p
+              }
+            }
+          })
+
+          const rowVisible = searchMatches && visibleCount > 0
+          row.hidden = !rowVisible
+          if (rowVisible) {
+            anyVisibleInSection = true
+            const countBadge = row.querySelector('.count-badge')
+            if (countBadge) countBadge.textContent = `${visibleCount} price${visibleCount === 1 ? '' : 's'}`
+            const lowBadge = row.querySelector('.low-badge')
+            if (lowBadge) {
+              if (lowestJpy != null) {
+                lowBadge.hidden = false
+                lowBadge.textContent = `from ${fmtMoney(lowestJpy, 'JPY')}`
+              } else {
+                lowBadge.hidden = true
+              }
+            }
+          }
+        })
+
+        if (inPersonView) section.hidden = !anyVisibleInSection
+        if (anyVisibleInSection) anyVisibleOverall = true
+      })
+
+      const emptyEl = activeView.querySelector('.empty-filtered')
+      if (emptyEl) emptyEl.hidden = anyVisibleOverall
+    }
+
+    function wireChipGroup(container, key) {
+      container.querySelectorAll('.chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const value = btn.dataset.value || DEFAULTS[key]
+          state[key] = value
+          setActiveChip(container, value)
+          persistState(state)
+          applyFilters()
+        })
+      })
+    }
+    wireChipGroup(personFilterEl, 'person')
+    wireChipGroup(statusFilterEl, 'status')
+    wireChipGroup(groupToggleEl, 'group')
+
+    setActiveChip(personFilterEl, state.person)
+    setActiveChip(statusFilterEl, state.status)
+    setActiveChip(groupToggleEl, state.group)
+    searchInput.addEventListener('input', applyFilters)
+    applyFilters()
 
     // Arriving back from /add-price, /edit-product or /edit-price with ?open=<key> —
-    // expand that product and bring it into view.
+    // expand that product and bring it into view (filters were reset to show everything
+    // above, so the target is guaranteed visible here).
     const openKey = new URLSearchParams(window.location.search).get('open')
     if (openKey) {
       const target = document.querySelector('details[data-key="' + CSS.escape(openKey) + '"]')
@@ -124,79 +267,39 @@ function formatDate(iso: string | undefined): string {
   <style>
     .prices-wrap { max-width: 640px; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+
+    .filters-bar { margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
     .search-input {
       width: 100%; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); padding: 0.8rem 0.9rem; border-radius: 8px;
-      font-size: 1rem; box-sizing: border-box; margin-bottom: 1.25rem;
+      font-size: 1rem; box-sizing: border-box;
     }
     .search-input:focus { outline: none; border-color: var(--accent); }
 
+    .filter-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .filter-label { font-size: 0.78rem; color: var(--muted); flex-shrink: 0; min-width: 52px; }
+    .chip-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .chip {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer;
+      line-height: 1.3;
+    }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
     .empty { color: var(--muted); font-size: 0.95rem; padding: 1rem 0; }
     .empty a { color: var(--accent); }
+    .empty-filtered { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+    .empty-filtered[hidden] { display: none; }
 
+    .group-view[hidden] { display: none; }
     .price-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
     .price-row[hidden] { display: none; }
 
-    details {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      overflow: hidden;
+    .person-section { margin-bottom: 1.5rem; }
+    .person-section-title {
+      font-size: 0.95rem; font-weight: 700; color: var(--accent); margin: 0 0 0.6rem;
+      padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
     }
-    details[open] { border-color: var(--accent); }
-
-    summary {
-      display: flex; align-items: center; gap: 0.75rem;
-      padding: 0.9rem; cursor: pointer; list-style: none;
-    }
-    summary::-webkit-details-marker { display: none; }
-
-    .thumb {
-      width: 52px; height: 52px; object-fit: cover; border-radius: 6px;
-      background: var(--bg); flex-shrink: 0;
-    }
-    .thumb-placeholder {
-      display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
-      border: 1px solid var(--border);
-    }
-
-    .summary-info { flex: 1; min-width: 0; }
-    .summary-name { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
-    .summary-jp { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
-    .summary-sub { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
-    .cat-badge, .count-badge, .low-badge {
-      font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px;
-      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
-    }
-    .cat-badge { background: var(--border); color: var(--text); }
-    .count-badge { background: rgba(244,162,76,0.15); color: var(--accent); }
-    .low-badge { background: rgba(46,204,113,0.15); color: #2ecc71; }
-
-    .history-list {
-      list-style: none; margin: 0; padding: 0 0.9rem 0.9rem;
-      display: flex; flex-direction: column; gap: 0.4rem;
-    }
-    .history-row {
-      display: flex; flex-direction: column; gap: 0.3rem;
-      font-size: 0.85rem; padding: 0.55rem 0.7rem;
-      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-      text-decoration: none; color: inherit; cursor: pointer;
-    }
-    .history-row:hover { border-color: var(--accent); }
-    .history-main { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-    .history-source { flex: 1; min-width: 80px; color: var(--text); }
-    .history-price { font-weight: 600; color: var(--accent); white-space: nowrap; }
-    .history-condition { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
-    .history-bought { white-space: nowrap; }
-    .history-date { font-size: 0.78rem; color: var(--muted); white-space: nowrap; margin-left: auto; }
-    .history-note { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
-
-    .product-actions { display: flex; gap: 0.5rem; margin: 0 0.9rem 0.9rem; flex-wrap: wrap; }
-    .add-price-link, .edit-product-link {
-      flex: 1; min-width: 130px; text-align: center;
-      padding: 0.6rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 600;
-    }
-    .add-price-link { background: var(--bg); color: var(--accent); border: 1px solid var(--accent); }
-    .add-price-link:hover { background: rgba(244,162,76,0.1); }
-    .edit-product-link { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
-    .edit-product-link:hover { border-color: var(--accent); }
+    .person-section[hidden] { display: none; }
   </style>
 </Base>

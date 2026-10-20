@@ -1,0 +1,182 @@
+---
+// Renders one product's <li> in the /prices list — shared between the Product-grouped
+// view and every section of the Person-grouped view, so both stay visually/structurally
+// identical. `prices` is whichever subset the caller wants listed inside this rendering
+// (all of them in Product view; only one buyer's in a Person-grouped section) — the
+// count/lowest-price badges below are computed from exactly that subset, not the
+// product's full history, matching /prices.astro's "only the matching prices are listed"
+// rule. Filtering by person/status within what's rendered here is done client-side by
+// /prices.astro's script (toggling [hidden] and data-* attributes), not by this component.
+export interface Props {
+  product: {
+    key: string
+    productName: string
+    productNameJp?: string
+    jan?: string
+    category?: string
+    image: { assetId: string; url: string } | null
+  }
+  prices: {
+    _id: string
+    source: string
+    price: number
+    currency: string
+    condition?: string
+    status?: string
+    seenAt?: string
+    note?: string
+    buyer?: string
+  }[]
+}
+
+const { product: p, prices } = Astro.props
+
+const CATEGORY_LABELS: Record<string, string> = {
+  album: 'Album',
+  game: 'Game',
+  book: 'Book',
+  figure: 'Merchandise',
+  other: 'Other',
+}
+const CONDITION_LABELS: Record<string, string> = {
+  new: 'New',
+  used: 'Used',
+  used_complete: 'Used, complete (box/obi)',
+}
+
+function lowestJpy(list: { price: number; currency: string }[]): number | null {
+  const jpy = list.filter((x) => x.currency === 'JPY').map((x) => x.price)
+  return jpy.length ? Math.min(...jpy) : null
+}
+function formatMoney(price: number, currency: string): string {
+  return `${price.toLocaleString('en-US')} ${currency}`
+}
+function formatDate(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+const low = lowestJpy(prices)
+const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toLowerCase()
+---
+<li class="price-row" data-search={searchHay}>
+  <details data-key={p.key}>
+    <summary>
+      {p.image ? (
+        <img class="thumb" src={`${p.image.url}?w=100`} alt={p.productName} />
+      ) : (
+        <div class="thumb thumb-placeholder">🏷️</div>
+      )}
+      <div class="summary-info">
+        <div class="summary-name">{p.productName}</div>
+        {p.productNameJp && <div class="summary-jp">{p.productNameJp}</div>}
+        <div class="summary-sub">
+          {p.category && <span class="cat-badge">{CATEGORY_LABELS[p.category] || p.category}</span>}
+          <span class="count-badge">{prices.length} price{prices.length === 1 ? '' : 's'}</span>
+          <span class="low-badge" hidden={low == null}>from {formatMoney(low ?? 0, 'JPY')}</span>
+        </div>
+      </div>
+    </summary>
+
+    <ul class="history-list">
+      {prices.map((price) => (
+        <li
+          class="history-item"
+          data-buyer={price.buyer || ''}
+          data-status={price.status || ''}
+          data-currency={price.currency}
+          data-price={price.price}
+        >
+          <a class="history-row" href={`/edit-price?id=${price._id}`}>
+            <div class="history-main">
+              <span class="history-source">{price.source}</span>
+              {price.buyer && <span class="history-buyer">{price.buyer}</span>}
+              <span class="history-price">{formatMoney(price.price, price.currency)}</span>
+              {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
+              {price.status === 'bought' && <span class="history-bought">✅</span>}
+              <span class="history-date">{formatDate(price.seenAt)}</span>
+            </div>
+            {price.note && <div class="history-note">{price.note}</div>}
+          </a>
+        </li>
+      ))}
+    </ul>
+
+    <div class="product-actions">
+      <a class="add-price-link" href={`/add-price?product=${encodeURIComponent(p.key)}`}>+ Add price</a>
+      <a class="edit-product-link" href={`/edit-product?product=${encodeURIComponent(p.key)}`}>✏️ Edit product</a>
+    </div>
+  </details>
+</li>
+
+<style>
+  details {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  details[open] { border-color: var(--accent); }
+
+  summary {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.9rem; cursor: pointer; list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+
+  .thumb {
+    width: 52px; height: 52px; object-fit: cover; border-radius: 6px;
+    background: var(--bg); flex-shrink: 0;
+  }
+  .thumb-placeholder {
+    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+    border: 1px solid var(--border);
+  }
+
+  .summary-info { flex: 1; min-width: 0; }
+  .summary-name { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
+  .summary-jp { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
+  .summary-sub { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
+  .cat-badge, .count-badge, .low-badge {
+    font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+  }
+  .cat-badge { background: var(--border); color: var(--text); }
+  .count-badge { background: rgba(244,162,76,0.15); color: var(--accent); }
+  .low-badge { background: rgba(46,204,113,0.15); color: #2ecc71; }
+  .low-badge[hidden] { display: none; }
+
+  .history-list {
+    list-style: none; margin: 0; padding: 0 0.9rem 0.9rem;
+    display: flex; flex-direction: column; gap: 0.4rem;
+  }
+  .history-item[hidden] { display: none; }
+  .history-row {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    font-size: 0.85rem; padding: 0.55rem 0.7rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    text-decoration: none; color: inherit; cursor: pointer;
+  }
+  .history-row:hover { border-color: var(--accent); }
+  .history-main { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .history-source { flex: 1; min-width: 80px; color: var(--text); }
+  .history-buyer {
+    font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 4px;
+    background: var(--border); color: var(--text); white-space: nowrap;
+  }
+  .history-price { font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .history-condition { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+  .history-bought { white-space: nowrap; }
+  .history-date { font-size: 0.78rem; color: var(--muted); white-space: nowrap; margin-left: auto; }
+  .history-note { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+
+  .product-actions { display: flex; gap: 0.5rem; margin: 0 0.9rem 0.9rem; flex-wrap: wrap; }
+  .add-price-link, .edit-product-link {
+    flex: 1; min-width: 130px; text-align: center;
+    padding: 0.6rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 600;
+  }
+  .add-price-link { background: var(--bg); color: var(--accent); border: 1px solid var(--accent); }
+  .add-price-link:hover { background: rgba(244,162,76,0.1); }
+  .edit-product-link { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+  .edit-product-link:hover { border-color: var(--accent); }
+</style>

@@ -393,6 +393,53 @@ test.describe('merchandise/[id]: edit mode', () => {
   })
 })
 
+test.describe('merchandise/[id]: "Fill in from web"', () => {
+  test('applies selected suggestions and saves them; no barcode-like field for merch', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const title = testName(`AI Fill Figure ${Date.now()}`)
+    const figure = await sanity.create({ _type: 'figure', title, status: 'owned' })
+    trackDoc(figure._id)
+
+    await mockItemInfoResult(page, {
+      manufacturer: 'Good Smile Company',
+      series: 'Final Fantasy VII',
+      scale: '1/7',
+      year: 2022,
+    })
+
+    await page.goto(`/merchandise/${figure._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+
+    const card = page.locator('.aif-card')
+    await expect(card).toBeVisible()
+    // Every field was empty, so every row is checked by default (none of figure's AI-fill
+    // fields — manufacturer/series/scale/year — are barcode-like).
+    await expect(page.locator('.aif-checkbox')).toHaveCount(4)
+    for (const checkbox of await page.locator('.aif-checkbox').all()) {
+      await expect(checkbox).toBeChecked()
+    }
+
+    await page.locator('.aif-apply-btn').click()
+    await expect(page.locator('#e-manufacturer')).toHaveValue('Good Smile Company')
+    await expect(page.locator('#e-series')).toHaveValue('Final Fantasy VII')
+    await expect(page.locator('#e-scale')).toHaveValue('1/7')
+    await expect(page.locator('#e-year')).toHaveValue('2022')
+
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ manufacturer, series, scale, year }`, { id: figure._id })
+    expect(doc.manufacturer).toBe('Good Smile Company')
+    expect(doc.series).toBe('Final Fantasy VII')
+    expect(doc.scale).toBe('1/7')
+    expect(doc.year).toBe(2022)
+  })
+})
+
 test.describe('albums/[id]: edit mode', () => {
   test('an album with no tracklist still gets a working Edit button', async ({ page, trackDoc, sanity }) => {
     // Regression test: closeBtn.addEventListener() used to run unguarded even when the

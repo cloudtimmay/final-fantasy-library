@@ -129,6 +129,13 @@ const multiDisc = discNumbers.length > 1
         <label>Composer(s)</label>
         <input id="e-composer" type="text" value={a.composer} />
       </div>
+
+      <div class="field ai-fill-field">
+        <button id="e-ai-fill-btn" type="button" class="ai-fill-btn">✨ Fill in from web</button>
+        <p id="e-ai-fill-msg" class="ai-fill-msg" hidden></p>
+        <div id="e-ai-fill-results" class="ai-fill-results" hidden></div>
+      </div>
+
       <div class="field">
         <label>Series</label>
         <input id="e-series" type="text" value={a.series} />
@@ -315,6 +322,18 @@ const multiDisc = discNumbers.length > 1
     }
     .save-msg { font-size: 0.9rem; margin-top: 0.75rem; }
 
+    .ai-fill-field { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 1rem 0; }
+    .ai-fill-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem;
+    }
+    .ai-fill-btn:hover { background: #241826; }
+    .ai-fill-btn:disabled { opacity: 0.6; cursor: default; }
+    .ai-fill-msg { font-size: 0.85rem; margin: 0.6rem 0 0; }
+    .ai-fill-msg[hidden] { display: none; }
+    .ai-fill-results[hidden] { display: none; }
+    .ai-fill-results { margin-top: 0.75rem; }
+
     .tracklist { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
     .tracklist h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: baseline; gap: 0.75rem; }
     .track-count { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
@@ -337,6 +356,33 @@ const multiDisc = discNumbers.length > 1
     .yt-frame-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; }
     #yt-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   </style>
+
+  <!-- Suggestion card content is built with document.createElement by the shared
+       item-info-flow.js module, so it never gets Astro's scoped-CSS attribute — these
+       rules have to be global. "aif-" prefix (AI Fill) keeps them from colliding with
+       identify-flow.js's own "idf-" classes or anything else on the page; duplicated
+       verbatim across all four edit-mode pages since the module is loaded on each one. -->
+  <style is:global>
+    .aif-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.9rem; display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .aif-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+    .aif-item { border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; }
+    .aif-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .aif-item-label { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; font-size: 0.85rem; }
+    .aif-item-label input { width: auto; margin: 0.2rem 0 0; flex-shrink: 0; }
+    .aif-item-text { line-height: 1.5; overflow-wrap: anywhere; }
+    .aif-apply-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 0.6rem; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    .aif-sources { font-size: 0.78rem; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+    .aif-source-link { color: var(--accent); text-decoration: none; }
+    .aif-source-link:hover { text-decoration: underline; }
+  </style>
+
+  <script is:inline src="/item-info-flow.js"></script>
 
   <script>
     import { initImageUpload } from '../../scripts/image-upload.js'
@@ -414,6 +460,37 @@ const multiDisc = discNumbers.length > 1
       editToggle.hidden = false
       viewMode.hidden = false
       msg.hidden = true
+      document.querySelector('#e-ai-fill-results').hidden = true
+      document.querySelector('#e-ai-fill-msg').hidden = true
+    })
+
+    window.createItemInfoFlow({
+      type: 'album',
+      els: {
+        btn: document.querySelector('#e-ai-fill-btn'),
+        msg: document.querySelector('#e-ai-fill-msg'),
+        resultsWrap: document.querySelector('#e-ai-fill-results'),
+      },
+      getQuery: () => ({
+        title: document.querySelector('#e-title').value.trim(),
+        creator: document.querySelector('#e-composer').value.trim() || document.querySelector('#e-artist').value.trim(),
+        barcode: document.querySelector('#e-barcode').value.trim(),
+      }),
+      fields: [
+        { key: 'artist', label: 'Artist / Band', getCurrent: () => document.querySelector('#e-artist').value, apply: (v) => { document.querySelector('#e-artist').value = v } },
+        { key: 'composer', label: 'Composer(s)', getCurrent: () => document.querySelector('#e-composer').value, apply: (v) => { document.querySelector('#e-composer').value = v } },
+        { key: 'genre', label: 'Genre', getCurrent: () => document.querySelector('#e-genre').value, apply: (v) => { document.querySelector('#e-genre').value = v } },
+        { key: 'format', label: 'Format', getCurrent: () => document.querySelector('#e-format').value, apply: (v) => { document.querySelector('#e-format').value = v } },
+        { key: 'catalogNumber', label: 'Catalog number', barcodeLike: true, getCurrent: () => document.querySelector('#e-catalog').value, apply: (v) => { document.querySelector('#e-catalog').value = v } },
+        { key: 'barcode', label: 'Barcode', barcodeLike: true, getCurrent: () => document.querySelector('#e-barcode').value, apply: (v) => { document.querySelector('#e-barcode').value = v } },
+        { key: 'label', label: 'Label', getCurrent: () => document.querySelector('#e-label').value, apply: (v) => { document.querySelector('#e-label').value = v } },
+        { key: 'distributor', label: 'Distributor', getCurrent: () => document.querySelector('#e-distributor').value, apply: (v) => { document.querySelector('#e-distributor').value = v } },
+        { key: 'publisher', label: 'Publisher', getCurrent: () => document.querySelector('#e-publisher').value, apply: (v) => { document.querySelector('#e-publisher').value = v } },
+        { key: 'releaseDate', label: 'Release date', getCurrent: () => document.querySelector('#e-release-date').value, apply: (v) => { document.querySelector('#e-release-date').value = v } },
+        { key: 'releasePrice', label: 'Release price', getCurrent: () => document.querySelector('#e-release-price').value, apply: (v) => { document.querySelector('#e-release-price').value = v } },
+        { key: 'vgmdbId', label: 'VGMdb ID', getCurrent: () => document.querySelector('#e-vgmdb-id').value, apply: (v) => { document.querySelector('#e-vgmdb-id').value = v } },
+        { key: 'vgmdbUrl', label: 'VGMdb URL', getCurrent: () => document.querySelector('#e-vgmdb-url').value, apply: (v) => { document.querySelector('#e-vgmdb-url').value = v } },
+      ],
     })
 
     saveBtn.addEventListener('click', async () => {

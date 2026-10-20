@@ -525,3 +525,87 @@ test.describe('albums/[id]: edit mode', () => {
     expect(doc.label).toBeNull()
   })
 })
+
+test.describe('albums/[id]: "Fill in from web"', () => {
+  test('catalog number and barcode are both always unchecked by default and show a source', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const title = testName(`AI Fill Album Barcode ${Date.now()}`)
+    const album = await sanity.create({ _type: 'album', title, status: 'owned' })
+    trackDoc(album._id)
+
+    await mockItemInfoResult(
+      page,
+      { genre: 'Soundtrack', catalogNumber: 'SQEX-10130', barcode: '4988601234567' },
+      [{ title: 'VGMdb', url: 'https://vgmdb.net/album/1' }]
+    )
+
+    await page.goto(`/albums/${album._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+
+    const catalogRow = page.locator('.aif-item', { hasText: 'Catalog number' })
+    await expect(catalogRow.locator('.aif-checkbox')).not.toBeChecked()
+    await expect(catalogRow).toContainText('vgmdb.net')
+
+    const barcodeRow = page.locator('.aif-item', { hasText: 'Barcode' })
+    await expect(barcodeRow.locator('.aif-checkbox')).not.toBeChecked()
+    await expect(barcodeRow).toContainText('vgmdb.net')
+
+    const genreRow = page.locator('.aif-item', { hasText: 'Genre' })
+    await expect(genreRow.locator('.aif-checkbox')).toBeChecked()
+
+    await page.locator('.aif-apply-btn').click()
+    await expect(page.locator('#e-genre')).toHaveValue('Soundtrack')
+    await expect(page.locator('#e-catalog')).toHaveValue('')
+    await expect(page.locator('#e-barcode')).toHaveValue('')
+  })
+
+  test('applies selected suggestions and saves them, tracklist untouched', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`AI Fill Album ${Date.now()}`)
+    const album = await sanity.create({
+      _type: 'album', title, status: 'owned',
+      tracklist: [{ _key: 't1', trackNumber: '1', title: 'Opening Theme' }],
+    })
+    trackDoc(album._id)
+
+    await mockItemInfoResult(page, {
+      artist: 'Nobuo Uematsu',
+      genre: 'Soundtrack',
+      format: 'cd',
+      label: 'Square Enix Music',
+      publisher: 'Square Enix',
+      vgmdbUrl: 'https://vgmdb.net/album/1',
+    })
+
+    await page.goto(`/albums/${album._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-ai-fill-btn').click()
+    await page.locator('.aif-apply-btn').click()
+
+    await expect(page.locator('#e-artist')).toHaveValue('Nobuo Uematsu')
+    await expect(page.locator('#e-genre')).toHaveValue('Soundtrack')
+    await expect(page.locator('#e-format')).toHaveValue('cd')
+    await expect(page.locator('#e-label')).toHaveValue('Square Enix Music')
+    await expect(page.locator('#e-publisher')).toHaveValue('Square Enix')
+    await expect(page.locator('#e-vgmdb-url')).toHaveValue('https://vgmdb.net/album/1')
+
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+    await expect(page.locator('.tracklist')).toContainText('Opening Theme')
+
+    const doc = await sanity.fetch(
+      `*[_id == $id][0]{ artist, genre, format, label, publisher, vgmdbUrl, "trackCount": count(tracklist) }`,
+      { id: album._id }
+    )
+    expect(doc.artist).toBe('Nobuo Uematsu')
+    expect(doc.genre).toBe('Soundtrack')
+    expect(doc.format).toBe('cd')
+    expect(doc.label).toBe('Square Enix Music')
+    expect(doc.publisher).toBe('Square Enix')
+    expect(doc.vgmdbUrl).toBe('https://vgmdb.net/album/1')
+    expect(doc.trackCount).toBe(1)
+  })
+})

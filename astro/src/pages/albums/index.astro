@@ -2,10 +2,12 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 import { isNew } from '../../lib/dates'
+import { missingImportantFields } from '../../lib/collection-fields'
 
 const albums = await sanity.fetch(`
   *[_type == "album" && !(_id in path("drafts.**"))] | order(artist asc, title asc) {
     _id, title, artist, composer, year, genre, format, series, catalogNumber, vgmdbId, vgmdbUrl, externalImageUrl,
+    needsInfo, barcode, releaseDate,
     "trackCount": count(tracklist),
     "discCount": count(array::unique(tracklist[].disc)),
     ${SHARED_FIELDS}
@@ -13,12 +15,17 @@ const albums = await sanity.fetch(`
 `)
 
 const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))].sort()
+const missingCount = albums.filter((a: any) => a.needsInfo === true || missingImportantFields('album', a).length > 0).length
 ---
 <Base title="Albums">
   <div class="hud-section-head">
     <span class="hud-slashes">//</span> ALBUMS
     <span class="hud-count" id="album-count">{albums.length} ENTRIES</span>
   </div>
+
+  {missingCount > 0 && (
+    <a href="/missing-info" class="missing-info-banner">📋 {missingCount} item{missingCount === 1 ? '' : 's'} need info</a>
+  )}
 
   <div class="vgmdb-lookup">
     <input id="vgmdb-search" type="search" placeholder="Slå opp album på VGMdb..." />
@@ -49,7 +56,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
 
   <div class="album-list">
     {albums.map((a: any) => (
-      <div class="album-row-wrap" data-wishlist={a.status === 'wishlist' ? 'yes' : 'no'}>
+      <div class="album-row-wrap" data-wishlist={a.status === 'wishlist' ? 'yes' : 'no'} data-needsinfo={a.needsInfo ? 'yes' : 'no'}>
         <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
         <span class="hud-corner bl"></span><span class="hud-corner br"></span>
         <a class="album-row" href={`/albums/${a._id}`} data-title={a.title?.toLowerCase() || ''} data-artist={a.artist?.toLowerCase() || ''} data-composer={a.composer?.toLowerCase() || ''} data-catalog={a.catalogNumber?.toLowerCase() || ''} data-year={a.year || ''} data-series={a.series || ''} data-status={a.status || ''} data-acquired={a.acquiredDate || ''}>
@@ -65,6 +72,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
             <div class="card-meta">
               {isNew(a.acquiredDate) && <span class="tag new-tag">NEW</span>}
               {a.status === 'wishlist' && <span class="tag wishlist-tag">WISHLIST</span>}
+              {a.needsInfo && <span class="tag needsinfo-tag">MISSING INFO</span>}
               {a.catalogNumber && <span class="tag">{a.catalogNumber}</span>}
               {a.year && <span class="tag">{a.year}</span>}
               {a.format && <span class="tag">{a.format}</span>}
@@ -103,6 +111,12 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
       letter-spacing: 0.08em;
       text-shadow: none;
     }
+    .missing-info-banner {
+      display: inline-block; margin-bottom: 1rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.5rem 0.9rem; border-radius: 8px;
+      text-decoration: none; font-size: 0.85rem;
+    }
+    .missing-info-banner:hover { background: #241826; }
 
     .vgmdb-lookup { display: flex; gap: 0.75rem; margin: 1rem 0 0.75rem; flex-wrap: wrap; }
     .vgmdb-lookup input { flex: 1; min-width: 200px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.6rem 0.75rem; border-radius: 6px; }
@@ -140,6 +154,7 @@ const seriesList = [...new Set(albums.map((a: any) => a.series).filter(Boolean))
     .album-info { min-width: 0; }
     .card-meta .tag { font-family: 'IBM Plex Mono', monospace; }
     .wishlist-tag { background: var(--wishlist); color: var(--bg); }
+    .needsinfo-tag { background: var(--accent-2, #c0392b); color: #fff; }
     .owned-tag { background: #2ecc71; color: #06281a; font-weight: 700; }
     .got-btn { flex-shrink: 0; background: #2ecc71; color: #06281a; border: none; padding: 0.45rem 0.7rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .got-btn:disabled { opacity: 0.6; cursor: default; }

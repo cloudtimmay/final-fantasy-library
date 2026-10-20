@@ -12,6 +12,7 @@ test.describe('add menu', () => {
       ['Airport checklist', '/checklist'],
       ['Scan / search', '/scan'],
       ['Add item', '/add-item'],
+      ['Missing info', '/missing-info'],
     ]
 
     for (const [label, href] of links) {

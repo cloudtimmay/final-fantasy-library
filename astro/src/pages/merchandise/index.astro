@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
 import { isNew } from '../../lib/dates'
+import { missingImportantFields } from '../../lib/collection-fields'
 
 const merchandise = await sanity.fetch(`
   *[_type == "figure" && !(_id in path("drafts.**"))] | order(series asc, title asc) {
@@ -10,6 +11,7 @@ const merchandise = await sanity.fetch(`
 `)
 
 const seriesList = [...new Set(merchandise.map((f: any) => f.series).filter(Boolean))].sort()
+const missingCount = merchandise.filter((f: any) => f.needsInfo === true || missingImportantFields('figure', f).length > 0).length
 
 const CATEGORY_LABELS: Record<string, string> = {
   figure: 'Figure',
@@ -23,6 +25,10 @@ const CATEGORY_LABELS: Record<string, string> = {
     <span class="hud-slashes">//</span> MERCHANDISE
     <span class="hud-count" id="merch-count">{merchandise.length} ENTRIES</span>
   </div>
+
+  {missingCount > 0 && (
+    <a href="/missing-info" class="missing-info-banner">📋 {missingCount} item{missingCount === 1 ? '' : 's'} need info</a>
+  )}
 
   <details class="lookup-box" id="lookup-box">
     <summary>Look up merchandise externally (name)</summary>
@@ -124,6 +130,12 @@ const CATEGORY_LABELS: Record<string, string> = {
       letter-spacing: 0.08em;
       text-shadow: none;
     }
+    .missing-info-banner {
+      display: inline-block; margin-bottom: 1rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.5rem 0.9rem; border-radius: 8px;
+      text-decoration: none; font-size: 0.85rem;
+    }
+    .missing-info-banner:hover { background: #241826; }
 
     .lookup-box { border: 1px solid rgba(176,30,52,0.25); border-radius: 6px; margin-bottom: 1.5rem; background: rgba(26,12,18,0.4); }
     .lookup-box summary { cursor: pointer; padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.04em; }

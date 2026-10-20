@@ -62,13 +62,46 @@ export const FIGURE_CATEGORIES = [
 
 // An entry is either one field name, or an array of field names meaning "at least one of
 // these must be filled in" (e.g. an album only needs an artist OR a composer, not both).
-// Not read by anything yet — reserved for a future "Missing info" view, which will consider
-// a document incomplete if any of its type's entries here isn't satisfied.
 export type ImportantField = string | string[]
+export type CollectionType = 'album' | 'game' | 'book' | 'figure'
 
-export const IMPORTANT_FIELDS: Record<'album' | 'game' | 'book' | 'figure', ImportantField[]> = {
+export const IMPORTANT_FIELDS: Record<CollectionType, ImportantField[]> = {
   album: [['artist', 'composer'], 'barcode', 'catalogNumber', 'releaseDate'],
   game: ['platform', 'year', 'developer'],
   book: ['author', 'publisher', 'isbn', 'year'],
   figure: ['manufacturer', 'series'],
+}
+
+function fieldLabel(field: string): string {
+  // Human-friendly label for a single field name — the handful this needs aren't a 1:1
+  // match with their schema `title` (e.g. "catalogNumber" -> "Catalog number"), so this is
+  // a small dedicated map rather than a generic camelCase splitter.
+  const LABELS: Record<string, string> = {
+    artist: 'artist', composer: 'composer', barcode: 'barcode', catalogNumber: 'catalog number',
+    releaseDate: 'release date', platform: 'platform', year: 'year', developer: 'developer',
+    author: 'author', publisher: 'publisher', isbn: 'ISBN', manufacturer: 'manufacturer', series: 'series',
+  }
+  return LABELS[field] || field
+}
+
+function isPresent(value: unknown): boolean {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  return true
+}
+
+// Used by the "Missing info" list — considers a document incomplete based on its type's
+// IMPORTANT_FIELDS, not on the `needsInfo` flag (which stays a separate, independent manual
+// signal — see missing-info.astro). Returns a human-readable label per unsatisfied entry,
+// e.g. ["artist or composer", "barcode"].
+export function missingImportantFields(type: CollectionType, doc: Record<string, unknown>): string[] {
+  const missing: string[] = []
+  for (const entry of IMPORTANT_FIELDS[type]) {
+    if (Array.isArray(entry)) {
+      if (!entry.some((f) => isPresent(doc[f]))) missing.push(entry.map(fieldLabel).join(' or '))
+    } else if (!isPresent(doc[entry])) {
+      missing.push(fieldLabel(entry))
+    }
+  }
+  return missing
 }

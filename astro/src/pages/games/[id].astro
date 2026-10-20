@@ -187,11 +187,16 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
       msg.style.color = ok ? '#2ecc71' : '#e74c3c'
     }
 
-    editToggle.addEventListener('click', () => {
+    function openEdit() {
       viewMode.hidden = true
       editToggle.hidden = true
       editMode.hidden = false
-    })
+    }
+    editToggle.addEventListener('click', openEdit)
+    // Arriving from /missing-info with ?edit=1 — jump straight into edit mode instead of
+    // making the user find and tap the Edit button themselves.
+    if (new URLSearchParams(window.location.search).get('edit') === '1') openEdit()
+
     cancelBtn.addEventListener('click', () => {
       editMode.reset()
       editMode.hidden = true

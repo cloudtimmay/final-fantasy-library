@@ -26,6 +26,7 @@ export default defineConfig({
             S.listItem().title('Price Entries').schemaType('priceEntry').child(S.documentTypeList('priceEntry')),
             S.listItem().title('Trip Settings').schemaType('tripSettings').child(S.documentTypeList('tripSettings')),
             S.listItem().title('Family Purchases').schemaType('familyPurchase').child(S.documentTypeList('familyPurchase')),
+            S.listItem().title('Family Items').schemaType('familyItem').child(S.documentTypeList('familyItem')),
           ]),
     }),
     visionTool(),

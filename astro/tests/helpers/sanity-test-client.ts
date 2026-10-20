@@ -33,6 +33,7 @@ const FIXTURE_TYPES_BY_NAME_FIELD: { type: string; field: string }[] = [
   { type: 'book', field: 'title' },
   { type: 'figure', field: 'title' },
   { type: 'familyPurchase', field: 'name' },
+  { type: 'familyItem', field: 'name' },
   { type: 'tripSettings', field: 'label' },
   { type: 'shopNote', field: 'shopName' },
 ]

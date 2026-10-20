@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 const today = new Date().toISOString().split('T')[0]
 const seriesRaw = await sanity.fetch(`
@@ -12,6 +13,14 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
   <div class="add-wrap">
     <h1>Add to collection</h1>
     <p class="hint">Pick a type, scan the barcode, look it up, add a photo, and save.</p>
+
+    <div class="field">
+      <label>Who owns it?</label>
+      <select id="f-owner">
+        {PEOPLE_LIST.map((p: string) => <option value={p} selected={p === OWNER}>{p}</option>)}
+      </select>
+      <span id="f-owner-hint" class="field-hint" hidden>Saved as a family item — just enough to recognize it, no price/condition history.</span>
+    </div>
 
     <div class="field">
       <label>Type</label>
@@ -61,7 +70,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       </select>
     </div>
 
-    <div class="field">
+    <div class="field" data-collection-only="true">
       <label>Series / Franchise</label>
       <select id="f-series">
         <option value="">Select series…</option>
@@ -72,8 +81,13 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     </div>
 
     <div class="field">
-      <label>Title *</label>
+      <label id="f-title-label">Title *</label>
       <input id="f-title" type="text" placeholder="Title" />
+    </div>
+
+    <div class="field" id="f-name-jp-field" hidden>
+      <label>Name (Japanese)</label>
+      <input id="f-name-jp" type="text" placeholder="日本語名（任意）" />
     </div>
 
     <div class="field" data-for="album game book">
@@ -102,12 +116,12 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       </div>
     </div>
 
-    <div class="field">
+    <div class="field" data-collection-only="true">
       <label id="f-year-label">Year</label>
       <input id="f-year" type="number" inputmode="numeric" placeholder="2005" />
     </div>
 
-    <div class="field-row">
+    <div class="field-row" data-collection-only="true">
       <div class="field">
         <label>Price (JPY)</label>
         <input id="f-yen" type="number" inputmode="numeric" placeholder="¥" />
@@ -118,7 +132,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       </div>
     </div>
 
-    <div class="field">
+    <div class="field" data-collection-only="true">
       <label>Acquired date</label>
       <input id="f-date" type="date" value={today} />
     </div>
@@ -184,7 +198,19 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     // page's types — "other" has no sensible type here, so a suggestion with that
     // category just leaves the current type alone.
     const IDENTIFY_CATEGORY_TO_TYPE = { album: 'album', game: 'game', book: 'book', figure: 'merch' }
+    // The reverse, used when saving a family item — familyItem.category has no "merch
+    // subtype" breakdown (figure/plushie/wearable/other) the way the figure schema does.
+    const TYPE_TO_CATEGORY = { album: 'album', game: 'game', book: 'book', merch: 'figure' }
 
+    // Must match sanity/schemaTypes/peopleList.ts / src/lib/price-entry-fields.ts — see
+    // PEOPLE_LIST's own comment for why this is duplicated rather than shared.
+    const OWNER = 'Kim'
+
+    const ownerSelect = document.querySelector('#f-owner')
+    const ownerHint = document.querySelector('#f-owner-hint')
+    const titleLabel = document.querySelector('#f-title-label')
+    const nameJpField = document.querySelector('#f-name-jp-field')
+    const nameJpInput = document.querySelector('#f-name-jp')
     const typeSelect = document.querySelector('#f-type')
     const barcodeInput = document.querySelector('#f-barcode')
     const categorySelect = document.querySelector('#f-category')
@@ -225,6 +251,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const extraPhotosWrap = document.querySelector('#f-extra-photos')
 
     function currentType() { return typeSelect.value }
+    function isKim() { return ownerSelect.value === OWNER }
 
     function applyType() {
       const type = currentType()
@@ -241,6 +268,22 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       saveBtn.textContent = 'Save ' + cfg.backLabel
     }
 
+    // Anyone other than Kim gets a plain familyItem instead of a full collection item —
+    // only the fields familyItem actually has stay visible. Re-applies applyType()'s own
+    // [data-for] visibility first so the two never fight: type-specific collection fields
+    // are forced hidden afterward when not Kim, regardless of the current type.
+    function refreshFieldVisibility() {
+      applyType()
+      const kim = isKim()
+      if (!kim) document.querySelectorAll('[data-for]').forEach((el) => { el.hidden = true })
+      document.querySelectorAll('[data-collection-only]').forEach((el) => { el.hidden = !kim })
+      nameJpField.hidden = kim
+      ownerHint.hidden = kim
+      titleLabel.textContent = kim ? 'Title *' : 'Name *'
+      if (!kim) saveBtn.textContent = 'Save family item'
+    }
+    ownerSelect.addEventListener('change', refreshFieldVisibility)
+
     const identifyFlow = window.createIdentifyFlow({
       els: {
         photoCamera, photoGallery, photoName, preview, photoRemoveBtn, identifyBtn, identifyMsg, identifyCard,
@@ -252,10 +295,11 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         const mappedType = result.category && IDENTIFY_CATEGORY_TO_TYPE[result.category]
         if (mappedType) {
           typeSelect.value = mappedType
-          applyType()
+          refreshFieldVisibility()
           if (mappedType === 'merch' && result.category === 'figure') categorySelect.value = 'figure'
         }
         if (result.productName) titleInput.value = result.productName
+        if (result.productNameJp) nameJpInput.value = result.productNameJp
         if (result.jan) {
           barcodeInput.value = result.jan
           checkDuplicate(result.jan)
@@ -370,8 +414,23 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       return base
     }
 
-    async function save() {
-      if (!titleInput.value.trim()) return showMsg('Please enter a title.', false)
+    async function uploadPhotoIfAny(docId) {
+      const selectedPhoto = identifyFlow.getSelectedPhoto()
+      if (!selectedPhoto || !docId) return
+      saveBtn.textContent = 'Uploading photo…'
+      const form = new FormData()
+      form.append('file', selectedPhoto); form.append('docId', docId); form.append('field', 'image')
+      try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch (e) {}
+    }
+
+    function resetSharedFields() {
+      titleInput.value = ''; nameJpInput.value = ''; barcodeInput.value = ''; notesInput.value = ''
+      identifyFlow.reset()
+      dupWarn.hidden = true; dupWarn.innerHTML = ''
+      titleInput.focus()
+    }
+
+    async function saveCollectionItem() {
       const type = currentType()
       const cfg = CONFIG[type]
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
@@ -382,36 +441,61 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         })
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
-        const selectedPhoto = identifyFlow.getSelectedPhoto()
-        if (selectedPhoto && data.id) {
-          saveBtn.textContent = 'Uploading photo…'
-          const form = new FormData()
-          form.append('file', selectedPhoto); form.append('docId', data.id); form.append('field', 'image')
-          try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch (e) {}
-        }
+        await uploadPhotoIfAny(data.id)
         showMsg('Saved ✓ — ready for the next one.', true)
-        titleInput.value = ''; creatorInput.value = ''; manufacturerInput.value = ''; catalogInput.value = ''
+        creatorInput.value = ''; manufacturerInput.value = ''; catalogInput.value = ''
         scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
         seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
-        yearInput.value = ''; barcodeInput.value = ''; yenInput.value = ''; nokInput.value = ''; notesInput.value = ''
-        identifyFlow.reset()
-        dupWarn.hidden = true; dupWarn.innerHTML = ''
-        titleInput.focus()
+        yearInput.value = ''; yenInput.value = ''; nokInput.value = ''
+        resetSharedFields()
       } catch (e) { showMsg('Network error.', false) }
       finally { saveBtn.disabled = false; saveBtn.textContent = 'Save ' + cfg.backLabel }
     }
+
+    async function saveFamilyItem() {
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
+      try {
+        const res = await fetch('/api/family-item-create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            person: ownerSelect.value,
+            name: titleInput.value.trim(),
+            nameJp: nameJpInput.value.trim() || undefined,
+            jan: barcodeInput.value.trim() || undefined,
+            category: TYPE_TO_CATEGORY[currentType()],
+            note: notesInput.value.trim() || undefined,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
+        await uploadPhotoIfAny(data.id)
+        showMsg('Saved ✓ — ready for the next one.', true)
+        resetSharedFields()
+      } catch (e) { showMsg('Network error.', false) }
+      finally { saveBtn.disabled = false; saveBtn.textContent = 'Save family item' }
+    }
+
+    async function save() {
+      const name = titleInput.value.trim()
+      if (!name) return showMsg(isKim() ? 'Please enter a title.' : 'Please enter a name.', false)
+      if (isKim()) await saveCollectionItem()
+      else await saveFamilyItem()
+    }
     saveBtn.addEventListener('click', save)
 
-    typeSelect.addEventListener('change', applyType)
-    applyType()
+    typeSelect.addEventListener('change', refreshFieldVisibility)
+    refreshFieldVisibility()
     if (preBarcode) checkDuplicate(preBarcode)
   </script>
 
   <style>
     .add-wrap { max-width: 520px; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field-hint { display: block; font-size: 0.8rem; color: var(--muted); margin-top: 0.4rem; }
+    .field-hint[hidden] { display: none; }
     .field { margin-bottom: 1rem; }
     .field-row { display: flex; gap: 1rem; }
+    .field-row[hidden] { display: none; }
     .field-row .field { flex: 1; }
     .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
     .field input, .field select, .field textarea {

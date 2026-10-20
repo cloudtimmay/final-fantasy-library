@@ -104,3 +104,80 @@ test.describe('scan: barcode and photo identify against the price list', () => {
     await expect(page).toHaveURL('/scan')
   })
 })
+
+test.describe('scan: "already has this" (family items and bought purchases)', () => {
+  test('a JAN match against a familyItem shows "<person> already has this" with a "Same barcode" badge', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const name = testName(`Family Item Barcode ${Date.now()}`)
+    const jan = `49887003${Date.now().toString().slice(-5)}`
+    const item = await sanity.create({ _type: 'familyItem', person: 'Tone', name, jan, category: 'game' })
+    trackDoc(item._id)
+
+    await mockBarcodeScanner(page)
+    await page.goto('/scan')
+    await page.locator('#scan-toggle').click()
+    await page.waitForFunction(() => typeof (window as any).__scannerDecode === 'function')
+    await Promise.all([
+      page.waitForURL(/\/scan\?/),
+      page.evaluate((code) => (window as any).__scannerDecode(code), jan),
+    ])
+
+    const line = page.locator('.owner-match-line', { hasText: 'Tone' })
+    await expect(line).toBeVisible()
+    await expect(line).toContainText('already has this')
+    await expect(line.locator('.owner-match-badge')).toHaveText('Same barcode')
+  })
+
+  test('a name match against a bought priceEntry for a non-owner also shows "already has this"', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const suffix = Date.now()
+    const productName = testName(`Bought By Niklas ${suffix}`)
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'bought', buyer: 'Niklas',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+
+    await mockIdentifyCustomResult(page, { productName: `bought by niklas ${suffix}`, jan: null })
+    await page.goto('/scan')
+    await Promise.all([
+      page.waitForURL(/\/scan\?/),
+      page.locator('#scan-photo-gallery').setInputFiles(ALBUM_PHOTO),
+    ])
+
+    const line = page.locator('.owner-match-line', { hasText: 'Niklas' })
+    await expect(line).toBeVisible()
+    await expect(line.locator('.owner-match-badge')).toHaveCount(0)
+  })
+
+  test('a bought priceEntry for Kim (the collection owner) never shows an "already has this" line', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const suffix = Date.now()
+    const productName = testName(`Bought By Kim ${suffix}`)
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName, category: 'game', sourceType: 'japanStore',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'bought', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+
+    await mockIdentifyCustomResult(page, { productName: `bought by kim ${suffix}`, jan: null })
+    await page.goto('/scan')
+    await Promise.all([
+      page.waitForURL(/\/scan\?/),
+      page.locator('#scan-photo-gallery').setInputFiles(ALBUM_PHOTO),
+    ])
+
+    await expect(page.locator('.owner-matches')).toHaveCount(0)
+  })
+})

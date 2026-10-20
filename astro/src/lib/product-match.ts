@@ -86,3 +86,46 @@ export function findProductMatches<T extends MatchableProduct>(products: T[], id
 
   return results
 }
+
+// One thing a family member already owns, already normalized across its three possible
+// Sanity sources (familyItem, a bought familyPurchase, a bought priceEntry) by whichever
+// server-side query builds this list — see fetchOwnedByPerson() in src/lib/price-products.ts.
+export type OwnedItem = {
+  person: string
+  name: string
+  nameJp?: string
+  jan?: string
+}
+
+export type OwnershipMatch = {
+  person: string
+  matchType: 'jan' | 'name'
+}
+
+// Same JAN-first-then-name-similarity logic as findProductMatches(), but keyed by person
+// instead of by product — "<person> already has this" only needs to know WHO, not which of
+// their (possibly several) matching records it was. At most one result per person, and a
+// JAN match always wins over a name match for that person.
+export function findOwnersOf(owned: OwnedItem[], identified: IdentifiedProduct): OwnershipMatch[] {
+  const jan = (identified.jan || '').trim()
+  const normName = normalizeForMatch(identified.productName)
+  const normNameJp = normalizeForMatch(identified.productNameJp)
+
+  const byPerson = new Map<string, OwnershipMatch>()
+  for (const o of owned) {
+    if (byPerson.get(o.person)?.matchType === 'jan') continue
+
+    let matchType: 'jan' | 'name' | null = null
+    if (jan && o.jan && o.jan.trim() === jan) {
+      matchType = 'jan'
+    } else if (normName || normNameJp) {
+      const oName = normalizeForMatch(o.name)
+      const oNameJp = normalizeForMatch(o.nameJp)
+      if (namesMatch(normName, oName) || namesMatch(normNameJp, oNameJp) || namesMatch(normName, oNameJp) || namesMatch(normNameJp, oName)) {
+        matchType = 'name'
+      }
+    }
+    if (matchType) byPerson.set(o.person, { person: o.person, matchType })
+  }
+  return [...byPerson.values()]
+}

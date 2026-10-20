@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { test, expect } from './fixtures'
+import { test, expect, testName } from './fixtures'
 import { mockIdentifyCustomResult } from './helpers/mock-ai'
 
 const ALBUM_PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
@@ -113,5 +113,52 @@ test.describe('add-item: AI identify', () => {
     await expect(page.locator('#f-identify-btn')).toBeHidden()
     await expect(page.locator('#f-identify-card')).toBeHidden()
     await expect(page.locator('#f-preview')).toBeHidden()
+  })
+})
+
+test.describe('add-item: "Who owns it?"', () => {
+  test('Kim (the default) still creates a full collection item', async ({ page, trackDoc, sanity }) => {
+    await page.goto('/add-item')
+    await expect(page.locator('#f-owner')).toHaveValue('Kim')
+
+    const title = testName(`Owner Default Kim ${Date.now()}`)
+    await page.locator('#f-type').selectOption('game')
+    await page.locator('#f-title').fill(title)
+    await page.locator('#f-save').click()
+
+    await expect(page.locator('#f-msg')).toContainText('Saved')
+    const id = await sanity.fetch(`*[_type == "game" && title == $title][0]._id`, { title })
+    trackDoc(id)
+    expect(id).toBeTruthy()
+  })
+
+  test('choosing another family member hides collection-only fields and creates a familyItem', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    await page.goto('/add-item')
+
+    await expect(page.locator('div.field', { has: page.locator('#f-year') })).toBeVisible()
+    await page.locator('#f-owner').selectOption('Tone')
+
+    // Collection-only fields are gone; the familyItem-only Japanese-name field appears.
+    await expect(page.locator('div.field', { has: page.locator('#f-year') })).toBeHidden()
+    await expect(page.locator('.field-row', { has: page.locator('#f-yen') })).toBeHidden()
+    await expect(page.locator('#f-name-jp-field')).toBeVisible()
+    await expect(page.locator('#f-save')).toHaveText('Save family item')
+
+    const name = testName(`Owner Tone Figure ${Date.now()}`)
+    await page.locator('#f-type').selectOption('merch')
+    await page.locator('#f-title').fill(name)
+    await page.locator('#f-name-jp').fill('トーンのフィギュア')
+    await page.locator('#f-save').click()
+
+    await expect(page.locator('#f-msg')).toContainText('Saved')
+    const doc = await sanity.fetch(`*[_type == "familyItem" && name == $name][0]{ _id, person, nameJp, category }`, { name })
+    trackDoc(doc?._id)
+    expect(doc?.person).toBe('Tone')
+    expect(doc?.nameJp).toBe('トーンのフィギュア')
+    expect(doc?.category).toBe('figure')
   })
 })

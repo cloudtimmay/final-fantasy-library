@@ -1,8 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
-import { fetchProducts } from '../lib/price-products'
-import { findProductMatches } from '../lib/product-match'
+import { fetchProducts, fetchOwnedByPerson } from '../lib/price-products'
+import { findProductMatches, findOwnersOf } from '../lib/product-match'
 
 const STUDIO_URL = 'https://fflibrary.sanity.studio'
 
@@ -15,9 +15,9 @@ const ijan = (Astro.url.searchParams.get('ijan') || '').trim()
 const iname = (Astro.url.searchParams.get('iname') || '').trim()
 const inamejp = (Astro.url.searchParams.get('inamejp') || '').trim()
 
-const priceMatches = ijan || iname || inamejp
-  ? findProductMatches(await fetchProducts(), { jan: ijan, productName: iname, productNameJp: inamejp })
-  : []
+const identified = { jan: ijan, productName: iname, productNameJp: inamejp }
+const priceMatches = ijan || iname || inamejp ? findProductMatches(await fetchProducts(), identified) : []
+const ownerMatches = ijan || iname || inamejp ? findOwnersOf(await fetchOwnedByPerson(), identified) : []
 
 function lowestJpy(prices: { price: number; currency: string }[]): number | null {
   const jpy = prices.filter((p) => p.currency === 'JPY').map((p) => p.price)
@@ -109,6 +109,17 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
       </p>
     )}
 
+    {ownerMatches.length > 0 && (
+      <div class="owner-matches">
+        {ownerMatches.map(({ person, matchType }) => (
+          <p class="owner-match-line">
+            <strong>{person}</strong> already has this
+            {matchType === 'jan' && <span class="owner-match-badge">Same barcode</span>}
+          </p>
+        ))}
+      </div>
+    )}
+
     {priceMatches.length > 0 && (
       <div class="price-matches">
         <h2>In your price list</h2>
@@ -136,6 +147,7 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
 
     {q && (
       <div class="scan-results">
+        <h2>In your collection</h2>
         {results.length === 0 ? (
           <div class="no-match">
             <strong>Not in collection.</strong>
@@ -250,6 +262,18 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     .identified-line { font-size: 0.9rem; color: var(--text); margin-bottom: 1rem; }
     .identified-line strong { color: var(--accent); }
 
+    .owner-matches { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; }
+    .owner-match-line {
+      font-size: 0.9rem; color: var(--text); margin: 0; padding: 0.5rem 0.7rem;
+      background: rgba(244,162,76,0.06); border: 1px solid rgba(244,162,76,0.3); border-radius: 8px;
+      display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    }
+    .owner-match-line strong { color: var(--accent); }
+    .owner-match-badge {
+      font-weight: 700; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 4px;
+      background: rgba(244,162,76,0.15); color: var(--accent);
+    }
+
     .price-matches { margin-bottom: 1.5rem; }
     .price-matches h2 { font-size: 1rem; margin-bottom: 0.6rem; }
     .price-match-list { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -270,6 +294,7 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     }
 
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
+    .scan-results h2 { font-size: 1rem; margin: 0.9rem 0 0.4rem; }
     .result-row { display: flex; gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; align-items: center; }
     .result-row:hover { background: rgba(255,255,255,0.03); }
     .result-thumb { width: 52px; height: 52px; object-fit: cover; background: var(--border); flex-shrink: 0; border-radius: 4px; }

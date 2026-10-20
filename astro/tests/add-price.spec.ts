@@ -447,3 +447,53 @@ test.describe('add-price: navigation', () => {
     await expect(page).toHaveURL(/\/prices/)
   })
 })
+
+test.describe('add-price: "already has this" note', () => {
+  test('typing a name matching a familyItem shows a non-blocking note, by name and by JAN', async ({
+    page,
+    trackDoc,
+    sanity,
+  }) => {
+    const suffix = Date.now()
+    const name = testName(`Family Owns This ${suffix}`)
+    const jan = `49887004${suffix.toString().slice(-5)}`
+    const item = await sanity.create({ _type: 'familyItem', person: 'Kristina', name, jan, category: 'book' })
+    trackDoc(item._id)
+
+    await page.goto('/add-price')
+
+    await page.locator('#p-name').fill(name)
+    const note = page.locator('#p-owned-note')
+    await expect(note).toBeVisible()
+    await expect(note).toContainText('Kristina already has this')
+
+    // Clearing the name hides it again — it's keyed off the live input, not a one-shot check.
+    await page.locator('#p-name').fill('')
+    await expect(note).toBeHidden()
+
+    // A JAN-only match (different name) still finds it, labelled "Same barcode".
+    await page.locator('#p-jan').fill(jan)
+    await expect(note).toBeVisible()
+    await expect(note).toContainText('Same barcode')
+  })
+
+  test('does not block saving a price entry', async ({ page, trackDoc, sanity }) => {
+    const suffix = Date.now()
+    const name = testName(`Family Owns Save Anyway ${suffix}`)
+    const item = await sanity.create({ _type: 'familyItem', person: 'Richard', name, category: 'album' })
+    trackDoc(item._id)
+
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(name)
+    await expect(page.locator('#p-owned-note')).toBeVisible()
+
+    await page.locator('#p-category').selectOption('album')
+    await page.locator('#p-price').fill('1000')
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+
+    const id = await findIdByField('priceEntry', 'productName', name)
+    trackDoc(id)
+    expect(id).toBeTruthy()
+  })
+})

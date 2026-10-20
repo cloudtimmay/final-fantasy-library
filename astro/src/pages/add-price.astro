@@ -1,11 +1,12 @@
 ---
 import Base from '../layouts/Base.astro'
-import { fetchProducts, fetchShopGroups, fetchTrips } from '../lib/price-products'
+import { fetchProducts, fetchShopGroups, fetchTrips, fetchOwnedByPerson } from '../lib/price-products'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 const shopGroups = await fetchShopGroups()
 const products = await fetchProducts()
 const trips = await fetchTrips()
+const ownedByPerson = await fetchOwnedByPerson()
 ---
 <Base title="Add price">
   <div class="add-wrap">
@@ -32,6 +33,7 @@ const trips = await fetchTrips()
       <label>Product name *</label>
       <input id="p-name" type="text" placeholder="What is it?" />
       <div id="p-name-warning" class="name-warning" hidden></div>
+      <div id="p-owned-note" class="owned-note" hidden></div>
     </div>
 
     <div class="field">
@@ -210,12 +212,15 @@ const trips = await fetchTrips()
 
   <script type="application/json" id="product-data" set:html={JSON.stringify(products)}></script>
   <script type="application/json" id="trips-data" set:html={JSON.stringify(trips)}></script>
+  <script type="application/json" id="owned-data" set:html={JSON.stringify(ownedByPerson)}></script>
 
   <script is:inline src="/resize-image.js"></script>
   <script is:inline src="/trip-select.js"></script>
   <script is:inline src="/identify-flow.js"></script>
 
   <script>
+    import { findOwnersOf } from '../lib/product-match'
+
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
     const seenList = document.querySelector('#p-seen-list')
@@ -227,9 +232,14 @@ const trips = await fetchTrips()
     try {
       TRIPS = JSON.parse(document.querySelector('#trips-data')?.textContent || '[]')
     } catch (e) { TRIPS = [] }
+    let OWNED = []
+    try {
+      OWNED = JSON.parse(document.querySelector('#owned-data')?.textContent || '[]')
+    } catch (e) { OWNED = [] }
 
     const nameInput = document.querySelector('#p-name')
     const nameWarning = document.querySelector('#p-name-warning')
+    const ownedNote = document.querySelector('#p-owned-note')
     const CATEGORY_LABELS = { album: 'Album', game: 'Game', book: 'Book', figure: 'Merchandise', other: 'Other' }
     const photoCamera = document.querySelector('#p-photo-camera')
     const photoGallery = document.querySelector('#p-photo-gallery')
@@ -395,6 +405,7 @@ const trips = await fetchTrips()
           if (typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
         }
         checkNameDuplicate()
+        checkOwnedByFamily()
         updateFindPricesVisibility()
       },
     })
@@ -547,6 +558,39 @@ const trips = await fetchTrips()
       checkNameDuplicate()
     })
 
+    // Non-blocking — unlike checkNameDuplicate() this never stops you from saving, it's
+    // just a heads-up that a family member already has something matching the name/JAN
+    // currently typed in (OWNED is pre-fetched server-side, see fetchOwnedByPerson()).
+    function renderOwnedNote(matches) {
+      ownedNote.replaceChildren()
+      matches.forEach(({ person, matchType }) => {
+        const row = document.createElement('div')
+        row.className = 'ap-owned-note-row'
+        row.textContent = `${person} already has this`
+        if (matchType === 'jan') {
+          const badge = document.createElement('span')
+          badge.className = 'ap-owned-note-badge'
+          badge.textContent = 'Same barcode'
+          row.appendChild(badge)
+        }
+        ownedNote.appendChild(row)
+      })
+      ownedNote.hidden = matches.length === 0
+    }
+    function checkOwnedByFamily() {
+      const name = nameInput.value.trim()
+      const jan = janInput.value.trim()
+      if (!name && !jan) { ownedNote.hidden = true; ownedNote.replaceChildren(); return }
+      renderOwnedNote(findOwnersOf(OWNED, { productName: name, jan }))
+    }
+    let ownedCheckTimer = null
+    function scheduleOwnedCheck() {
+      clearTimeout(ownedCheckTimer)
+      ownedCheckTimer = setTimeout(checkOwnedByFamily, 300)
+    }
+    nameInput.addEventListener('input', scheduleOwnedCheck)
+    janInput.addEventListener('input', scheduleOwnedCheck)
+
     function applyProduct() {
       const idx = productSel.value
       resetPhoto()
@@ -558,6 +602,7 @@ const trips = await fetchTrips()
         categorySel.value = ''
         renderSeenList([])
         updateFindPricesVisibility()
+        checkOwnedByFamily()
         return
       }
       const product = PRODUCTS[Number(idx)]
@@ -572,6 +617,7 @@ const trips = await fetchTrips()
         updatePhotoPreview()
       }
       updateFindPricesVisibility()
+      checkOwnedByFamily()
     }
     productSel.addEventListener('change', applyProduct)
 
@@ -905,6 +951,8 @@ const trips = await fetchTrips()
       renderSeenList([])
       resetPhoto()
       hideNameWarning()
+      ownedNote.hidden = true
+      ownedNote.replaceChildren()
       updateFindPricesVisibility()
       findPricesResultsWrap.replaceChildren()
       findPricesResultsWrap.hidden = true
@@ -1112,6 +1160,8 @@ const trips = await fetchTrips()
     .seen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 160px; overflow-y: auto; }
     .name-warning { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
     .name-warning[hidden] { display: none; }
+    .owned-note { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+    .owned-note[hidden] { display: none; }
     .buyer-trip-hint { margin: -0.5rem 0 1rem; }
     .no-trip-note {
       display: block; font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem; margin: -0.5rem 0 1rem;
@@ -1194,6 +1244,15 @@ const trips = await fetchTrips()
       padding: 0.35rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; white-space: nowrap;
     }
     .ap-use-existing-btn:hover { background: #241826; }
+    .ap-owned-note-row {
+      display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+      font-size: 0.82rem; color: var(--text); padding: 0.5rem 0.7rem;
+      background: rgba(244,162,76,0.06); border: 1px solid rgba(244,162,76,0.3); border-radius: 6px;
+    }
+    .ap-owned-note-badge {
+      font-weight: 700; font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 4px;
+      background: rgba(244,162,76,0.15); color: var(--accent);
+    }
     .ap-find-prices-searched-for { font-size: 0.8rem; color: var(--text); font-weight: 600; margin: 0 0 0.5rem; overflow-wrap: anywhere; }
     .ap-find-prices-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
     .ap-find-prices-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

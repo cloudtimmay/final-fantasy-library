@@ -10,6 +10,7 @@ const trips = await fetchTrips()
 <Base title="Add price">
   <div class="add-wrap">
     <h1>Add price</h1>
+    <a href="/prices" class="all-prices-link">📋 All prices</a>
     <p class="hint">Log a price you've seen. Shop, category, source and currency stay selected so you can log several prices in a row.</p>
 
     <div class="field">
@@ -1369,6 +1370,8 @@ const trips = await fetchTrips()
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+    .all-prices-link { display: inline-block; margin: 0.25rem 0 0.75rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .all-prices-link:hover { color: var(--accent); }
   </style>
 
   <!--

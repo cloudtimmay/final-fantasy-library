@@ -42,6 +42,11 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
 ---
 <Base title="Prices">
   <div class="prices-wrap">
+    <div class="nav-row">
+      <a href="/add-menu" id="prices-back" class="page-nav-link">← Back</a>
+      <a href="/add-price" class="page-nav-link page-nav-link-add">➕ Add price</a>
+    </div>
+
     <h1>Prices</h1>
     <p class="hint">Everything you've logged. Tap a product to see its full price history.</p>
 
@@ -406,11 +411,33 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
 
     if (photoCamera) photoCamera.addEventListener('change', () => { identifyPhoto(photoCamera.files && photoCamera.files[0]); photoCamera.value = '' })
     if (photoGallery) photoGallery.addEventListener('change', () => { identifyPhoto(photoGallery.files && photoGallery.files[0]); photoGallery.value = '' })
+
+    // "← Back" prefers real browser history (so it lands wherever the user actually came
+    // from) and only falls back to its href="/add-menu" when there's nothing to go back to.
+    // Read before Base.astro's own bottom script (further down the DOM) marks this page as
+    // visited, so this reflects whether an EARLIER page set it, not this one.
+    let hadPriorPageThisSession = false
+    try { hadPriorPageThisSession = !!sessionStorage.getItem('ff-nav-visited') } catch (e) {}
+
+    const backLink = document.querySelector('#prices-back')
+    if (backLink) {
+      backLink.addEventListener('click', (e) => {
+        if (hadPriorPageThisSession) {
+          e.preventDefault()
+          window.history.back()
+        }
+      })
+    }
   </script>
 
   <style>
     .prices-wrap { max-width: 640px; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
+
+    .nav-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .page-nav-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .page-nav-link:hover { color: var(--accent); }
+    .page-nav-link-add { color: var(--accent); font-weight: 600; }
 
     .filters-bar { margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
     .search-input {

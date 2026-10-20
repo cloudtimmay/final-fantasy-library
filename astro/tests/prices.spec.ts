@@ -296,3 +296,24 @@ test.describe('prices: barcode and photo identify', () => {
     await expect(page.locator('#p-scan-msg')).toContainText('No match found')
   })
 })
+
+test.describe('prices: navigation row', () => {
+  test('"➕ Add price" links to /add-price', async ({ page }) => {
+    await page.goto('/prices')
+    await page.locator('.nav-row .page-nav-link-add').click()
+    await expect(page).toHaveURL(/\/add-price/)
+  })
+
+  test('"← Back" falls back to /add-menu when there is no browser history', async ({ page }) => {
+    await page.goto('/prices')
+    await page.locator('#prices-back').click()
+    await expect(page).toHaveURL(/\/add-menu/)
+  })
+
+  test('"← Back" uses real browser history when it exists', async ({ page }) => {
+    await page.goto('/add-menu')
+    await page.goto('/prices')
+    await page.locator('#prices-back').click()
+    await expect(page).toHaveURL(/\/add-menu/)
+  })
+})

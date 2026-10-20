@@ -404,5 +404,15 @@ const renderedAt = Date.now()
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
   </script>
+
+  <script>
+    // Marks, for whichever page loads next in this tab, that at least one page of the app
+    // has already been visited this session — a "← Back" button (see prices.astro) reads
+    // this (before this script runs, since it's further up the DOM) to tell "opened
+    // directly" apart from "navigated here from elsewhere in the app". Deliberately
+    // sessionStorage rather than window.history.length, which some browsers already report
+    // as 2+ on the very first page of a brand new tab.
+    try { sessionStorage.setItem('ff-nav-visited', '1') } catch (e) {}
+  </script>
 </body>
 </html>

@@ -439,3 +439,11 @@ test.describe('add-price: duplicate name warning', () => {
     await expect(page.locator('#p-name-warning')).toBeHidden()
   })
 })
+
+test.describe('add-price: navigation', () => {
+  test('"All prices" link goes to /prices', async ({ page }) => {
+    await page.goto('/add-price')
+    await page.locator('a.all-prices-link').click()
+    await expect(page).toHaveURL(/\/prices/)
+  })
+})

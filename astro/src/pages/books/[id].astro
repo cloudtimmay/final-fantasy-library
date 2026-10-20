@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../../lib/sanity'
+import { BOOK_GENRES, BOOK_LANGUAGES, BOOK_READ_STATUSES } from '../../lib/collection-fields'
 
 const { id } = Astro.params
 const b = await sanity.fetch(
@@ -8,6 +9,8 @@ const b = await sanity.fetch(
   { id }
 )
 if (!b) return Astro.redirect('/books')
+
+const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
 ---
 <Base title={b.title}>
   <div class="detail">
@@ -15,6 +18,8 @@ if (!b) return Astro.redirect('/books')
     <br /><br />
     <h1>{b.title}</h1>
     <div class="detail-sub">{b.author}</div>
+
+    <button id="edit-toggle" class="edit-toggle-btn" type="button">✏️ Edit</button>
 
     {b.needsInfo && (
       <div class="needsinfo-banner">
@@ -41,31 +46,192 @@ if (!b) return Astro.redirect('/books')
       <span id="upload-msg" class="upload-msg" hidden></span>
     </div>
 
-    <table class="meta-table">
-      {b.year       && <tr><td>Year</td><td>{b.year}</td></tr>}
-      {b.publisher  && <tr><td>Publisher</td><td>{b.publisher}</td></tr>}
-      {b.genre      && <tr><td>Genre</td><td>{b.genre}</td></tr>}
-      {b.language   && <tr><td>Language</td><td>{b.language}</td></tr>}
-      {b.pages      && <tr><td>Pages</td><td>{b.pages}</td></tr>}
-      {b.isbn       && <tr><td>ISBN</td><td class="mono">{b.isbn}</td></tr>}
-      {b.readStatus && <tr><td>Read</td><td>{b.readStatus}</td></tr>}
-      {b.readDate   && <tr><td>Finished</td><td>{b.readDate}</td></tr>}
-      {b.status     && <tr><td>Ownership</td><td>{b.status}</td></tr>}
-      {b.rating     && <tr><td>Rating</td><td class="rating">{b.rating} / 10</td></tr>}
-      {b.acquiredDate && <tr><td>Acquired</td><td>{b.acquiredDate}</td></tr>}
-    </table>
+    <div id="view-mode">
+      <table class="meta-table">
+        {b.year       && <tr><td>Year</td><td>{b.year}</td></tr>}
+        {b.publisher  && <tr><td>Publisher</td><td>{b.publisher}</td></tr>}
+        {b.genre      && <tr><td>Genre</td><td>{b.genre}</td></tr>}
+        {b.language   && <tr><td>Language</td><td>{b.language}</td></tr>}
+        {b.pages      && <tr><td>Pages</td><td>{b.pages}</td></tr>}
+        {b.isbn       && <tr><td>ISBN</td><td class="mono">{b.isbn}</td></tr>}
+        {b.readStatus && <tr><td>Read</td><td>{b.readStatus}</td></tr>}
+        {b.readDate   && <tr><td>Finished</td><td>{b.readDate}</td></tr>}
+        {b.status     && <tr><td>Ownership</td><td>{b.status}</td></tr>}
+        {b.rating     && <tr><td>Rating</td><td class="rating">{b.rating} / 10</td></tr>}
+        {b.acquiredDate && <tr><td>Acquired</td><td>{b.acquiredDate}</td></tr>}
+      </table>
 
-    {b.tags?.length > 0 && (
-      <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-        {b.tags.map((t: string) => <span class="tag">{t}</span>)}
+      {b.tags?.length > 0 && (
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+          {b.tags.map((t: string) => <span class="tag">{t}</span>)}
+        </div>
+      )}
+      {b.notes && <div class="notes-block">{b.notes}</div>}
+    </div>
+
+    <form id="edit-mode" class="edit-form" hidden>
+      <div class="field">
+        <label>Title *</label>
+        <input id="e-title" type="text" value={b.title} />
       </div>
-    )}
-    {b.notes && <div class="notes-block">{b.notes}</div>}
+      <div class="field">
+        <label>Author *</label>
+        <input id="e-author" type="text" value={b.author} />
+      </div>
+      <div class="field">
+        <label>Publisher</label>
+        <input id="e-publisher" type="text" value={b.publisher} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Year</label>
+          <input id="e-year" type="number" inputmode="numeric" value={b.year} />
+        </div>
+        <div class="field">
+          <label>Pages</label>
+          <input id="e-pages" type="number" inputmode="numeric" value={b.pages} />
+        </div>
+      </div>
+      <div class="field">
+        <label>ISBN</label>
+        <input id="e-isbn" type="text" value={b.isbn} />
+      </div>
+      <div class="field">
+        <label>Genre</label>
+        <select id="e-genre">
+          <option value="">Select…</option>
+          {BOOK_GENRES.map((gn) => <option value={gn} selected={gn === b.genre}>{gn}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Language</label>
+        <select id="e-language">
+          <option value="">Select…</option>
+          {BOOK_LANGUAGES.map((l) => <option value={l} selected={l === b.language}>{l}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Read status</label>
+        <select id="e-read-status">
+          <option value="">Select…</option>
+          {BOOK_READ_STATUSES.map((s) => <option value={s.value} selected={s.value === b.readStatus}>{s.label}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Date finished</label>
+        <input id="e-read-date" type="date" value={b.readDate} />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="e-status">
+          {STATUSES.map((s) => <option value={s} selected={s === b.status}>{s}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label>Acquired date</label>
+        <input id="e-acquired" type="date" value={b.acquiredDate} />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Price (JPY)</label>
+          <input id="e-price-yen" type="number" inputmode="numeric" value={b.purchasePriceYen} />
+        </div>
+        <div class="field">
+          <label>Price (NOK)</label>
+          <input id="e-price-nok" type="number" inputmode="numeric" value={b.purchasePrice} />
+        </div>
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="e-notes" rows="2">{b.notes}</textarea>
+      </div>
+      <div class="field checkbox-field">
+        <label><input id="e-needs-info" type="checkbox" checked={b.needsInfo === true} /> Missing info</label>
+      </div>
+
+      <div class="edit-actions">
+        <button id="e-save" type="button" class="save-btn">Save</button>
+        <button id="e-cancel" type="button" class="cancel-btn">Cancel</button>
+      </div>
+      <p id="e-msg" class="save-msg" hidden></p>
+    </form>
   </div>
 
   <script>
     import { initImageUpload } from '../../scripts/image-upload.js'
     initImageUpload()
+
+    const docId = window.location.pathname.split('/').pop()
+    const viewMode = document.querySelector('#view-mode')
+    const editMode = document.querySelector('#edit-mode')
+    const editToggle = document.querySelector('#edit-toggle')
+    const cancelBtn = document.querySelector('#e-cancel')
+    const saveBtn = document.querySelector('#e-save')
+    const msg = document.querySelector('#e-msg')
+
+    function showMsg(text, ok) {
+      msg.hidden = false
+      msg.textContent = text
+      msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+    }
+
+    editToggle.addEventListener('click', () => {
+      viewMode.hidden = true
+      editToggle.hidden = true
+      editMode.hidden = false
+    })
+    cancelBtn.addEventListener('click', () => {
+      editMode.reset()
+      editMode.hidden = true
+      editToggle.hidden = false
+      viewMode.hidden = false
+      msg.hidden = true
+    })
+
+    saveBtn.addEventListener('click', async () => {
+      const title = document.querySelector('#e-title').value.trim()
+      if (!title) return showMsg('Please enter a title.', false)
+      const author = document.querySelector('#e-author').value.trim()
+      if (!author) return showMsg('Please enter an author.', false)
+      saveBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+      try {
+        const res = await fetch('/api/book-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: docId,
+            title,
+            author,
+            publisher: document.querySelector('#e-publisher').value,
+            year: document.querySelector('#e-year').value,
+            pages: document.querySelector('#e-pages').value,
+            isbn: document.querySelector('#e-isbn').value,
+            genre: document.querySelector('#e-genre').value,
+            language: document.querySelector('#e-language').value,
+            readStatus: document.querySelector('#e-read-status').value,
+            readDate: document.querySelector('#e-read-date').value,
+            status: document.querySelector('#e-status').value,
+            acquiredDate: document.querySelector('#e-acquired').value,
+            purchasePriceYen: document.querySelector('#e-price-yen').value,
+            purchasePrice: document.querySelector('#e-price-nok').value,
+            notes: document.querySelector('#e-notes').value,
+            needsInfo: document.querySelector('#e-needs-info').checked,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) {
+          showMsg((data && data.error) || 'Save failed.', false)
+          return
+        }
+        window.location.reload()
+      } catch (e) {
+        showMsg('Network error.', false)
+      } finally {
+        saveBtn.disabled = false
+        saveBtn.textContent = 'Save'
+      }
+    })
   </script>
 
   <style>
@@ -85,5 +251,34 @@ if (!b) return Astro.redirect('/books')
     .upload-btn:hover { background: #241826; }
     .upload-msg { font-size: 0.85rem; width: 100%; }
     .mono { font-family: monospace; }
+
+    .edit-toggle-btn {
+      display: inline-block; margin-bottom: 1rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.45rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .edit-toggle-btn:hover { background: #241826; }
+    .edit-form[hidden] { display: none; }
+    .edit-form .field { margin-bottom: 1rem; }
+    .edit-form .field-row { display: flex; gap: 1rem; }
+    .edit-form .field-row .field { flex: 1; }
+    .edit-form .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .edit-form .field input, .edit-form .field select, .edit-form .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .edit-form .checkbox-field label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text); }
+    .edit-form .checkbox-field input { width: auto; }
+    .edit-actions { display: flex; gap: 0.75rem; }
+    .save-btn {
+      flex: 1; background: var(--accent); color: #fff; border: none;
+      padding: 0.8rem; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled { opacity: 0.6; cursor: default; }
+    .cancel-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.8rem 1.2rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+    }
+    .save-msg { font-size: 0.9rem; margin-top: 0.75rem; }
   </style>
 </Base>

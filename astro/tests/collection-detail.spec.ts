@@ -123,3 +123,62 @@ test.describe('games/[id]: edit mode', () => {
     await expect(page.locator('#edit-mode')).toBeVisible()
   })
 })
+
+test.describe('books/[id]: edit mode', () => {
+  test('Edit reveals a prefilled form, Save updates the document', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Book ${Date.now()}`)
+    const book = await sanity.create({ _type: 'book', title, author: 'Jane Doe', status: 'owned' })
+    trackDoc(book._id)
+
+    await page.goto(`/books/${book._id}`)
+    await page.locator('#edit-toggle').click()
+    await expect(page.locator('#e-title')).toHaveValue(title)
+    await expect(page.locator('#e-author')).toHaveValue('Jane Doe')
+
+    await page.locator('#e-author').fill('John Smith')
+    await page.locator('#e-genre').selectOption('Fantasy')
+    await page.locator('#e-language').selectOption('Japanese')
+    await page.locator('#e-read-status').selectOption('read')
+    await page.locator('#e-isbn').fill('9784001234567')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('.detail h1')).toHaveText(title)
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ author, genre, language, readStatus, isbn }`, { id: book._id })
+    expect(doc.author).toBe('John Smith')
+    expect(doc.genre).toBe('Fantasy')
+    expect(doc.language).toBe('Japanese')
+    expect(doc.readStatus).toBe('read')
+    expect(doc.isbn).toBe('9784001234567')
+  })
+
+  test('requires both title and author', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Book Required ${Date.now()}`)
+    const book = await sanity.create({ _type: 'book', title, author: 'Jane Doe', status: 'owned' })
+    trackDoc(book._id)
+
+    await page.goto(`/books/${book._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-author').fill('')
+    await page.locator('#e-save').click()
+
+    await expect(page.locator('#e-msg')).toContainText('author')
+    await expect(page.locator('#edit-mode')).toBeVisible()
+  })
+
+  test('clearing the publisher unsets it', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Edit Book Clear ${Date.now()}`)
+    const book = await sanity.create({ _type: 'book', title, author: 'Jane Doe', publisher: 'Square Enix Books', status: 'owned' })
+    trackDoc(book._id)
+
+    await page.goto(`/books/${book._id}`)
+    await page.locator('#edit-toggle').click()
+    await page.locator('#e-publisher').fill('')
+    await page.locator('#e-save').click()
+    await expect(page.locator('#edit-mode')).toBeHidden()
+
+    const doc = await sanity.fetch(`*[_id == $id][0]{ publisher }`, { id: book._id })
+    expect(doc.publisher).toBeNull()
+  })
+})

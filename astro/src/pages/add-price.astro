@@ -213,6 +213,7 @@ const trips = await fetchTrips()
 
   <script is:inline src="/resize-image.js"></script>
   <script is:inline src="/trip-select.js"></script>
+  <script is:inline src="/identify-flow.js"></script>
 
   <script>
     const productSel = document.querySelector('#p-product')
@@ -242,10 +243,9 @@ const trips = await fetchTrips()
     const extraPhotoCamera = document.querySelector('#p-extra-photo-camera')
     const extraPhotoGallery = document.querySelector('#p-extra-photo-gallery')
     const extraPhotosWrap = document.querySelector('#p-extra-photos')
-    const MAX_EXTRA_PHOTOS = 2
-    let extraPhotos = [] // { file, url }[] — identify-only, never uploaded to Sanity
-    let suggestionShown = false // true while an AI suggestion card is on screen
-    let selectedPhoto = null
+    // The product's own photo, selected via "Existing product" above (applyProduct()) —
+    // orthogonal to identifyFlow's own selected/extra photos, shown in the same #p-preview
+    // via identifyFlow.showExternalPhoto() since Identify doesn't apply to it.
     let reusedImage = null
     // Cache for the Sanity image asset created from `selectedPhoto` the first time it's
     // actually uploaded (by whichever happens first: a "Save this price" click, or the
@@ -335,142 +335,69 @@ const trips = await fetchTrips()
       try { localStorage.setItem(LAST_TRIP_KEY, tripSel.value) } catch (e) {}
     }
 
-    function revokeIfBlob() {
-      if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
-    }
-
-    function hideIdentifyMsg() {
-      identifyMsg.hidden = true
-      identifyMsg.textContent = ''
-    }
-    function hideIdentifyCard() {
-      identifyCard.hidden = true
-      identifyCard.replaceChildren()
-      suggestionShown = false
-    }
-
-    // Extra photos are identify-only — never uploaded to Sanity, never part of the
-    // saved priceEntry. Each is kept as { file, url } so the object URL is created once
-    // (on add) and reused on every re-render, rather than re-created and leaked.
-    function renderExtraPhotos() {
-      extraPhotosWrap.replaceChildren()
-      extraPhotos.forEach((p, idx) => {
-        const item = document.createElement('div')
-        item.className = 'ap-extra-photo-item'
-        const img = document.createElement('img')
-        img.className = 'ap-extra-photo-thumb'
-        img.src = p.url
-        img.alt = 'Extra photo ' + (idx + 1)
-        const removeBtn = document.createElement('button')
-        removeBtn.type = 'button'
-        removeBtn.className = 'ap-extra-photo-remove'
-        removeBtn.textContent = '✕'
-        removeBtn.addEventListener('click', () => removeExtraPhoto(idx))
-        item.appendChild(img)
-        item.appendChild(removeBtn)
-        extraPhotosWrap.appendChild(item)
-      })
-      extraPhotosWrap.hidden = extraPhotos.length === 0
-      extraPhotoButtons.hidden = !selectedPhoto || extraPhotos.length >= MAX_EXTRA_PHOTOS
-    }
-    function addExtraPhoto(file) {
-      if (extraPhotos.length >= MAX_EXTRA_PHOTOS) return
-      extraPhotos.push({ file, url: URL.createObjectURL(file) })
-      renderExtraPhotos()
-      // The suggestion card already on screen was built without this photo — nudge
-      // toward re-running Identify rather than silently leaving it out.
-      if (suggestionShown) showIdentifyMsg('New photo added. Tap Identify again to include it.', true)
-    }
-    function removeExtraPhoto(idx) {
-      const [removed] = extraPhotos.splice(idx, 1)
-      if (removed) { try { URL.revokeObjectURL(removed.url) } catch (e) {} }
-      renderExtraPhotos()
-    }
-    function clearExtraPhotos() {
-      extraPhotos.forEach((p) => { try { URL.revokeObjectURL(p.url) } catch (e) {} })
-      extraPhotos = []
-      renderExtraPhotos()
-    }
-    function handleExtraPhotoInput(input) {
-      const file = input.files && input.files[0]
-      input.value = ''
-      if (file) addExtraPhoto(file)
-    }
-    extraPhotoCamera.addEventListener('change', () => handleExtraPhotoInput(extraPhotoCamera))
-    extraPhotoGallery.addEventListener('change', () => handleExtraPhotoInput(extraPhotoGallery))
-
-    // Decides what the preview area shows: a freshly taken/chosen photo always wins;
-    // otherwise an existing product's photo (if one was selected); otherwise nothing.
-    // "Identify" (and the extra-photos button) only apply to a freshly taken/chosen
-    // photo — reusing a product's existing photo means you already know what it is.
-    function updatePhotoPreview() {
-      if (selectedPhoto) {
-        preview.hidden = false
-        photoRemoveBtn.hidden = false
-        identifyBtn.hidden = false
-        renderExtraPhotos()
-        return
-      }
-      if (reusedImage && reusedImage.url) {
-        revokeIfBlob()
-        preview.src = reusedImage.url
-        preview.hidden = false
-        photoName.hidden = false
-        photoName.textContent = 'Using existing photo'
-        photoRemoveBtn.hidden = false
-        identifyBtn.hidden = true
-        renderExtraPhotos()
-        return
-      }
-      preview.hidden = true
-      preview.src = ''
-      photoName.hidden = true
-      photoRemoveBtn.hidden = true
-      identifyBtn.hidden = true
-      renderExtraPhotos()
-    }
-
-    async function handlePhoto(fileInput) {
-      const file = fileInput.files && fileInput.files[0]
-      if (!file) return
-      reusedImage = null
-      // A new photo invalidates any asset already uploaded for the previous one.
-      uploadedPhotoAssetId = null
-      uploadedPhotoUrl = null
-      hideIdentifyMsg()
-      hideIdentifyCard()
-      clearExtraPhotos()
-      photoName.hidden = false
-      photoName.textContent = 'Processing photo…'
-      let chosen = file
-      try {
-        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
-      } catch (e) { chosen = file }
-      selectedPhoto = chosen
-      revokeIfBlob()
-      preview.src = URL.createObjectURL(chosen)
-      photoName.textContent = file.name || 'photo'
-      updatePhotoPreview()
-      fileInput.value = ''
-    }
-    photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
-    photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
-
     function resetPhoto() {
-      revokeIfBlob()
-      selectedPhoto = null
       reusedImage = null
       uploadedPhotoAssetId = null
       uploadedPhotoUrl = null
-      photoCamera.value = ''
-      photoGallery.value = ''
-      photoName.textContent = ''
-      hideIdentifyMsg()
-      hideIdentifyCard()
-      clearExtraPhotos()
-      updatePhotoPreview()
+      identifyFlow.reset()
     }
-    photoRemoveBtn.addEventListener('click', resetPhoto)
+
+    // Shows the existing product's own photo (selected via "Existing product" above) in
+    // the same preview identifyFlow uses for a freshly taken one — Identify doesn't apply
+    // to it since you already know what it is.
+    function updatePhotoPreview() {
+      if (reusedImage && reusedImage.url) identifyFlow.showExternalPhoto(reusedImage.url, 'Using existing photo')
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = reader.result || ''
+          const commaIdx = result.indexOf(',')
+          resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result)
+        }
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+      })
+    }
+
+    const identifyFlow = window.createIdentifyFlow({
+      els: {
+        photoCamera, photoGallery, photoName, preview, photoRemoveBtn, identifyBtn, identifyMsg, identifyCard,
+        extraPhotoButtons, extraPhotoCamera, extraPhotoGallery, extraPhotosWrap,
+      },
+      categoryLabels: CATEGORY_LABELS,
+      // A freshly taken/chosen photo always invalidates whatever existing-product photo
+      // (or already-uploaded asset) was in play before it.
+      onPhotoChosen: () => { reusedImage = null; uploadedPhotoAssetId = null; uploadedPhotoUrl = null },
+      onPhotoRemoved: () => { reusedImage = null; uploadedPhotoAssetId = null; uploadedPhotoUrl = null },
+      // A JAN match against an already-logged product offers linking to it instead of
+      // filling in the (possibly slightly different) suggested details as a new product.
+      findExisting: (result) => {
+        if (!result.jan) return null
+        const idx = PRODUCTS.findIndex((p) => p.jan === result.jan)
+        if (idx < 0) return null
+        return {
+          label: 'Use existing product: ' + PRODUCTS[idx].productName,
+          onUse: () => { productSel.value = String(idx); applyProduct() },
+        }
+      },
+      onUseSuggestion: (result) => {
+        if (result.productName) nameInput.value = result.productName
+        if (result.productNameJp) nameJpInput.value = result.productNameJp
+        if (result.jan) janInput.value = result.jan
+        if (result.category) categorySel.value = result.category
+        if (typeof result.price === 'number') {
+          priceInput.value = String(result.price)
+          currencySel.value = 'JPY'
+          applyCurrency()
+          if (typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
+        }
+        checkNameDuplicate()
+        updateFindPricesVisibility()
+      },
+    })
 
     // What to send as imageAssetId on a create call: an existing product's photo always
     // wins if one is selected; otherwise a freshly-taken photo that's already been
@@ -479,16 +406,17 @@ const trips = await fetchTrips()
     // handled after creation by uploadSelectedPhotoTo().
     function imageAssetIdForCreate() {
       if (reusedImage) return reusedImage.assetId
-      if (selectedPhoto && uploadedPhotoAssetId) return uploadedPhotoAssetId
+      if (identifyFlow.getSelectedPhoto() && uploadedPhotoAssetId) return uploadedPhotoAssetId
       return undefined
     }
 
-    // Uploads `selectedPhoto` and attaches it to `docId`, exactly once per form session —
+    // Uploads the selected photo and attaches it to `docId`, exactly once per form session —
     // a no-op (returning success) if there's no fresh photo or it's already been
     // uploaded. The resulting asset id/url are cached so every later save this session
     // (another "Save this price", or the main Save button) reuses them via
     // imageAssetIdForCreate() instead of uploading the same file again.
     async function uploadSelectedPhotoTo(docId) {
+      const selectedPhoto = identifyFlow.getSelectedPhoto()
       if (!selectedPhoto || uploadedPhotoAssetId) return true
       try {
         const form = new FormData()
@@ -508,171 +436,6 @@ const trips = await fetchTrips()
         return false
       }
     }
-
-    function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = reader.result || ''
-          const commaIdx = result.indexOf(',')
-          resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result)
-        }
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(file)
-      })
-    }
-
-    function showIdentifyMsg(text, ok) {
-      identifyMsg.hidden = false
-      identifyMsg.textContent = text
-      identifyMsg.style.color = ok ? '#2ecc71' : '#e74c3c'
-    }
-
-    function renderIdentifyCard(result) {
-      identifyCard.replaceChildren()
-
-      const title = document.createElement('div')
-      title.className = 'ap-identify-title'
-      title.textContent = '✨ AI suggestion'
-      identifyCard.appendChild(title)
-
-      function addRow(label, value) {
-        if (value == null || value === '') return
-        const row = document.createElement('div')
-        row.className = 'ap-identify-row'
-        const l = document.createElement('span')
-        l.className = 'ap-identify-label'
-        l.textContent = label
-        const v = document.createElement('span')
-        v.className = 'ap-identify-value'
-        v.textContent = value
-        row.appendChild(l)
-        row.appendChild(v)
-        identifyCard.appendChild(row)
-      }
-
-      addRow('Name', result.productName)
-      addRow('Japanese', result.productNameJp)
-      addRow('JAN', result.jan)
-      addRow('Category', result.category ? (CATEGORY_LABELS[result.category] || result.category) : null)
-      if (typeof result.price === 'number') {
-        const taxText = result.taxIncluded === true ? 'tax included' : result.taxIncluded === false ? 'tax excluded' : ''
-        addRow('Price', '¥' + result.price.toLocaleString('en-US') + (taxText ? ' (' + taxText + ')' : ''))
-      }
-
-      if (result.confidence) {
-        const conf = document.createElement('div')
-        conf.className = 'ap-identify-confidence ap-identify-confidence-' + result.confidence
-        conf.textContent = 'Confidence: ' + result.confidence
-        identifyCard.appendChild(conf)
-        if (result.confidence === 'low') {
-          const warn = document.createElement('div')
-          warn.className = 'ap-identify-warning'
-          warn.textContent = '⚠️ Low confidence — double-check before using.'
-          identifyCard.appendChild(warn)
-        }
-      }
-
-      if (result.notes) {
-        const notes = document.createElement('div')
-        notes.className = 'ap-identify-notes'
-        notes.textContent = result.notes
-        identifyCard.appendChild(notes)
-      }
-
-      const actions = document.createElement('div')
-      actions.className = 'ap-identify-actions'
-
-      // A JAN match against an already-logged product offers linking to it instead of
-      // filling in the (possibly slightly different) suggested details as a new product.
-      let existingIdx = -1
-      if (result.jan) existingIdx = PRODUCTS.findIndex((p) => p.jan === result.jan)
-
-      const useBtn = document.createElement('button')
-      useBtn.type = 'button'
-      useBtn.className = 'ap-identify-use-btn'
-      if (existingIdx >= 0) {
-        useBtn.textContent = 'Use existing product: ' + PRODUCTS[existingIdx].productName
-        useBtn.addEventListener('click', () => {
-          productSel.value = String(existingIdx)
-          applyProduct()
-          hideIdentifyCard()
-        })
-      } else {
-        useBtn.textContent = 'Use suggestion'
-        useBtn.addEventListener('click', () => {
-          if (result.productName) nameInput.value = result.productName
-          if (result.productNameJp) nameJpInput.value = result.productNameJp
-          if (result.jan) janInput.value = result.jan
-          if (result.category) categorySel.value = result.category
-          if (typeof result.price === 'number') {
-            priceInput.value = String(result.price)
-            currencySel.value = 'JPY'
-            applyCurrency()
-            if (typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
-          }
-          checkNameDuplicate()
-          updateFindPricesVisibility()
-          hideIdentifyCard()
-        })
-      }
-
-      const dismissBtn = document.createElement('button')
-      dismissBtn.type = 'button'
-      dismissBtn.className = 'ap-identify-dismiss-btn'
-      dismissBtn.textContent = 'Dismiss'
-      dismissBtn.addEventListener('click', hideIdentifyCard)
-
-      actions.appendChild(useBtn)
-      actions.appendChild(dismissBtn)
-      identifyCard.appendChild(actions)
-
-      identifyCard.hidden = false
-      suggestionShown = true
-    }
-
-    async function identifyPhoto() {
-      if (!selectedPhoto) return
-      hideIdentifyCard()
-      hideIdentifyMsg()
-      identifyBtn.disabled = true
-      identifyBtn.textContent = 'Identifying…'
-      try {
-        // Downscale further just for the API call — the photos already selected for
-        // upload/saving (or kept only for identify) are untouched. The product photo
-        // always goes first; extra photos are additional angles of the same item.
-        const allPhotos = [selectedPhoto, ...extraPhotos.map((p) => p.file)]
-        const images = []
-        for (const photo of allPhotos) {
-          let forApi = photo
-          try {
-            if (window.resizeImage) forApi = await window.resizeImage(photo, 1024, 0.8)
-          } catch (e) {}
-          images.push(await fileToBase64(forApi))
-        }
-        const res = await fetch('/api/identify-product', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ images }),
-        })
-        const data = await res.json().catch(() => null)
-        if (!res.ok) {
-          showIdentifyMsg((data && data.error) || 'Identification failed.', false)
-          return
-        }
-        if (!data.result || Object.keys(data.result).length === 0) {
-          showIdentifyMsg('Could not identify anything useful in this photo.', false)
-          return
-        }
-        renderIdentifyCard(data.result)
-      } catch (e) {
-        showIdentifyMsg('Network error.', false)
-      } finally {
-        identifyBtn.disabled = false
-        identifyBtn.textContent = '✨ Identify'
-      }
-    }
-    identifyBtn.addEventListener('click', identifyPhoto)
 
     function productKey(jan, name) {
       const j = (jan || '').trim()
@@ -930,7 +693,7 @@ const trips = await fetchTrips()
         // attached until the entry exists — upload it now and cache the asset id so
         // every later "Save this price" and the main Save button reuse it instead of
         // uploading the same file again. The photo itself stays in the form either way.
-        if (selectedPhoto && !uploadedPhotoAssetId && data.id) {
+        if (identifyFlow.getSelectedPhoto() && !uploadedPhotoAssetId && data.id) {
           await uploadSelectedPhotoTo(data.id)
         }
 
@@ -1082,6 +845,7 @@ const trips = await fetchTrips()
         // The product photo (if any) confirms edition/format only — the model still
         // searches by text. Downscaled the same way identify-product.ts's photos are.
         let image
+        const selectedPhoto = identifyFlow.getSelectedPhoto()
         if (selectedPhoto) {
           let forApi = selectedPhoto
           try {
@@ -1216,7 +980,7 @@ const trips = await fetchTrips()
         // photo earlier in the session — imageAssetIdForCreate() above already
         // referenced that asset directly.
         let photoFailed = false
-        if (selectedPhoto && !uploadedPhotoAssetId && data.id) {
+        if (identifyFlow.getSelectedPhoto() && !uploadedPhotoAssetId && data.id) {
           saveBtn.textContent = 'Uploading photo…'
           const ok = await uploadSelectedPhotoTo(data.id)
           if (!ok) photoFailed = true
@@ -1381,34 +1145,36 @@ const trips = await fetchTrips()
     innerHTML. For a descendant selector like ".seen-list li", the attribute only needs
     to be missing from the rightmost part (the JS-created <li>) for the whole rule to
     stop matching, even though ".seen-list" itself is a static, scoped element. So every
-    class used on a JS-built element — the identify suggestion card, the extra-photo
-    thumbnails, the "seen before" list rows, the duplicate-name warning, and the Find
-    Prices result list — lives here instead, global and prefixed with "ap-" (add-price)
-    so it can't collide with another page's classes.
+    class used on a JS-built element lives here instead, global. The identify suggestion
+    card and extra-photo thumbnails (".idf-*") are built by the shared identify-flow.js
+    module (see also add-item.astro, which duplicates this block verbatim — Astro has no
+    way to share a global style block across pages); everything else here is specific to
+    this page and prefixed "ap-" (add-price) so it can't collide with another page's
+    classes.
   -->
   <style is:global>
-    .ap-identify-title { font-weight: 600; font-size: 0.9rem; color: var(--accent); }
-    .ap-identify-row { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; }
-    .ap-identify-label { color: var(--muted); flex-shrink: 0; }
-    .ap-identify-value { text-align: right; overflow-wrap: anywhere; }
-    .ap-identify-confidence { font-size: 0.78rem; font-weight: 600; }
-    .ap-identify-confidence-high { color: #2ecc71; }
-    .ap-identify-confidence-medium { color: #f5c542; }
-    .ap-identify-confidence-low { color: #e74c3c; }
-    .ap-identify-warning { font-size: 0.8rem; color: #e74c3c; }
-    .ap-identify-notes { font-size: 0.8rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
-    .ap-identify-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap; }
-    .ap-identify-use-btn {
+    .idf-identify-title { font-weight: 600; font-size: 0.9rem; color: var(--accent); }
+    .idf-identify-row { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; }
+    .idf-identify-label { color: var(--muted); flex-shrink: 0; }
+    .idf-identify-value { text-align: right; overflow-wrap: anywhere; }
+    .idf-identify-confidence { font-size: 0.78rem; font-weight: 600; }
+    .idf-identify-confidence-high { color: #2ecc71; }
+    .idf-identify-confidence-medium { color: #f5c542; }
+    .idf-identify-confidence-low { color: #e74c3c; }
+    .idf-identify-warning { font-size: 0.8rem; color: #e74c3c; }
+    .idf-identify-notes { font-size: 0.8rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+    .idf-identify-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap; }
+    .idf-identify-use-btn {
       flex: 1; min-width: 140px; background: var(--accent); color: #fff; border: none;
       padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
     }
-    .ap-identify-dismiss-btn {
+    .idf-identify-dismiss-btn {
       background: var(--surface); color: var(--muted); border: 1px solid var(--border);
       padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
     }
-    .ap-extra-photo-item { position: relative; width: 64px; height: 64px; }
-    .ap-extra-photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
-    .ap-extra-photo-remove {
+    .idf-extra-photo-item { position: relative; width: 64px; height: 64px; }
+    .idf-extra-photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
+    .idf-extra-photo-remove {
       position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
       background: #e74c3c; color: #fff; border: none; cursor: pointer; font-size: 0.7rem; line-height: 1;
       display: flex; align-items: center; justify-content: center; padding: 0;

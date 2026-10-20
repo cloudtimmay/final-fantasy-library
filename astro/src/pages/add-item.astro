@@ -137,6 +137,21 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       </div>
       <span id="f-photo-name" class="photo-name" hidden></span>
       <img id="f-preview" class="photo-preview" hidden alt="Preview" />
+      <button id="f-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
+      <button id="f-identify-btn" type="button" class="identify-btn" hidden>✨ Identify</button>
+      <div id="f-extra-photo-buttons" class="extra-photo-buttons" hidden>
+        <label class="upload-btn upload-btn-small">
+          📷 Camera
+          <input id="f-extra-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn upload-btn-small">
+          🖼️ Gallery
+          <input id="f-extra-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+      <div id="f-extra-photos" class="extra-photos" hidden></div>
+      <div id="f-identify-msg" class="identify-msg" hidden></div>
+      <div id="f-identify-card" class="identify-card" hidden></div>
     </div>
 
     <div class="field">
@@ -151,6 +166,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
   </div>
 
   <script is:inline src="/resize-image.js"></script>
+  <script is:inline src="/identify-flow.js"></script>
 
   <script>
     const CONFIG = {
@@ -163,6 +179,11 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       merch: { endpoint: '/api/figure-create', backLabel: 'merch', creatorLabel: '', yearLabel: 'Year',
         lookups: [['mfc','MyFigureCollection'],['google','Google'],['googleimg','Google Images']] },
     }
+
+    // identify-product.ts's categories (album|game|book|figure|other) mapped to this
+    // page's types — "other" has no sensible type here, so a suggestion with that
+    // category just leaves the current type alone.
+    const IDENTIFY_CATEGORY_TO_TYPE = { album: 'album', game: 'game', book: 'book', figure: 'merch' }
 
     const typeSelect = document.querySelector('#f-type')
     const barcodeInput = document.querySelector('#f-barcode')
@@ -194,7 +215,14 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     const photoGallery = document.querySelector('#f-photo-gallery')
     const photoName = document.querySelector('#f-photo-name')
     const preview = document.querySelector('#f-preview')
-    let selectedPhoto = null
+    const photoRemoveBtn = document.querySelector('#f-photo-remove')
+    const identifyBtn = document.querySelector('#f-identify-btn')
+    const identifyMsg = document.querySelector('#f-identify-msg')
+    const identifyCard = document.querySelector('#f-identify-card')
+    const extraPhotoButtons = document.querySelector('#f-extra-photo-buttons')
+    const extraPhotoCamera = document.querySelector('#f-extra-photo-camera')
+    const extraPhotoGallery = document.querySelector('#f-extra-photo-gallery')
+    const extraPhotosWrap = document.querySelector('#f-extra-photos')
 
     function currentType() { return typeSelect.value }
 
@@ -213,24 +241,29 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       saveBtn.textContent = 'Save ' + cfg.backLabel
     }
 
-    async function handlePhoto(fileInput) {
-      const file = fileInput.files && fileInput.files[0]
-      if (!file) return
-      photoName.hidden = false
-      photoName.textContent = 'Processing photo…'
-      let chosen = file
-      try {
-        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
-      } catch (e) { chosen = file }
-      selectedPhoto = chosen
-      if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
-      preview.hidden = false
-      preview.src = URL.createObjectURL(chosen)
-      photoName.textContent = file.name || 'photo'
-      fileInput.value = ''
-    }
-    photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
-    photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
+    const identifyFlow = window.createIdentifyFlow({
+      els: {
+        photoCamera, photoGallery, photoName, preview, photoRemoveBtn, identifyBtn, identifyMsg, identifyCard,
+        extraPhotoButtons, extraPhotoCamera, extraPhotoGallery, extraPhotosWrap,
+      },
+      // No "existing item" concept here (unlike add-price's existing-product dropdown) —
+      // a suggestion always just fills fields, never offers to link to something else.
+      onUseSuggestion: (result) => {
+        const mappedType = result.category && IDENTIFY_CATEGORY_TO_TYPE[result.category]
+        if (mappedType) {
+          typeSelect.value = mappedType
+          applyType()
+          if (mappedType === 'merch' && result.category === 'figure') categorySelect.value = 'figure'
+        }
+        if (result.productName) titleInput.value = result.productName
+        if (result.jan) {
+          barcodeInput.value = result.jan
+          checkDuplicate(result.jan)
+        }
+        if (typeof result.price === 'number') yenInput.value = String(result.price)
+        if (result.notes) notesInput.value = result.notes
+      },
+    })
 
     seriesSelect.addEventListener('change', () => {
       if (seriesSelect.value === '__new__') { seriesNewInput.hidden = false; seriesNewInput.focus() }
@@ -349,6 +382,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         })
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
+        const selectedPhoto = identifyFlow.getSelectedPhoto()
         if (selectedPhoto && data.id) {
           saveBtn.textContent = 'Uploading photo…'
           const form = new FormData()
@@ -360,8 +394,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
         scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
         seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
         yearInput.value = ''; barcodeInput.value = ''; yenInput.value = ''; nokInput.value = ''; notesInput.value = ''
-        if (preview.src) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
-        selectedPhoto = null; photoCamera.value = ''; photoGallery.value = ''; photoName.hidden = true; preview.hidden = true; preview.src = ''
+        identifyFlow.reset()
         dupWarn.hidden = true; dupWarn.innerHTML = ''
         titleInput.focus()
       } catch (e) { showMsg('Network error.', false) }
@@ -401,11 +434,76 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
     .photo-name { font-size: 0.85rem; color: var(--muted); display: block; margin-top: 0.5rem; }
+    .photo-name[hidden] { display: none; }
     .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+    .photo-preview[hidden] { display: none; }
+    .photo-remove-btn {
+      display: inline-block; margin-top: 0.5rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.85rem;
+    }
+    .photo-remove-btn[hidden] { display: none; }
+    .photo-remove-btn:hover { border-color: var(--accent); }
+    .identify-btn {
+      display: inline-block; margin-top: 0.5rem; margin-left: 0.5rem; background: var(--surface); color: var(--accent);
+      border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    .identify-btn[hidden] { display: none; }
+    .identify-btn:hover { background: rgba(244,162,76,0.1); }
+    .identify-btn:disabled { opacity: 0.6; cursor: default; }
+    .identify-msg { font-size: 0.85rem; margin-top: 0.5rem; }
+    .identify-msg[hidden] { display: none; }
+    .identify-card {
+      display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem;
+      padding: 0.75rem; background: rgba(244,162,76,0.06); border: 1px solid rgba(244,162,76,0.3); border-radius: 8px;
+    }
+    .identify-card[hidden] { display: none; }
+    .extra-photo-buttons { display: inline-flex; gap: 0.4rem; margin-top: 0.5rem; margin-left: 0.5rem; flex-wrap: wrap; }
+    .extra-photo-buttons[hidden] { display: none; }
+    .upload-btn-small { padding: 0.4rem 0.7rem; font-size: 0.85rem; font-weight: 600; }
+    .extra-photos { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+    .extra-photos[hidden] { display: none; }
     .save-btn { width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none; padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer; }
     .save-btn:disabled { opacity: 0.6; cursor: default; }
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+  </style>
+
+  <!--
+    Astro's scoped CSS only applies to elements written directly in this file's own
+    template, not ones built at runtime via document.createElement() — so the identify
+    suggestion card and extra-photo thumbnails built by the shared identify-flow.js module
+    (also used by add-price.astro, which duplicates this block verbatim — Astro has no way
+    to share a global style block across pages) need their classes global instead.
+  -->
+  <style is:global>
+    .idf-identify-title { font-weight: 600; font-size: 0.9rem; color: var(--accent); }
+    .idf-identify-row { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; }
+    .idf-identify-label { color: var(--muted); flex-shrink: 0; }
+    .idf-identify-value { text-align: right; overflow-wrap: anywhere; }
+    .idf-identify-confidence { font-size: 0.78rem; font-weight: 600; }
+    .idf-identify-confidence-high { color: #2ecc71; }
+    .idf-identify-confidence-medium { color: #f5c542; }
+    .idf-identify-confidence-low { color: #e74c3c; }
+    .idf-identify-warning { font-size: 0.8rem; color: #e74c3c; }
+    .idf-identify-notes { font-size: 0.8rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+    .idf-identify-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap; }
+    .idf-identify-use-btn {
+      flex: 1; min-width: 140px; background: var(--accent); color: #fff; border: none;
+      padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    .idf-identify-dismiss-btn {
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+      padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    }
+    .idf-extra-photo-item { position: relative; width: 64px; height: 64px; }
+    .idf-extra-photo-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
+    .idf-extra-photo-remove {
+      position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+      background: #e74c3c; color: #fff; border: none; cursor: pointer; font-size: 0.7rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center; padding: 0;
+    }
   </style>
 </Base>

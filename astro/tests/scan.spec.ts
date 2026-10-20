@@ -202,3 +202,29 @@ test.describe('scan: merchandise/figure search', () => {
     await expect(group.locator('a', { hasText: 'MyFigureCollection' })).toBeVisible()
   })
 })
+
+test.describe('scan: wishlist callout', () => {
+  test('shows "On your wishlist" with a working "Got it" button', async ({ page, trackDoc, sanity }) => {
+    const title = testName(`Scan Wishlist Game ${Date.now()}`)
+    const game = await sanity.create({ _type: 'game', title, status: 'wishlist' })
+    trackDoc(game._id)
+
+    await page.goto(`/scan?q=${encodeURIComponent(title)}`)
+    const banner = page.locator('.wish-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText('On your wishlist')
+    await expect(banner).toContainText(title)
+
+    // Still shown with its WISHLIST badge in the results list below.
+    await expect(page.locator('.result-row', { hasText: title }).locator('.badge.wishlist')).toBeVisible()
+
+    await banner.locator('#scan-got-it').click()
+    await expect(page.locator('.wish-banner')).toHaveCount(0)
+    await expect(page.locator('.result-row', { hasText: title }).locator('.badge.owned')).toBeVisible()
+  })
+
+  test('shows no wishlist callout when nothing matches', async ({ page }) => {
+    await page.goto(`/scan?q=${encodeURIComponent(testName(`Nonexistent ${Date.now()}`))}`)
+    await expect(page.locator('.wish-banner')).toHaveCount(0)
+  })
+})

@@ -64,6 +64,9 @@ if (q) {
 
 // Is any match already owned? Used for the prominent warning banner.
 const ownedMatch = results.find((r: any) => r.status === 'owned')
+// Is any match on the wishlist? A friendlier, non-warning callout with a one-tap "Got it"
+// (reuses /api/item-status exactly like wishlist.astro's own "Got it" button).
+const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
 ---
 <Base title="Scan">
   <div class="scan-wrap">
@@ -73,6 +76,13 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     {ownedMatch && (
       <div class="dup-banner">
         ⚠️ <strong>Already in your collection:</strong> “{ownedMatch.title}” is marked as owned.
+      </div>
+    )}
+
+    {wishlistMatch && (
+      <div class="wish-banner">
+        <span>⭐ <strong>On your wishlist:</strong> “{wishlistMatch.title}”</span>
+        <button id="scan-got-it" class="got-it-btn" type="button" data-id={wishlistMatch._id}>✓ Got it</button>
       </div>
     )}
 
@@ -240,6 +250,18 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
     }
     .dup-banner strong { color: #fff; }
 
+    .wish-banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.4); color: var(--text);
+      padding: 0.85rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.95rem;
+    }
+    .wish-banner strong { color: var(--accent); }
+    .got-it-btn {
+      flex-shrink: 0; background: #2ecc71; color: #06281a; border: none;
+      padding: 0.5rem 0.9rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    }
+    .got-it-btn:disabled { opacity: 0.6; cursor: default; }
+
     .scan-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .scan-form input {
       flex: 1; min-width: 0; background: var(--surface); color: var(--text);
@@ -390,6 +412,29 @@ const ownedMatch = results.find((r: any) => r.status === 'owned')
         famBtn.addEventListener('click', () => {
           const code = (input.value || '').trim()
           window.location.href = code ? `/add?barcode=${encodeURIComponent(code)}` : '/add'
+        })
+      }
+
+      // "✓ Got it" on the wishlist callout — same /api/item-status call wishlist.astro's own
+      // "Got it" button makes. Reloads on success so the server-rendered badge/banner catch
+      // up with the new status, rather than trying to patch the DOM in two places at once.
+      const gotItBtn = document.getElementById('scan-got-it')
+      if (gotItBtn) {
+        gotItBtn.addEventListener('click', async () => {
+          gotItBtn.disabled = true
+          gotItBtn.textContent = '…'
+          try {
+            const res = await fetch('/api/item-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: gotItBtn.dataset.id, status: 'owned' }),
+            })
+            if (!res.ok) { gotItBtn.disabled = false; gotItBtn.textContent = 'Retry'; return }
+            window.location.reload()
+          } catch (e) {
+            gotItBtn.disabled = false
+            gotItBtn.textContent = 'Retry'
+          }
         })
       }
 

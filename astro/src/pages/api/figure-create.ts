@@ -1,10 +1,11 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody, buildDoc } from '../../lib/api'
+import { FIGURE_CATEGORIES } from '../../lib/collection-fields'
 
 export const prerender = false
 
-const CATEGORIES = ['figure', 'plushie', 'wearable', 'other']
+const CATEGORY_VALUES = FIGURE_CATEGORIES.map((c) => c.value)
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)
@@ -19,7 +20,7 @@ export const POST: APIRoute = async ({ request }) => {
       title,
       status: 'owned',
       needsInfo: false,
-      category: CATEGORIES.includes(body.category) ? body.category : 'figure',
+      category: CATEGORY_VALUES.includes(body.category) ? body.category : 'figure',
     },
     body,
     [

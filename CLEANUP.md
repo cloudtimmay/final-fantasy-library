@@ -240,14 +240,14 @@ Oppdaget mens Bolk 5 ble testet manuelt. Ikke relatert til `json()`/`parseJsonBo
 
 ## Itinerary-rebuild (egen gren: `itinerary-from-shops`)
 
-Stor omlegging: itinerary-planen skal bygges fra `shopNote`-lista i stedet for en hardkodet `PLAN`-array i `itinerary.astro` (de to har i praksis vært dobbeltregistreringer av de samme ~55 stedene, uten noen delt `_id`). Gjennomføres trinnvis, med full `sanity dataset export`-backup til `../sanity-backups/` (utenfor repoet) før hvert steg som skriver til produksjonsdata.
+Stor omlegging: itinerary-planen skal bygges fra `shopNote`-lista i stedet for en hardkodet `PLAN`-array i `itinerary.astro` (de to har i praksis vært dobbeltregistreringer av de samme ~55 stedene, uten noen delt `_id`). Gjennomføres trinnvis, med full `sanity dataset export`-backup til `C:\Users\User\Documents\Final-Fantasy-Library\sanity-backups\` (utenfor repoet) før hvert steg som skriver til produksjonsdata.
 
 **Nøkkelfunn før ombyggingen startet (flettelogikken i `buildState()`/`loadSaved()`):** en allerede lagret plan (`itineraryState` i Sanity, eller `localStorage`) overlever ombyggingen uendret, fordi `saved[di].stops` alltid vinner over `plan[di].stops` når det finnes lagret data for den dagindeksen. Eneste harde krav: **antall dager og rekkefølge må holdes identisk (7 dager, samme rekkefølge)**, siden koblingen mellom lagret data og ny plan-kilde er indeks-basert, ikke navn/dato-basert. `date`/`area`/`note` hentes derimot friskt fra plan-kilden hver gang (aldri lagret).
 
 ### Steg 0 — grunnmur (gjennomført)
 - Bekreftet `main` ren, Bolk/forbedring B (`764519f`) committet.
 - Ny gren `itinerary-from-shops` opprettet fra `main`.
-- Fersk full backup: `production-backup-2026-09-07-pre-itinerary-rebuild.tar.gz` (≈142,7 MB, 545 dokumenter + 165 assets), i `../sanity-backups/`.
+- Fersk full backup: `production-backup-2026-09-07-pre-itinerary-rebuild.tar.gz` (≈142,7 MB, 545 dokumenter + 165 assets), i `C:\Users\User\Documents\Final-Fantasy-Library\sanity-backups\`.
 
 ### Steg 1 — få alle PLAN-steder inn i shops-lista (gjennomført)
 Kartla alle 52 faste PLAN-stopp mot `shopNote` på koordinater (eksakt match, «dobbeltsjekk» innen 50 m, eller ingen match). 3 fantes i shop-lista uten koordinater, 6 fantes ikke i det hele tatt (rene restauranter), resten matchet allerede eksakt.
@@ -274,13 +274,13 @@ Kjørt via `scripts/backfill-itinerary-shops.ts` (dry-run + `--live`, samme møn
 ### Steg 2 — render slår opp via shopId, deretter migrer lagret plan (gjennomført)
 Render-koden i `itinerary.astro` fikk en `resolveStop()`-funksjon: slår opp `shopId` i shops-lista for `name`/`lat`/`lng`, med trygg fallback til stoppets egne felt (butikk slettet, butikk uten koordinater, eller shops-lista ikke lastet). Alle steder som brukte `s.name`/`s.lat`/`s.lng` (kartpins, gangtid, rutelenker, «mangler koordinater»-merket, butikk-lenken) bruker nå samme oppslag. 100 % bakoverkompatibelt — ingen synlig endring da dagens stopp fortsatt hadde alle feltene.
 
-Deretter migrert den lagrede planen (`itineraryState`, Sanity-dokumentet bak «din faktiske reiseplan»): av 56 lagrede stopp hadde kun 4 allerede `shopId` (lagt til via nedtrekksmenyen) — de resterende 51 ble automatisk koblet til riktig `shopNote` via samme eksakte koordinat-match (0 umatchede), og deretter slanket (`name`/`lat`/`lng` fjernet, `hours`/`tag`/`slot`/`fixedTime`/`dur` bevart uendret). «Test shop»-stoppet på dag 7 ble fjernet fra planen (shopNote-dokumentet `EncRux1Khyhm1n5v2lUqiX` er urørt). Resultat: 6904 → 5145 bytes (−25,5 %). Punktsikring av `itineraryState` tatt før kjøring (`itinerarystate-backup-2026-09-08.json` i `../sanity-backups/`).
+Deretter migrert den lagrede planen (`itineraryState`, Sanity-dokumentet bak «din faktiske reiseplan»): av 56 lagrede stopp hadde kun 4 allerede `shopId` (lagt til via nedtrekksmenyen) — de resterende 51 ble automatisk koblet til riktig `shopNote` via samme eksakte koordinat-match (0 umatchede), og deretter slanket (`name`/`lat`/`lng` fjernet, `hours`/`tag`/`slot`/`fixedTime`/`dur` bevart uendret). «Test shop»-stoppet på dag 7 ble fjernet fra planen (shopNote-dokumentet `EncRux1Khyhm1n5v2lUqiX` er urørt). Resultat: 6904 → 5145 bytes (−25,5 %). Punktsikring av `itineraryState` tatt før kjøring (`itinerarystate-backup-2026-09-08.json` i `C:\Users\User\Documents\Final-Fantasy-Library\sanity-backups\`).
 
 **Driftsuhell og fiks:** render-oppslaget og datamigreringen ble først kun committet på en egen gren (`itinerary-from-shops`), mens `--live`-migreringen skrev direkte til det delte produksjons-Sanity-datasettet (Sanity-skriving er uavhengig av git-gren). Dette gjorde produksjonssiden midlertidig ødelagt for alle besøkende (gammel render-kode + nytt slankt dataformat = «undefined»-navn og manglende koordinater), inntil grenen ble merget til `main` og pushet. Lærdom: en Sanity-migrering som forutsetter ny kode må ikke kjøres `--live` mot produksjon før koden som leser det nye formatet faktisk er deployet dit, ikke bare committet lokalt.
 
 **Ikke gjort (bevisst utsatt):** selve `PLAN`-literalen i `itinerary.astro` (de 52 hardkodede stoppene) er ikke konvertert til `shopId`-format. Kartlegging viste at `PLAN.stops` fortsatt er i aktiv bruk to steder — fallback i `buildState()` for enhver dag uten lagret plan, og «↺ Tilbakestill»-knappen, som bygger hele planen på nytt fra `PLAN` — så en full tømming til `[]` ville vært utrygt. En fullstendig konvertering til `shopId`-format ble kartlagt og godkjent (52/52 eksakt match, samme tabell som over), men er ikke utført. Lav prioritet: i praksis rammer `PLAN.stops` nå kun et helt tomt Sanity-datasett eller et Tilbakestill-klikk, siden `itineraryState` alltid finnes og alltid vinner.
 
-**Opprydding etter merge:** `itinerary-from-shops` merget til `main` (fast-forward) og slettet. Engangsskriptene (`backfill-itinerary-shops.ts`, `match-itinerary-stops.ts`, `migrate-itinerary-to-shops.ts`) har gjort jobben sin og er slettet. Backup-filene i `../sanity-backups/` er beholdt.
+**Opprydding etter merge:** `itinerary-from-shops` merget til `main` (fast-forward) og slettet. Engangsskriptene (`backfill-itinerary-shops.ts`, `match-itinerary-stops.ts`, `migrate-itinerary-to-shops.ts`) har gjort jobben sin og er slettet. Backup-filene i `C:\Users\User\Documents\Final-Fantasy-Library\sanity-backups\` er beholdt.
 
 ---
 

@@ -110,6 +110,7 @@ const today = new Date().toISOString().split('T')[0]
   </div>
 
   <script is:inline src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script is:inline src="/resize-image.js"></script>
 
   <script define:vars={{ trips, stores }}>
     const tripSel = document.querySelector('#f-trip')
@@ -137,14 +138,21 @@ const today = new Date().toISOString().split('T')[0]
     const preview = document.querySelector('#f-preview')
     let selectedPhoto = null
 
-    function handlePhoto(fileInput) {
+    // Resized before preview/upload with the same settings as add-item.astro
+    // (identify-flow.js), so a full-size phone photo isn't sent over mobile data.
+    async function handlePhoto(fileInput) {
       const file = fileInput.files && fileInput.files[0]
       if (!file) return
-      selectedPhoto = file
       photoName.hidden = false
+      photoName.textContent = 'Processing photo…'
+      let chosen = file
+      try {
+        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+      } catch (e) { chosen = file }
+      selectedPhoto = chosen
       photoName.textContent = file.name
       preview.hidden = false
-      preview.src = URL.createObjectURL(file)
+      preview.src = URL.createObjectURL(chosen)
     }
     photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
     photoGallery.addEventListener('change', () => handlePhoto(photoGallery))

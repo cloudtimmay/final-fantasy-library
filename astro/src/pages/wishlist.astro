@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
+import { detailHref } from '../lib/collection-fields'
 
 const items = await sanity.fetch(`
   *[_type in ["album","game","book","figure"] && status == "wishlist" && !(_id in path("drafts.**"))]
@@ -50,7 +51,7 @@ const items = await sanity.fetch(`
              data-creator={(i.creator || '').toLowerCase()}
              data-ref={ref.toLowerCase()}
              data-type={i._type}>
-          <a class="wish-row" href={`/${i._type}s/${i._id}`}>
+          <a class="wish-row" href={detailHref(i._type, i._id)}>
             {i.image
               ? <img class="wish-thumb" src={urlFor(i.image).height(120).url()} alt={i.title} loading="lazy" />
               : i.externalImageUrl

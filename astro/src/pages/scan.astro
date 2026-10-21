@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
 import { fetchProducts, fetchOwnedByPerson } from '../lib/price-products'
 import { findProductMatches, findOwnersOf } from '../lib/product-match'
+import { detailHref } from '../lib/collection-fields'
 
 const STUDIO_URL = 'https://fflibrary.sanity.studio'
 
@@ -18,13 +19,6 @@ const inamejp = (Astro.url.searchParams.get('inamejp') || '').trim()
 const identified = { jan: ijan, productName: iname, productNameJp: inamejp }
 const priceMatches = ijan || iname || inamejp ? findProductMatches(await fetchProducts(), identified) : []
 const ownerMatches = ijan || iname || inamejp ? findOwnersOf(await fetchOwnedByPerson(), identified) : []
-
-// _type -> route segment — every type pluralizes to its own route except "figure",
-// whose collection page is /merchandise, not /figures.
-function detailHref(type: string, id: string): string {
-  const segment = type === 'figure' ? 'merchandise' : `${type}s`
-  return `/${segment}/${id}`
-}
 
 function lowestJpy(prices: { price: number; currency: string }[]): number | null {
   const jpy = prices.filter((p) => p.currency === 'JPY').map((p) => p.price)

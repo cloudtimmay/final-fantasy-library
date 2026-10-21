@@ -65,6 +65,13 @@ export const FIGURE_CATEGORIES = [
 export type ImportantField = string | string[]
 export type CollectionType = 'album' | 'game' | 'book' | 'figure'
 
+// _type -> detail page URL. Every type pluralizes to its own route except "figure",
+// whose collection page is /merchandise, not /figures.
+export function detailHref(type: string, id: string): string {
+  const segment = type === 'figure' ? 'merchandise' : `${type}s`
+  return `/${segment}/${id}`
+}
+
 export const IMPORTANT_FIELDS: Record<CollectionType, ImportantField[]> = {
   album: [['artist', 'composer'], 'barcode', 'catalogNumber', 'releaseDate'],
   game: ['platform', 'year', 'developer'],

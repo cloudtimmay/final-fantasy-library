@@ -39,6 +39,9 @@ export const POST: APIRoute = async ({ request }) => {
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return json(400, { error: 'Out of range' })
 
   try {
+    const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type }`, { id })
+    if (!existing) return json(404, { error: 'Not found' })
+    if (existing._type !== 'shopNote') return json(400, { error: 'Not a shop note' })
     await sanityWrite.patch(id).set({ latitude: lat, longitude: lng }).commit()
     return json(200, { ok: true })
   } catch (e) {

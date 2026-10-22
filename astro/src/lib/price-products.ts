@@ -1,6 +1,6 @@
 import { sanity } from './sanity'
 import { OWNER } from './price-entry-fields'
-import type { OwnedItem } from './product-match'
+import type { OwnedItem, CollectionItem } from './product-match'
 
 export type PriceDoc = {
   _id: string
@@ -150,6 +150,15 @@ export async function fetchShopGroups(): Promise<ShopGroup[]> {
     byArea.get(area)!.push({ _id: s._id, shopName: s.shopName })
   }
   return [...byArea.keys()].sort().map((area) => ({ area, shops: byArea.get(area)! }))
+}
+
+// The owner's whole collection in the minimal shape findCollectionMatches() (src/lib/
+// product-match.ts) needs — a few hundred small rows, matched in JS rather than with GROQ
+// `match`, which needs every word of the identified name to appear in the stored title.
+export async function fetchCollectionForMatching(): Promise<CollectionItem[]> {
+  return sanity.fetch(
+    `*[_type in ["album", "game", "book", "figure"] && !(_id in path("drafts.**"))]{ _id, _type, title, barcode, isbn, status }`
+  )
 }
 
 // Everything a family member other than the collection owner (OWNER/Kim — their ownership

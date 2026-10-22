@@ -22,7 +22,7 @@ const MAX_TOKENS = 2048
 const SYSTEM_PROMPT = `You are looking at one or more photos of the same product in a shop — usually in Japan, sometimes in Norway (Final Fantasy and other games, music, books, and merchandise). The photos may show different sides or details of the same item — for example the front, the back with a barcode, or a separate close-up of a price tag. Combine the information from all of the photos into a single identification. Return ONLY a JSON object, with no other text, no markdown code fences, and no explanation. The JSON object must have exactly these fields:
 - productName: string, the product's name in English.
 - productNameJp: string, the product's name in Japanese exactly as printed on the packaging, or null if not visible.
-- jan: string of digits only, the JAN/EAN/UPC barcode, ONLY if clearly readable on the packaging, otherwise null.
+- jan: string of digits only, the JAN/EAN/UPC barcode (for a book, its ISBN), ONLY if clearly readable on the packaging, otherwise null.
 - category: one of "album", "game", "book", "figure", "other". "figure" means any merchandise (plushies, wearables, statues, etc.), not just figures specifically.
 - price: number, the price shown on a visible price tag, or null if no price tag is visible.
 - currency: the currency shown on the price tag — "JPY" if it shows ¥ or 円, "NOK" if it shows kr or NOK, or null if there is no price tag or the currency is not shown.

@@ -1,8 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
-import { fetchProducts, fetchOwnedByPerson } from '../lib/price-products'
-import { findProductMatches, findOwnersOf } from '../lib/product-match'
+import { fetchProducts, fetchOwnedByPerson, fetchCollectionForMatching } from '../lib/price-products'
+import { findProductMatches, findOwnersOf, findCollectionMatches } from '../lib/product-match'
 import { detailHref } from '../lib/collection-fields'
 
 const STUDIO_URL = 'https://fflibrary.sanity.studio'
@@ -25,6 +25,31 @@ function lowestJpy(prices: { price: number; currency: string }[]): number | null
   return jpy.length ? Math.min(...jpy) : null
 }
 
+const RESULT_FIELDS = `{
+  _id, _type, title, status, image, externalImageUrl,
+  catalogNumber, barcode, isbn,
+  "sub": select(
+    _type == "album"  => coalesce(composer, artist),
+    _type == "game"   => platform,
+    _type == "book"   => author,
+    _type == "figure" => manufacturer
+  )
+}`
+
+// An identified/scanned product is matched against the whole collection in JS (code vs a
+// book's isbn or any other item's barcode, then name similarity — see findCollectionMatches())
+// rather than only through the GROQ `match` below, which needs every word of the AI's name
+// to appear in the stored title ("The Art of Final Fantasy XVI" never found "Art of Final
+// Fantasy XVI"). These come first, labelled; the text search's own hits follow.
+const collectionMatches = ijan || iname || inamejp ? findCollectionMatches(await fetchCollectionForMatching(), identified) : []
+const matchLabels = new Map<string, string>(collectionMatches.map((m) => [m.item._id, m.label]))
+let identifiedResults: any[] = []
+if (collectionMatches.length) {
+  const ids = collectionMatches.map((m) => m.item._id)
+  const docs: any[] = await sanity.fetch(`*[_id in $ids]${RESULT_FIELDS}`, { ids })
+  identifiedResults = ids.map((id) => docs.find((d) => d._id === id)).filter(Boolean)
+}
+
 let results: any[] = []
 if (q) {
   const term = `*${q}*`
@@ -42,22 +67,15 @@ if (q) {
         author match $term ||
         manufacturer match $term
       )
-    ] | order(_type asc, title asc) {
-      _id, _type, title, status, image, externalImageUrl,
-      catalogNumber, barcode, isbn,
-      "sub": select(
-        _type == "album"  => coalesce(composer, artist),
-        _type == "game"   => platform,
-        _type == "book"   => author,
-        _type == "figure" => manufacturer
-      )
-    }`,
+    ] | order(_type asc, title asc) ${RESULT_FIELDS}`,
     { term }
   )
 }
+results = [...identifiedResults, ...results.filter((r: any) => !matchLabels.has(r._id))]
 
-// Is any match already owned? Used for the prominent warning banner.
-const ownedMatch = results.find((r: any) => r.status === 'owned')
+// Is any match already owned? Used for the prominent warning banner. No status counts as
+// owned, same as the collection pages (many imported items have none).
+const ownedMatch = results.find((r: any) => r.status === 'owned' || !r.status)
 // Is any match on the wishlist? A friendlier, non-warning callout with a one-tap "Got it"
 // (reuses /api/item-status exactly like wishlist.astro's own "Got it" button).
 const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
@@ -178,6 +196,7 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
               <div class="result-info">
                 <div class="result-title">{r.title}</div>
                 <div class="result-sub">
+                  {matchLabels.has(r._id) && <span class="match-badge">{matchLabels.get(r._id)}</span>}
                   {Array.isArray(r.sub) ? r.sub.join(', ') : r.sub}
                   {r.catalogNumber ? ` · ${r.catalogNumber}` : ''}
                 </div>
@@ -187,7 +206,7 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
                 {r.status === 'wishlist' && <span class="badge wishlist">WISHLIST</span>}
                 {r.status === 'sold' && <span class="badge sold">SOLD</span>}
                 {r.status === 'lent' && <span class="badge lent">LENT OUT</span>}
-                {!r.status && <span class="badge">{r._type}</span>}
+                {!r.status && <span class="badge owned">OWNED</span>}
               </div>
             </a>
           ))
@@ -319,10 +338,11 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
     .price-match-info { flex: 1; min-width: 0; }
     .price-match-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
     .price-match-sub { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
-    .price-match-badge {
+    .price-match-badge, .match-badge {
       font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px;
       background: rgba(244,162,76,0.15); color: var(--accent);
     }
+    .match-badge { margin-right: 0.4rem; }
 
     .scan-results { display: flex; flex-direction: column; border-top: 1px solid var(--border); margin-bottom: 1.5rem; }
     .scan-results h2 { font-size: 1rem; margin: 0.9rem 0 0.4rem; }

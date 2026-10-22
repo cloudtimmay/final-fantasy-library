@@ -1,12 +1,18 @@
 ---
 import Base from '../layouts/Base.astro'
-import { fetchProducts, fetchShopGroups, fetchTrips, fetchOwnedByPerson } from '../lib/price-products'
+import { fetchProducts, fetchShopGroups, fetchTrips, fetchOwnedByPerson, fetchCollectionForMatching } from '../lib/price-products'
+import { isOwnedStatus } from '../lib/product-match'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 
 const shopGroups = await fetchShopGroups()
 const products = await fetchProducts()
 const trips = await fetchTrips()
 const ownedByPerson = await fetchOwnedByPerson()
+// The owner's own collection (the family check above deliberately leaves the owner out),
+// minus wishlist/sold items — only what "You already have this" should match.
+const myCollection = (await fetchCollectionForMatching())
+  .filter((i) => isOwnedStatus(i.status))
+  .map(({ _id, _type, title, barcode, isbn }) => ({ _id, _type, title, barcode, isbn }))
 ---
 <Base title="Add price">
   <div class="add-wrap">
@@ -213,13 +219,15 @@ const ownedByPerson = await fetchOwnedByPerson()
   <script type="application/json" id="product-data" set:html={JSON.stringify(products)}></script>
   <script type="application/json" id="trips-data" set:html={JSON.stringify(trips)}></script>
   <script type="application/json" id="owned-data" set:html={JSON.stringify(ownedByPerson)}></script>
+  <script type="application/json" id="collection-data" set:html={JSON.stringify(myCollection)}></script>
 
   <script is:inline src="/resize-image.js"></script>
   <script is:inline src="/trip-select.js"></script>
   <script is:inline src="/identify-flow.js"></script>
 
   <script>
-    import { findOwnersOf } from '../lib/product-match'
+    import { findOwnersOf, findCollectionMatches } from '../lib/product-match'
+    import { detailHref } from '../lib/collection-fields'
     import { currencyForIdentifiedPrice } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
     import { describeFindPricesDiagnostics } from '../lib/find-prices-results'
@@ -239,6 +247,10 @@ const ownedByPerson = await fetchOwnedByPerson()
     try {
       OWNED = JSON.parse(document.querySelector('#owned-data')?.textContent || '[]')
     } catch (e) { OWNED = [] }
+    let MY_COLLECTION = []
+    try {
+      MY_COLLECTION = JSON.parse(document.querySelector('#collection-data')?.textContent || '[]')
+    } catch (e) { MY_COLLECTION = [] }
 
     const nameInput = document.querySelector('#p-name')
     const nameWarning = document.querySelector('#p-name-warning')
@@ -562,10 +574,29 @@ const ownedByPerson = await fetchOwnedByPerson()
     })
 
     // Non-blocking — unlike checkNameDuplicate() this never stops you from saving, it's
-    // just a heads-up that a family member already has something matching the name/JAN
-    // currently typed in (OWNED is pre-fetched server-side, see fetchOwnedByPerson()).
-    function renderOwnedNote(matches) {
+    // just a heads-up that you (MY_COLLECTION) or a family member (OWNED) already has
+    // something matching the name/JAN currently typed in — both pre-fetched server-side,
+    // see fetchCollectionForMatching()/fetchOwnedByPerson().
+    const MAX_COLLECTION_NOTES = 3
+    function renderOwnedNote(matches, collectionMatches) {
       ownedNote.replaceChildren()
+      collectionMatches.slice(0, MAX_COLLECTION_NOTES).forEach(({ item, matchType }) => {
+        const row = document.createElement('div')
+        row.className = 'ap-owned-note-row'
+        row.append('You already have this in your collection: ')
+        const link = document.createElement('a')
+        link.className = 'ap-owned-note-link'
+        link.href = detailHref(item._type, item._id)
+        link.textContent = item.title
+        row.appendChild(link)
+        if (matchType === 'jan') {
+          const badge = document.createElement('span')
+          badge.className = 'ap-owned-note-badge'
+          badge.textContent = 'Same barcode'
+          row.appendChild(badge)
+        }
+        ownedNote.appendChild(row)
+      })
       matches.forEach(({ person, matchType }) => {
         const row = document.createElement('div')
         row.className = 'ap-owned-note-row'
@@ -578,13 +609,15 @@ const ownedByPerson = await fetchOwnedByPerson()
         }
         ownedNote.appendChild(row)
       })
-      ownedNote.hidden = matches.length === 0
+      ownedNote.hidden = matches.length === 0 && collectionMatches.length === 0
     }
     function checkOwnedByFamily() {
       const name = nameInput.value.trim()
+      const nameJp = nameJpInput.value.trim()
       const jan = janInput.value.trim()
-      if (!name && !jan) { ownedNote.hidden = true; ownedNote.replaceChildren(); return }
-      renderOwnedNote(findOwnersOf(OWNED, { productName: name, jan }))
+      if (!name && !nameJp && !jan) { ownedNote.hidden = true; ownedNote.replaceChildren(); return }
+      const identified = { productName: name, productNameJp: nameJp, jan }
+      renderOwnedNote(findOwnersOf(OWNED, identified), findCollectionMatches(MY_COLLECTION, identified))
     }
     let ownedCheckTimer = null
     function scheduleOwnedCheck() {
@@ -592,6 +625,7 @@ const ownedByPerson = await fetchOwnedByPerson()
       ownedCheckTimer = setTimeout(checkOwnedByFamily, 300)
     }
     nameInput.addEventListener('input', scheduleOwnedCheck)
+    nameJpInput.addEventListener('input', scheduleOwnedCheck)
     janInput.addEventListener('input', scheduleOwnedCheck)
 
     function applyProduct() {
@@ -1291,6 +1325,8 @@ const ownedByPerson = await fetchOwnedByPerson()
       font-weight: 700; font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 4px;
       background: rgba(244,162,76,0.15); color: var(--accent);
     }
+    .ap-owned-note-link { color: var(--accent); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+    .ap-owned-note-link:hover { text-decoration: underline; }
     .ap-find-prices-searched-for { font-size: 0.8rem; color: var(--text); font-weight: 600; margin: 0 0 0.5rem; overflow-wrap: anywhere; }
     .ap-find-prices-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
     .ap-find-prices-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

@@ -3,6 +3,7 @@
 // imported and tested directly (identify-product.ts itself uses `import.meta.env`, which
 // Playwright's test transform can't load — same reason as find-prices-prompt.ts).
 import { CATEGORIES } from './price-entry-fields'
+import { isbn10ToIsbn13 } from './product-match'
 
 // The only currencies a price tag photo is expected to show: ¥/円 in Japan, kr/NOK in Norway.
 export const IDENTIFY_CURRENCIES = ['JPY', 'NOK']
@@ -32,8 +33,12 @@ export function validateIdentifyResult(parsed: any): IdentifyResult {
     result.productNameJp = parsed.productNameJp.trim()
   }
   if (typeof parsed.jan === 'string') {
-    const digits = parsed.jan.replace(/\D/g, '')
-    if ([8, 12, 13].includes(digits.length)) result.jan = digits
+    // An ISBN-10 (last character may be X) becomes the ISBN-13 a book's barcode carries;
+    // otherwise the digits are kept exactly as read (a 12-digit UPC is NOT padded here, since
+    // the JAN is also a price-list grouping key — see productKey()).
+    const code = parsed.jan.toUpperCase().replace(/[^0-9X]/g, '')
+    if (/^\d{9}[\dX]$/.test(code)) result.jan = isbn10ToIsbn13(code)
+    else if (/^\d+$/.test(code) && [8, 12, 13].includes(code.length)) result.jan = code
   }
   if (CATEGORIES.includes(parsed.category)) {
     result.category = parsed.category

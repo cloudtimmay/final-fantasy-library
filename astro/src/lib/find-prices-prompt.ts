@@ -36,7 +36,7 @@ export const NORWAY_STORE_SITES: Record<string, { label?: string; domain: string
   Platekompaniet: { domain: 'platekompaniet.no', searchUrl: 'https://www.platekompaniet.no/search?query=' },
   Ark: { domain: 'ark.no', searchUrl: 'https://www.ark.no/sok?text=' },
   Norli: { domain: 'norli.no', searchUrl: 'https://www.norli.no/search?query=' },
-  Tanum: { label: 'Tanum (Cappelen Damm)', domain: 'cappelendamm.no', searchUrl: 'https://www.cappelendamm.no/search?query=' },
+  Tanum: { label: 'Cappelen Damm', domain: 'cappelendamm.no', searchUrl: 'https://www.cappelendamm.no/search?query=' },
   Adlibris: { domain: 'adlibris.com', searchUrl: null },
 }
 

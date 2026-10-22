@@ -230,7 +230,7 @@ const myCollection = (await fetchCollectionForMatching())
     import { detailHref } from '../lib/collection-fields'
     import { currencyForIdentifiedPrice, currencyForSource, IDENTIFY_CURRENCIES } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
-    import { describeFindPricesDiagnostics, describeStoreLookup } from '../lib/find-prices-results'
+    import { summarizeDiagnostics } from '../lib/find-prices-results'
 
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
@@ -956,9 +956,14 @@ const myCollection = (await fetchCollectionForMatching())
     // "Search on <store>" fallback under a Norway search's result (found or not) — each
     // opens that store's own search page for the product in a new tab, for when the AI
     // search missed something the store does have.
-    function renderStoreFallback(region, category, productName) {
+    // `priorityStores` (blocked or temporarily failing in the direct lookup — the ones to
+    // check by hand) come first; the rest keep the category's order.
+    function renderStoreFallback(region, category, productName, priorityStores = []) {
       if (region !== 'norway') return
+      const rank = (store) => (priorityStores.includes(store) ? 0 : 1)
       const links = norwayStoreSearchLinks(category, productName)
+        .map((l, i) => ({ ...l, i }))
+        .sort((a, b) => rank(a.store) - rank(b.store) || a.i - b.i)
       if (links.length === 0) return
       const wrap = document.createElement('div')
       wrap.className = 'ap-find-prices-fallback'
@@ -980,6 +985,39 @@ const myCollection = (await fetchCollectionForMatching())
       wrap.appendChild(btns)
       findPricesResultsWrap.appendChild(wrap)
       findPricesResultsWrap.hidden = false
+    }
+
+    // The search's diagnostics as a few short lines ("Checked: ...", "Check manually: ...",
+    // "Temporary problem: ...") with the AI's details behind a toggle. Returns the stores to
+    // put first among the "Search on <store>" buttons.
+    function renderDiagnostics(d, opts = {}) {
+      if (!d) return []
+      const { lines, details, priorityStores } = summarizeDiagnostics(d, opts)
+      if (!lines.length && !details.length) return priorityStores
+      const box = document.createElement('div')
+      box.className = 'ap-find-prices-diagnostics'
+      lines.forEach((text) => {
+        const p = document.createElement('p')
+        p.className = 'ap-diag-line'
+        p.textContent = text
+        box.appendChild(p)
+      })
+      if (details.length) {
+        const det = document.createElement('details')
+        det.className = 'ap-diag-details'
+        const summary = document.createElement('summary')
+        summary.textContent = 'Details'
+        det.appendChild(summary)
+        details.forEach((text) => {
+          const p = document.createElement('p')
+          p.textContent = text
+          det.appendChild(p)
+        })
+        box.appendChild(det)
+      }
+      findPricesResultsWrap.appendChild(box)
+      findPricesResultsWrap.hidden = false
+      return priorityStores
     }
 
     async function findPrices() {
@@ -1027,30 +1065,24 @@ const myCollection = (await fetchCollectionForMatching())
         })
         const data = await res.json().catch(() => null)
         if (!res.ok) {
+          showFindPricesMsg((data && data.error) || 'Search failed.', false)
+          // The AI search failed outright; the store lookup's lines still say what was checked.
           const stores = data && data.diagnostics && data.diagnostics.stores
-          showFindPricesMsg(((data && data.error) || 'Search failed.') + (stores && stores.length ? ' ' + describeStoreLookup(stores) : ''), false)
-          renderStoreFallback(region, category, productName)
+          const priority = stores && stores.length ? renderDiagnostics(data.diagnostics, { omitAi: true }) : []
+          renderStoreFallback(region, category, productName, priority)
           return
         }
         if (!data.results || data.results.length === 0) {
-          // Say why — how many searches ran and what was dropped — not just that nothing came back.
-          const why = data.diagnostics ? ' ' + describeFindPricesDiagnostics(data.diagnostics) : ''
-          showFindPricesMsg('No reliable prices found.' + why, false)
-          renderStoreFallback(region, category, productName)
+          // Say why — what was checked, what to check by hand — not just that nothing came back.
+          showFindPricesMsg('No reliable prices found.', false)
+          renderStoreFallback(region, category, productName, renderDiagnostics(data.diagnostics))
           return
         }
         hideFindPricesMsg()
         renderFindPricesResults(data.results, region, { productName, jan, category })
-        // Which stores were searched directly (and which were skipped, and why) — or that
-        // the AI search failed and only the store search found these.
-        const d = data.diagnostics
-        if (d && (d.stores?.length || d.aiError)) {
-          const line = document.createElement('p')
-          line.className = 'ap-find-prices-note ap-find-prices-diagnostics'
-          line.textContent = describeFindPricesDiagnostics(d)
-          findPricesResultsWrap.appendChild(line)
-        }
-        renderStoreFallback(region, category, productName)
+        // Which stores were searched directly (and which to check by hand) — or that the AI
+        // search failed and only the store search found these.
+        renderStoreFallback(region, category, productName, renderDiagnostics(data.diagnostics))
       } catch (e) {
         showFindPricesMsg('Network error.', false)
         renderStoreFallback(region, category, productName)
@@ -1422,6 +1454,11 @@ const myCollection = (await fetchCollectionForMatching())
     .ap-find-prices-check-unverified { color: var(--muted); }
     .ap-find-prices-check-store { color: var(--accent); }
     .ap-find-prices-edition-warning { font-size: 0.78rem; font-weight: 600; color: #e67e22; }
+    .ap-find-prices-diagnostics { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); }
+    .ap-diag-line { margin: 0 0 0.2rem; }
+    .ap-diag-details { margin-top: 0.3rem; }
+    .ap-diag-details summary { cursor: pointer; color: var(--text); }
+    .ap-diag-details p { margin: 0.3rem 0 0; overflow-wrap: anywhere; }
     .ap-find-prices-fallback { margin-top: 0.75rem; }
     .ap-find-prices-fallback-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .ap-find-prices-store-search {

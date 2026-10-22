@@ -77,22 +77,61 @@ export function validateFindPricesResults(
   return { results, dropped, candidates }
 }
 
-// e.g. "6 searches, 2 candidates found, 2 dropped: Proshop (price in EUR, not NOK), Komplett
-// (not a match: different edition)". Shown on /add-price when a search finds nothing.
+// The AI search part only, e.g. "6 searches, 2 candidates found, 2 dropped: Proshop (price in
+// EUR, not NOK), Komplett (another edition (not the illustrated edition))".
 export function describeFindPricesDiagnostics(d: FindPricesDiagnostics): string {
-  const store = d.stores?.length ? ' ' + describeStoreLookup(d.stores) : ''
-  if (d.aiError) return `AI search failed: ${d.aiError}.${store}`
-  if (d.searches === 0) return 'The AI did not run any web search.' + store
+  if (d.aiError) return `AI search failed: ${d.aiError}.`
+  if (d.searches === 0) return 'The AI did not run any web search.'
   const searches = d.searches === 1 ? '1 search' : `${d.searches} searches`
   const candidates = `${d.candidates} candidate${d.candidates === 1 ? '' : 's'} found`
-  if (d.dropped.length === 0) return `${searches}, ${candidates}.${store}`
+  if (d.dropped.length === 0) return `${searches}, ${candidates}.`
   const reasons = d.dropped.map((x) => `${x.store} (${x.reason})`).join(', ')
-  return `${searches}, ${candidates}, ${d.dropped.length} dropped: ${reasons}${store ? '.' + store : ''}`
+  return `${searches}, ${candidates}, ${d.dropped.length} dropped: ${reasons}`
 }
 
-// e.g. "Store search: Outland 1 found, Komplett no match, Ark skipped (blocked (HTTP 429))."
-export function describeStoreLookup(stores: StoreOutcome[]): string {
-  if (!stores.length) return ''
-  const parts = stores.map((s) => (s.reason ? `${s.store} skipped (${s.reason})` : s.found ? `${s.store} ${s.found} found` : `${s.store} no match`))
-  return `Store search: ${parts.join(', ')}.`
+// What a store's direct lookup came to, for the diagnostic lines:
+// - blocked: the store refuses server requests (HTTP 403/429 — Ark, Elkjøp, Proshop, CDON,
+//   and Norli's key step from Vercel's datacenter IPs), or its page wasn't recognized —
+//   either way, check it by hand.
+// - temporary: timed out, network error, out of time, a 5xx — may work next time.
+// - found / no-match: the store was searched.
+export type StoreStatus = 'found' | 'no-match' | 'blocked' | 'temporary'
+export function classifyStoreOutcome(o: StoreOutcome): StoreStatus {
+  if (!o.reason) return o.found > 0 ? 'found' : 'no-match'
+  if (/timed out|network error|out of time|HTTP 5\d\d/i.test(o.reason)) return 'temporary'
+  return 'blocked'
+}
+
+export type DiagnosticSummary = {
+  lines: string[] // short, always shown
+  details: string[] // behind a "Details" toggle, one paragraph each; empty = no toggle
+  priorityStores: string[] // their "Search on <store>" buttons go first
+}
+
+// e.g. lines: "Checked: Outland (3), Power (no match), Cappelen Damm (no match)",
+// "Check manually: Ark, Norli, Elkjøp, Proshop, CDON", "Temporary problem: Komplett (timed
+// out)"; details: the AI search's counts and dropped candidates, and why stores were blocked.
+// `omitAi`: the AI search failed and its error is already shown (the request itself failed) —
+// leave out the AI line and the AI details, which would only say it ran no searches.
+export function summarizeDiagnostics(d: FindPricesDiagnostics, opts: { omitAi?: boolean } = {}): DiagnosticSummary {
+  if (opts.omitAi) d = { ...d, aiError: undefined }
+  const stores = d.stores || []
+  const by = (s: StoreStatus) => stores.filter((o) => classifyStoreOutcome(o) === s)
+  const checked = stores.filter((o) => ['found', 'no-match'].includes(classifyStoreOutcome(o)))
+  const blocked = by('blocked')
+  const temporary = by('temporary')
+
+  const lines: string[] = []
+  if (d.aiError) lines.push(`AI search failed: ${d.aiError}`)
+  if (checked.length) lines.push('Checked: ' + checked.map((o) => `${o.store} (${o.found || 'no match'})`).join(', '))
+  if (blocked.length) lines.push('Check manually: ' + blocked.map((o) => o.store).join(', '))
+  if (temporary.length) lines.push('Temporary problem: ' + temporary.map((o) => `${o.store} (${o.reason})`).join(', '))
+
+  const detailParts: string[] = []
+  if (!d.aiError && !opts.omitAi) detailParts.push('AI search: ' + describeFindPricesDiagnostics(d))
+  if (blocked.length) detailParts.push('Not searchable from the server: ' + blocked.map((o) => `${o.store} (${o.reason})`).join(', ') + '.')
+  // No direct store lookup (an Online search): the AI summary is all there is — show it.
+  if (!stores.length && !d.aiError) return { lines: [describeFindPricesDiagnostics(d)], details: [], priorityStores: [] }
+
+  return { lines, details: detailParts, priorityStores: [...blocked, ...temporary].map((o) => o.store) }
 }

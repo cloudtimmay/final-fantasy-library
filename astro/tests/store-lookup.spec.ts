@@ -15,7 +15,7 @@ import {
   type DirectResult,
 } from '../src/lib/store-lookup'
 import { extractProductIdentity } from '../src/lib/page-price'
-import { describeFindPricesDiagnostics } from '../src/lib/find-prices-results'
+import { classifyStoreOutcome, summarizeDiagnostics } from '../src/lib/find-prices-results'
 
 // Real pages saved (trimmed) in October 2026 — see each file's header comment.
 const sample = (name: string) => fs.readFileSync(path.join(__dirname, 'html-samples', name), 'utf8')
@@ -135,10 +135,10 @@ test.describe('store lookup: all stores in parallel', () => {
       }
     )
     expect(result.results).toEqual([
-      expect.objectContaining({ store: 'Tanum (Cappelen Damm)', price: 329, currency: 'NOK', availability: 'BackOrder', inStock: null, verified: true, matchedBy: 'code', direct: true }),
+      expect.objectContaining({ store: 'Cappelen Damm', price: 329, currency: 'NOK', availability: 'BackOrder', inStock: null, verified: true, matchedBy: 'code', direct: true }),
     ])
     const byStore = Object.fromEntries(result.stores.map((s) => [s.store, s]))
-    expect(byStore['Tanum (Cappelen Damm)']).toEqual({ store: 'Tanum (Cappelen Damm)', found: 1 })
+    expect(byStore['Cappelen Damm']).toEqual({ store: 'Cappelen Damm', found: 1 })
     expect(byStore['Outland']).toEqual({ store: 'Outland', found: 0 }) // only other editions there
     expect(byStore['Ark'].reason).toBe('blocked (HTTP 429)')
     expect(byStore['Norli'].reason).toBe('search key: blocked (HTTP 403)') // its key request isn't in this fake
@@ -316,14 +316,38 @@ test.describe('merging direct and AI results', () => {
     ])
   })
 
-  test('the diagnostic line includes the store search and an AI failure', () => {
-    const stores = [{ store: 'Outland', found: 1 }, { store: 'Komplett', found: 0 }, { store: 'Ark', found: 0, reason: 'blocked (HTTP 429)' }]
-    expect(describeFindPricesDiagnostics({ searches: 6, candidates: 0, dropped: [], stores })).toBe(
-      '6 searches, 0 candidates found. Store search: Outland 1 found, Komplett no match, Ark skipped (blocked (HTTP 429)).'
-    )
-    expect(describeFindPricesDiagnostics({ searches: 0, candidates: 0, dropped: [], stores, aiError: 'Search timed out — try again' })).toBe(
-      'AI search failed: Search timed out — try again. Store search: Outland 1 found, Komplett no match, Ark skipped (blocked (HTTP 429)).'
-    )
+  test('store outcomes are classified: blocked, temporary, found, no match', () => {
+    expect(classifyStoreOutcome({ store: 'Ark', found: 0, reason: 'blocked (HTTP 429)' })).toBe('blocked')
+    expect(classifyStoreOutcome({ store: 'Norli', found: 0, reason: 'search key: blocked (HTTP 403)' })).toBe('blocked')
+    expect(classifyStoreOutcome({ store: 'Power', found: 0, reason: 'layout not recognized' })).toBe('blocked')
+    expect(classifyStoreOutcome({ store: 'Komplett', found: 0, reason: 'timed out' })).toBe('temporary')
+    expect(classifyStoreOutcome({ store: 'Komplett', found: 0, reason: 'network error' })).toBe('temporary')
+    expect(classifyStoreOutcome({ store: 'Komplett', found: 0, reason: 'HTTP 503' })).toBe('temporary')
+    expect(classifyStoreOutcome({ store: 'Outland', found: 3 })).toBe('found')
+    expect(classifyStoreOutcome({ store: 'Power', found: 0 })).toBe('no-match')
+  })
+
+  test('short diagnostic lines, with the AI details and block reasons behind the toggle', () => {
+    const stores = [
+      { store: 'Outland', found: 3 },
+      { store: 'Ark', found: 0, reason: 'blocked (HTTP 429)' },
+      { store: 'Norli', found: 0, reason: 'search key: blocked (HTTP 403)' },
+      { store: 'Cappelen Damm', found: 0 },
+      { store: 'Komplett', found: 0, reason: 'timed out' },
+      { store: 'Power', found: 0 },
+    ]
+    expect(summarizeDiagnostics({ searches: 6, candidates: 1, dropped: [{ store: 'Proshop', reason: 'price in EUR, not NOK' }], stores })).toEqual({
+      lines: ['Checked: Outland (3), Cappelen Damm (no match), Power (no match)', 'Check manually: Ark, Norli', 'Temporary problem: Komplett (timed out)'],
+      details: [
+        'AI search: 6 searches, 1 candidate found, 1 dropped: Proshop (price in EUR, not NOK)',
+        'Not searchable from the server: Ark (blocked (HTTP 429)), Norli (search key: blocked (HTTP 403)).',
+      ],
+      priorityStores: ['Ark', 'Norli', 'Komplett'],
+    })
+    const failed = summarizeDiagnostics({ searches: 0, candidates: 0, dropped: [], stores, aiError: 'Search timed out — try again' })
+    expect(failed.lines[0]).toBe('AI search failed: Search timed out — try again')
+    expect(failed.details).toEqual(['Not searchable from the server: Ark (blocked (HTTP 429)), Norli (search key: blocked (HTTP 403)).'])
+    expect(summarizeDiagnostics({ searches: 0, candidates: 0, dropped: [], stores }, { omitAi: true }).details).toEqual([failed.details[0]])
   })
 })
 
@@ -352,9 +376,7 @@ test.describe('add-price: direct store lookup results', () => {
     await expect(items.nth(0).locator('.ap-find-prices-meta')).toContainText("Found in the store's own search · Same barcode/ISBN")
     await expect(items.nth(0).locator('.ap-find-prices-check')).toHaveText('✓ Price checked on page')
     await expect(items.nth(1).locator('.ap-find-prices-meta')).toHaveCount(0)
-    await expect(page.locator('.ap-find-prices-diagnostics')).toHaveText(
-      '6 searches, 1 candidate found. Store search: Outland 1 found, Elkjøp skipped (blocked (HTTP 429)).'
-    )
+    await expect(page.locator('.ap-diag-line')).toHaveText(['Checked: Outland (1)', 'Check manually: Elkjøp'])
   })
 
   test('AI search failed but the store search found it: results shown, with the reason', async ({ page }) => {
@@ -367,7 +389,7 @@ test.describe('add-price: direct store lookup results', () => {
     await expect(page.locator('.ap-find-prices-item')).toHaveCount(1)
     await expect(page.locator('.ap-find-prices-meta')).toContainText("Found in the store's own search")
     await expect(page.locator('.ap-find-prices-meta')).not.toContainText('same barcode')
-    await expect(page.locator('.ap-find-prices-diagnostics')).toContainText('AI search failed: Search timed out — try again. Store search: Outland 1 found.')
+    await expect(page.locator('.ap-diag-line')).toHaveText(['AI search failed: Search timed out — try again', 'Checked: Outland (1)'])
   })
 
   test('a price from the store\'s own search data gets its own label', async ({ page }) => {
@@ -387,14 +409,72 @@ test.describe('add-price: direct store lookup results', () => {
     await expect(checks.nth(2)).toHaveText('Unverified (from search)')
   })
 
-  test('nothing found anywhere: the message lists the store search too', async ({ page }) => {
+  test('the AI request itself failed: the error once, then the store lines (no AI details)', async ({ page }) => {
+    await page.route('**/api/find-prices', (route) =>
+      route.fulfill({
+        status: 504,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'Search timed out — try again',
+          diagnostics: { searches: 0, candidates: 0, dropped: [], stores: [{ store: 'Outland', found: 0 }, { store: 'Norli', found: 0, reason: 'search key: blocked (HTTP 403)' }] },
+        }),
+      })
+    )
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(testName('Harry Potter and the Half-Blood Prince'))
+    await page.locator('#p-category').selectOption('book')
+    await page.locator('input[name="p-source"][value="norway"]').check()
+    await page.locator('#p-find-prices-btn').click()
+
+    await expect(page.locator('#p-find-prices-msg')).toHaveText('Search timed out — try again')
+    await expect(page.locator('.ap-diag-line')).toHaveText(['Checked: Outland (no match)', 'Check manually: Norli'])
+    await page.locator('.ap-diag-details summary').click()
+    await expect(page.locator('.ap-diag-details p')).toHaveText(['Not searchable from the server: Norli (search key: blocked (HTTP 403)).'])
+    await expect(page.locator('.ap-find-prices-store-search').first()).toHaveText('Search on Norli')
+  })
+
+  test('nothing found: short lines, the AI details collapsed, and the stores to check by hand first', async ({ page }) => {
     await findWith(page, {
       ok: true,
       results: [],
-      diagnostics: { searches: 6, candidates: 0, dropped: [], stores: [{ store: 'Outland', found: 0 }, { store: 'Proshop', found: 0, reason: 'blocked (HTTP 403)' }] },
+      diagnostics: {
+        searches: 6,
+        candidates: 1,
+        dropped: [{ store: 'Outland', reason: 'another edition (not the illustrated edition)' }],
+        stores: [
+          { store: 'Outland', found: 0 },
+          { store: 'Komplett', found: 0, reason: 'timed out' },
+          { store: 'Elkjøp', found: 0, reason: 'blocked (HTTP 429)' },
+          { store: 'Power', found: 0 },
+          { store: 'Proshop', found: 0, reason: 'blocked (HTTP 403)' },
+          { store: 'CDON', found: 0, reason: 'blocked (HTTP 403)' },
+        ],
+      },
     })
-    await expect(page.locator('#p-find-prices-msg')).toHaveText(
-      'No reliable prices found. 6 searches, 0 candidates found. Store search: Outland no match, Proshop skipped (blocked (HTTP 403)).'
-    )
+    await expect(page.locator('#p-find-prices-msg')).toHaveText('No reliable prices found.')
+    await expect(page.locator('.ap-diag-line')).toHaveText([
+      'Checked: Outland (no match), Power (no match)',
+      'Check manually: Elkjøp, Proshop, CDON',
+      'Temporary problem: Komplett (timed out)',
+    ])
+
+    // The AI's dropped candidates are there, but collapsed.
+    const details = page.locator('.ap-diag-details')
+    await expect(details.locator('summary')).toHaveText('Details')
+    await expect(details.locator('p').first()).toBeHidden()
+    await details.locator('summary').click()
+    await expect(details.locator('p').first()).toContainText('Outland (another edition (not the illustrated edition))')
+    await expect(details.locator('p').nth(1)).toContainText('Elkjøp (blocked (HTTP 429))')
+
+    // "Search on" buttons: the stores to check by hand / with a temporary problem first, in
+    // the category's order, then the rest (figure: Outland, Komplett, Elkjøp, Power, Proshop, CDON).
+    await expect(page.locator('.ap-find-prices-store-search')).toHaveText([
+      'Search on Komplett',
+      'Search on Elkjøp',
+      'Search on Proshop',
+      'Search on CDON',
+      'Search on Outland',
+      'Search on Power',
+    ])
   })
 })

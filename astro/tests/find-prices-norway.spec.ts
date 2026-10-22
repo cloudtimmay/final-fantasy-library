@@ -62,7 +62,7 @@ test.describe('find-prices: targeted Norway searches', () => {
     expect(links.map((l) => l.store)).toEqual(['Outland', 'Komplett', 'Elkjøp', 'Power', 'Proshop', 'CDON'])
 
     const books = norwayStoreSearchLinks('book', 'Art of Final Fantasy XVI').map((l) => l.store)
-    expect(books).toContain('Tanum (Cappelen Damm)')
+    expect(books).toContain('Cappelen Damm')
     expect(books).not.toContain('Adlibris') // no confirmed search URL — see NORWAY_STORE_SITES
   })
 })
@@ -125,8 +125,10 @@ test.describe('add-price: Find prices diagnostics and store fallback', () => {
     await fillForFindPrices(page, 'norway')
     await page.locator('#p-find-prices-btn').click()
 
-    await expect(page.locator('#p-find-prices-msg')).toContainText(
-      'No reliable prices found. 6 searches, 2 candidates found, 2 dropped: Proshop (price in EUR, not NOK), Komplett (not a match: different edition)'
+    await expect(page.locator('#p-find-prices-msg')).toHaveText('No reliable prices found.')
+    // No store lookup in this response, so the AI summary is the visible line.
+    await expect(page.locator('.ap-find-prices-diagnostics .ap-diag-line')).toHaveText(
+      '6 searches, 2 candidates found, 2 dropped: Proshop (price in EUR, not NOK), Komplett (not a match: different edition)'
     )
     const outland = page.locator('.ap-find-prices-store-search', { hasText: 'Search on Outland' })
     await expect(outland).toBeVisible()
@@ -162,7 +164,8 @@ test.describe('add-price: Find prices diagnostics and store fallback', () => {
     await fillForFindPrices(page, 'online')
     await page.locator('#p-find-prices-btn').click()
 
-    await expect(page.locator('#p-find-prices-msg')).toContainText('5 searches, 0 candidates found.')
+    await expect(page.locator('#p-find-prices-msg')).toHaveText('No reliable prices found.')
+    await expect(page.locator('.ap-find-prices-diagnostics')).toContainText('5 searches, 0 candidates found.')
     await expect(page.locator('.ap-find-prices-store-search')).toHaveCount(0)
   })
 })

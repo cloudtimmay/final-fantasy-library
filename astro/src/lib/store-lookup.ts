@@ -21,6 +21,7 @@ import { NORWAY_STORE_SITES, norwayStoresFor, searchName } from './find-prices-p
 import { extractPagePrice, extractProductIdentity, type Availability } from './page-price'
 import { compareNames, normalizeCode } from './product-match'
 import type { StoreOutcome } from './find-prices-results'
+import { editionConflict } from './edition'
 
 export const SEARCH_TIMEOUT_MS = 6000
 export const PRODUCT_TIMEOUT_MS = 5000
@@ -63,7 +64,9 @@ export const fetchHtml: FetchHtml = async (url, timeoutMs, init) => {
 
 // `price`/`inStock` are only set by a store whose own search data carries them (the Algolia
 // stores below) — used when the product page itself has no structured price.
-export type StoreCandidate = { url: string; name?: string | null; code?: string | null; price?: number | null; inStock?: boolean | null }
+// `edition`: any edition/format text the search data has besides the name (Norli's sub_title
+// "Illustrated Edition" and format "Innbundet") — the name alone often doesn't say.
+export type StoreCandidate = { url: string; name?: string | null; code?: string | null; price?: number | null; inStock?: boolean | null; edition?: string | null }
 
 export type SearchContext = { fetchPage: FetchHtml; timeout: (maxMs: number) => number }
 export type SearchOutcome = { ok: true; candidates: StoreCandidate[] } | { ok: false; reason: string }
@@ -172,6 +175,20 @@ function algoliaPrice(hit: any): number | null {
   return null
 }
 
+// Edition/format text from an Algolia hit (Norli: sub_title, format; Platekompaniet:
+// formatsdisplay, format_media, book_binding, edition). A format of "Pocket" is a Norwegian
+// paperback — spelled out as "pocketbok" so edition.ts doesn't have to treat the bare word
+// "pocket" (Pocket Monsters...) as one.
+function algoliaEdition(hit: any): string | null {
+  const parts: string[] = []
+  for (const k of ['sub_title', 'format', 'formatsdisplay', 'format_media', 'book_binding', 'edition']) {
+    for (const v of [].concat(hit?.[k] ?? [])) {
+      if (typeof v === 'string' && v.trim()) parts.push(/^pocket$/i.test(v.trim()) ? 'pocketbok' : v.trim())
+    }
+  }
+  return parts.length ? parts.join(' ') : null
+}
+
 // An Algolia multi-query response -> candidates from the first query that found anything
 // (queries are sent JAN/ISBN first). null = not an Algolia response; [] = no hits at all.
 export function algoliaCandidates(body: string, fixUrl: (url: string) => string = (u) => u): StoreCandidate[] | null {
@@ -187,6 +204,7 @@ export function algoliaCandidates(body: string, fixUrl: (url: string) => string 
       code: algoliaCode(h),
       price: algoliaPrice(h),
       inStock: h.in_stock === 1 || h.in_stock === true ? true : h.in_stock === 0 || h.in_stock === false ? false : null,
+      edition: algoliaEdition(h),
     }))
 }
 
@@ -292,26 +310,33 @@ function strongNameMatch(product: LookupProduct, name: string | null | undefined
 
 // Which search hits to open, best first, at most MAX_PRODUCTS_PER_STORE: the same code
 // first; a hit with a DIFFERENT code is another edition and is dropped; a hit whose name is
-// known but doesn't match is dropped; a hit with no name or code is kept, in the store's order.
+// known but doesn't match — or names another edition (lib/edition.ts) — is dropped, so the
+// three slots aren't spent on a paperback when the illustrated edition is wanted; a hit with
+// no name or code is kept, in the store's order.
 export function rankCandidates(candidates: StoreCandidate[], product: LookupProduct): StoreCandidate[] {
   const want = normalizeCode(product.jan)
   const scored: { c: StoreCandidate; score: number }[] = []
   for (const c of candidates) {
     const got = normalizeCode(c.code)
     if (want && got) { if (got === want) scored.push({ c, score: 0 }); continue }
-    if (c.name) { if (strongNameMatch(product, c.name)) scored.push({ c, score: 1 }); continue }
+    if (c.name) {
+      if (strongNameMatch(product, c.name) && !editionConflict(product.productName, [c.name, c.edition].filter(Boolean).join(' '))) scored.push({ c, score: 1 })
+      continue
+    }
     scored.push({ c, score: 2 })
   }
   return scored.sort((a, b) => a.score - b.score).slice(0, MAX_PRODUCTS_PER_STORE).map((s) => s.c)
 }
 
 // After reading the product page: 'code' when the page's GTIN/ISBN equals the searched one
-// (a sure match), 'name' on a strong name match when one side has no code, otherwise null.
-export function judgeMatch(identity: { name: string | null; gtin: string | null }, product: LookupProduct): 'code' | 'name' | null {
+// (a sure match — the code settles the edition), 'name' on a strong name match when one side
+// has no code and the page's name/format don't name another edition, otherwise null.
+export function judgeMatch(identity: { name: string | null; gtin: string | null; format?: string | null }, product: LookupProduct): 'code' | 'name' | null {
   const want = normalizeCode(product.jan)
   const got = normalizeCode(identity.gtin)
   if (want && got) return want === got ? 'code' : null
-  return strongNameMatch(product, identity.name) ? 'name' : null
+  if (!strongNameMatch(product, identity.name)) return null
+  return editionConflict(product.productName, [identity.name, identity.format].filter(Boolean).join(' ')) ? null : 'name'
 }
 
 // --- lookup -------------------------------------------------------------------------------
@@ -374,7 +399,10 @@ async function lookupStore(
       if (pagePrice && (!pagePrice.currency || pagePrice.currency === 'NOK')) {
         const identity = extractProductIdentity(page!.ok ? page!.html : '')
         // The page's own name/code first; the search data's where the page has none.
-        const matchedBy = judgeMatch({ name: identity.name || c.name || null, gtin: identity.gtin || c.code || null }, product)
+        const matchedBy = judgeMatch(
+          { name: identity.name || c.name || null, gtin: identity.gtin || c.code || null, format: [identity.format, c.edition].filter(Boolean).join(' ') || null },
+          product
+        )
         if (!matchedBy) return null
         const a = pagePrice.availability
         return {
@@ -391,12 +419,15 @@ async function lookupStore(
       }
       // No price on the page: only a store whose search data has one can still give a result.
       if (typeof c.price !== 'number') return null
-      const matchedBy = judgeMatch({ name: c.name || null, gtin: c.code || null }, product)
+      const matchedBy = judgeMatch({ name: c.name || null, gtin: c.code || null, format: c.edition || null }, product)
       if (!matchedBy) return null
       return { store: label, price: c.price, currency: 'NOK', url: c.url, inStock: c.inStock ?? null, verified: 'store-search', matchedBy, direct: true }
     })
   )
-  const results = checked.filter((r): r is DirectResult => !!r)
+  const all = checked.filter((r): r is DirectResult => !!r)
+  // A sure (same code) match at this store makes its name-only matches redundant at best and
+  // other editions at worst.
+  const results = all.some((r) => r.matchedBy === 'code') ? all.filter((r) => r.matchedBy === 'code') : all
   return { results, outcome: { store: label, found: results.length } }
 }
 
@@ -427,17 +458,39 @@ function urlKey(url: string): string {
   }
 }
 
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase() } catch { return url }
+}
+
 export const MAX_MERGED_RESULTS = 10
 
-// Sure (same GTIN/ISBN) direct matches first, then the AI results, then direct name matches;
-// one entry per product page (the direct one wins — it's verified and knows how it matched).
-export function mergeFindPricesResults<A extends { url: string }>(ai: A[], direct: DirectResult[]): (A | DirectResult)[] {
+// Sure (same GTIN/ISBN) matches first — direct or AI — then AI results whose page couldn't
+// be read, then name-only matches ("check the edition"). One entry per product page (the
+// direct one wins — it's verified and knows how it matched), and a store with a sure match
+// loses its name-only matches.
+export function mergeFindPricesResults<A extends { url: string; matchedBy?: 'code' | 'name' }>(ai: A[], direct: DirectResult[]): (A | DirectResult)[] {
   const directKeys = new Set(direct.map((d) => urlKey(d.url)))
-  const ordered = [
-    ...direct.filter((d) => d.matchedBy === 'code'),
-    ...ai.filter((a) => !directKeys.has(urlKey(a.url))),
-    ...direct.filter((d) => d.matchedBy === 'name'),
-  ]
+  const all: (A | DirectResult)[] = [...direct, ...ai.filter((a) => !directKeys.has(urlKey(a.url)))]
+  const sureHosts = new Set(all.filter((r) => r.matchedBy === 'code').map((r) => hostOf(r.url)))
+  const kept = all.filter((r) => !(r.matchedBy === 'name' && sureHosts.has(hostOf(r.url))))
+  const rank = (r: A | DirectResult) => (r.matchedBy === 'code' ? 0 : r.matchedBy === 'name' ? 2 : 1)
+  const ordered = kept.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i).map((x) => x.r)
   const seen = new Set<string>()
   return ordered.filter((r) => !seen.has(urlKey(r.url)) && seen.add(urlKey(r.url))).slice(0, MAX_MERGED_RESULTS)
+}
+
+// An AI result, after its product page was read for the price check: the same code as the
+// one searched for makes it a sure match; a different code, or a name/format that names
+// another edition, drops it (with the reason, for the diagnostics); otherwise it's a
+// name-only match. No identity on the page (blocked, no structured data) -> unknown.
+export function checkAiResult(
+  identity: { name: string | null; gtin: string | null; format?: string | null } | null,
+  product: LookupProduct
+): { matchedBy?: 'code' | 'name'; drop?: string } {
+  if (!identity || (!identity.name && !identity.gtin)) return {}
+  const want = normalizeCode(product.jan)
+  const got = normalizeCode(identity.gtin)
+  if (want && got) return want === got ? { matchedBy: 'code' } : { drop: 'another edition (different EAN/ISBN)' }
+  const conflict = editionConflict(product.productName, [identity.name, identity.format].filter(Boolean).join(' '))
+  return conflict ? { drop: `another edition (${conflict})` } : { matchedBy: 'name' }
 }

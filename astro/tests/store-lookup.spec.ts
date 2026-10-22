@@ -175,7 +175,7 @@ test.describe('store lookup: Power (JSON search API)', () => {
 
   test('the product page gives price, availability and the GTIN', () => {
     const html = sample('power-product.html')
-    expect(extractProductIdentity(html)).toEqual({ name: 'Final Fantasy VII Remake Intergrade (Nintendo Switch)', gtin: '5021290101722' })
+    expect(extractProductIdentity(html)).toMatchObject({ name: 'Final Fantasy VII Remake Intergrade (Nintendo Switch)', gtin: '5021290101722' })
     expect(judgeMatch(extractProductIdentity(html), { productName: 'x', jan: '5021290101722' })).toBe('code')
   })
 
@@ -218,12 +218,14 @@ test.describe('store lookup: Algolia stores (Platekompaniet, Norli) — price fr
 
   test('Platekompaniet hits: EAN (a JSON number), price and stock; the internal sku is not a code', () => {
     const c = algoliaCandidates(sample('platekompaniet-algolia.json'))!
-    expect(c[0]).toEqual({ url: PLATE_URL, name: 'Final Fantasy RESONANCE', code: '5021290102958', price: 699, inStock: true })
+    expect(c[0]).toMatchObject({ url: PLATE_URL, name: 'Final Fantasy RESONANCE', code: '5021290102958', price: 699, inStock: true })
+    expect(c[0].edition).toContain('PS5')
   })
 
   test('Norli hits: the Half-Blood Prince (illustrated) is ISBN 9781408845691 at 529 NOK, URL on www', () => {
     const c = algoliaCandidates(sample('norli-algolia.json'), (u) => u.replace('https://checkout.norli.no/', 'https://www.norli.no/'))!
-    expect(c).toEqual([{ url: NORLI_URL, name: 'Harry Potter and the Half-Blood Prince', code: '9781408845691', price: 529, inStock: true }])
+    expect(c).toHaveLength(1)
+    expect(c[0]).toEqual({ url: NORLI_URL, name: 'Harry Potter and the Half-Blood Prince', code: '9781408845691', price: 529, inStock: true, edition: 'Illustrated Edition Innbundet' })
   })
 
   test('the name query is used when the code query finds nothing; other editions are then dropped by ISBN', () => {
@@ -304,11 +306,13 @@ test.describe('merging direct and AI results', () => {
       { store: 'Outland', price: 349, currency: 'NOK', url: 'https://outland.no/p/flareon/', verified: false },
       { store: 'Proshop', price: 299, currency: 'NOK', url: 'https://www.proshop.no/x', verified: false },
     ]
-    const merged = mergeFindPricesResults(ai, [direct('https://www.outland.no/p/beast', 'name'), direct('https://www.outland.no/p/flareon', 'code')])
+    // The name match is at another store: a name match at the same store as a code match is
+    // dropped (see edition-match.spec.ts).
+    const merged = mergeFindPricesResults(ai, [direct('https://www.power.no/p/beast', 'name'), direct('https://www.outland.no/p/flareon', 'code')])
     expect(merged.map((r) => [r.url, r.price])).toEqual([
       ['https://www.outland.no/p/flareon', 279],
       ['https://www.proshop.no/x', 299],
-      ['https://www.outland.no/p/beast', 279],
+      ['https://www.power.no/p/beast', 279],
     ])
   })
 
@@ -345,7 +349,7 @@ test.describe('add-price: direct store lookup results', () => {
 
     const items = page.locator('.ap-find-prices-item')
     await expect(items).toHaveCount(2)
-    await expect(items.nth(0).locator('.ap-find-prices-meta')).toContainText("Found in the store's own search · same barcode/ISBN")
+    await expect(items.nth(0).locator('.ap-find-prices-meta')).toContainText("Found in the store's own search · Same barcode/ISBN")
     await expect(items.nth(0).locator('.ap-find-prices-check')).toHaveText('✓ Price checked on page')
     await expect(items.nth(1).locator('.ap-find-prices-meta')).toHaveCount(0)
     await expect(page.locator('.ap-find-prices-diagnostics')).toHaveText(

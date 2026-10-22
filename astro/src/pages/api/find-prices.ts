@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
 import { CATEGORIES, CURRENCIES } from '../../lib/price-entry-fields'
-import { extractPagePrice, applyPagePrice } from '../../lib/page-price'
-import { fetchHtml, lookupNorwayStores, mergeFindPricesResults } from '../../lib/store-lookup'
+import { extractPagePrice, applyPagePrice, extractProductIdentity } from '../../lib/page-price'
+import { fetchHtml, lookupNorwayStores, mergeFindPricesResults, checkAiResult } from '../../lib/store-lookup'
 import { buildFindPricesSystemPrompt, norwaySearchQueries, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
 import { validateFindPricesResults, hostnameOf } from '../../lib/find-prices-results'
 
@@ -225,7 +225,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Only https URLs on a hostname the search actually returned get here (validated above),
   // so this never fetches an address the model made up.
-  const checked = await Promise.all(
+  const checkedAll = await Promise.all(
     found.map(async (r) => {
       const ms = Math.min(PAGE_FETCH_TIMEOUT_MS, deadline - Date.now())
       const page = ms >= MIN_PAGE_FETCH_MS ? await fetchHtml(r.url, ms) : null
@@ -233,9 +233,16 @@ export const POST: APIRoute = async ({ request }) => {
       if (result.searchPrice !== undefined) {
         console.error('[find-prices] page price differs from search:', r.url, `${result.searchPrice} ${result.searchCurrency} -> ${result.price} ${result.currency}`)
       }
-      return result
+      // The same page also says which edition it is (lib/edition.ts, store-lookup.ts).
+      const edition = checkAiResult(page?.ok ? extractProductIdentity(page.html) : null, { productName, productNameJp, jan })
+      if (edition.drop) {
+        dropped.push({ store: r.store, reason: edition.drop })
+        return null
+      }
+      return edition.matchedBy ? { ...result, matchedBy: edition.matchedBy } : result
     })
   )
+  const checked = checkedAll.filter((r): r is NonNullable<typeof r> => !!r)
 
   const direct = await directLookup
   const results = mergeFindPricesResults(checked, direct.results)

@@ -901,9 +901,19 @@ const myCollection = (await fetchCollectionForMatching())
         } else check.textContent = '✓ Price checked on page'
         li.appendChild(check)
 
+        // Matched by title alone (no barcode/ISBN to compare): the same title often exists as
+        // a paperback, hardcover, illustrated or deluxe edition — see lib/edition.ts.
+        if (r.matchedBy === 'name') {
+          const warn = document.createElement('div')
+          warn.className = 'ap-find-prices-edition-warning'
+          warn.textContent = 'Name match only, check the edition'
+          li.appendChild(warn)
+        }
+
         const metaBits = []
         // Found by searching the store's own site directly (lib/store-lookup.ts), not by the AI.
-        if (r.direct) metaBits.push("Found in the store's own search" + (r.matchedBy === 'code' ? ' · same barcode/ISBN' : ''))
+        if (r.direct) metaBits.push("Found in the store's own search")
+        if (r.matchedBy === 'code') metaBits.push('Same barcode/ISBN')
         if (r.availability === 'PreOrder') metaBits.push('Pre-order')
         else if (r.availability === 'BackOrder') metaBits.push('Back-order')
         else if (r.inStock === true) metaBits.push('In stock')
@@ -1411,6 +1421,7 @@ const myCollection = (await fetchCollectionForMatching())
     .ap-find-prices-check-ok { color: #2ecc71; }
     .ap-find-prices-check-unverified { color: var(--muted); }
     .ap-find-prices-check-store { color: var(--accent); }
+    .ap-find-prices-edition-warning { font-size: 0.78rem; font-weight: 600; color: #e67e22; }
     .ap-find-prices-fallback { margin-top: 0.75rem; }
     .ap-find-prices-fallback-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .ap-find-prices-store-search {

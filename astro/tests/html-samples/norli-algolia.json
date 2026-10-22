@@ -23,7 +23,9 @@
        "default": false
       }
      },
-     "in_stock": 1
+     "in_stock": 1,
+     "sub_title": "Illustrated Edition",
+     "format": "Innbundet"
     }
    ]
   },
@@ -50,7 +52,9 @@
        "default": false
       }
      },
-     "in_stock": 1
+     "in_stock": 1,
+     "sub_title": "Illustrated Edition",
+     "format": "Innbundet"
     },
     {
      "name": "Harry Potter and the half-blood prince ; Harry Potter and the half-blood prince ; Harry Potter and t",
@@ -70,7 +74,8 @@
        "default": false
       }
      },
-     "in_stock": 1
+     "in_stock": 1,
+     "format": "Pocket"
     },
     {
      "name": "Harry Potter and the Half-Blood Prince",
@@ -90,7 +95,8 @@
        "default": false
       }
      },
-     "in_stock": 1
+     "in_stock": 1,
+     "format": "Pocket"
     },
     {
      "name": "Harry Potter and the Half-Blood Prince",
@@ -110,7 +116,8 @@
        "default": false
       }
      },
-     "in_stock": 1
+     "in_stock": 1,
+     "format": "Innbundet"
     }
    ]
   }

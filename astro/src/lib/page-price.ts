@@ -178,17 +178,31 @@ function codeFromProduct(node: any): string | null {
   return validGtin(node.sku)
 }
 
-export type ProductIdentity = { name: string | null; gtin: string | null }
+// `format`: what the structured data says about the physical edition (a Book's bookFormat,
+// or a PropertyValue named format/binding/innbinding) — for edition matching (lib/edition.ts).
+export type ProductIdentity = { name: string | null; gtin: string | null; format: string | null }
+
+function formatFromProduct(node: any): string | null {
+  const parts: string[] = []
+  for (const v of [].concat(node.bookFormat || [])) {
+    if (typeof v === 'string') parts.push(v.split('/').pop()!) // "https://schema.org/Hardcover"
+  }
+  for (const n of walk([node.additionalProperty])) {
+    if (isType(n, 'PropertyValue') && /format|binding|innbinding/i.test(String(n.name || n.propertyID || '')) && typeof n.value === 'string') parts.push(n.value)
+  }
+  return parts.length ? parts.join(' ') : null
+}
 
 // The product's name and GTIN/ISBN from its page, for matching a store's own search hit
 // against what's being searched for — JSON-LD Product first, then microdata, then og:title.
 export function extractProductIdentity(html: string): ProductIdentity {
   let name: string | null = null
   let gtin: string | null = null
+  let format: string | null = null
   for (const node of jsonLdProducts(html)) {
     if (!name && typeof node.name === 'string' && node.name.trim()) name = node.name.trim()
     if (!gtin) gtin = codeFromProduct(node)
-    if (name && gtin) break
+    if (!format) format = formatFromProduct(node)
   }
   if (!gtin) {
     for (const prop of ['gtin13', 'gtin', 'gtin12', 'gtin8', 'isbn']) {
@@ -201,7 +215,7 @@ export function extractProductIdentity(html: string): ProductIdentity {
     name = itempropValue(html, 'name') || (ogTitle ? attr(ogTitle, 'content') : null)
     name = name ? name.replace(/\s+/g, ' ').trim() || null : null
   }
-  return { name, gtin }
+  return { name, gtin, format }
 }
 
 // JSON-LD offers first, then meta tags, then microdata — the first source with a price wins.

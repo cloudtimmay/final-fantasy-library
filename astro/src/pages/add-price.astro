@@ -888,10 +888,14 @@ const myCollection = (await fetchCollectionForMatching())
         li.appendChild(main)
 
         // Whether find-prices.ts could confirm this price on the store's own page (search
-        // index prices can be stale) — and what the search said, if the page disagreed.
+        // index prices can be stale) — and what the search said, if the page disagreed. A
+        // store whose product pages carry no price (Platekompaniet, Norli) gives its own
+        // search data's price instead: trusted more than an AI search, less than the page.
         const check = document.createElement('div')
-        check.className = 'ap-find-prices-check ' + (r.verified ? 'ap-find-prices-check-ok' : 'ap-find-prices-check-unverified')
-        if (!r.verified) check.textContent = 'Unverified (from search)'
+        const level = r.verified === 'store-search' ? 'store' : r.verified ? 'ok' : 'unverified'
+        check.className = 'ap-find-prices-check ap-find-prices-check-' + level
+        if (level === 'store') check.textContent = "Price from the store's own search"
+        else if (!r.verified) check.textContent = 'Unverified (from search)'
         else if (typeof r.searchPrice === 'number') {
           check.textContent = '✓ Price checked on page: ' + formatMoney(r.price, r.currency) + ' (search said ' + formatMoney(r.searchPrice, r.searchCurrency || r.currency) + ')'
         } else check.textContent = '✓ Price checked on page'
@@ -1406,6 +1410,7 @@ const myCollection = (await fetchCollectionForMatching())
     .ap-find-prices-check { font-size: 0.78rem; font-weight: 600; }
     .ap-find-prices-check-ok { color: #2ecc71; }
     .ap-find-prices-check-unverified { color: var(--muted); }
+    .ap-find-prices-check-store { color: var(--accent); }
     .ap-find-prices-fallback { margin-top: 0.75rem; }
     .ap-find-prices-fallback-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .ap-find-prices-store-search {

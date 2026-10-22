@@ -1,0 +1,103 @@
+{
+ "results": [
+  {
+   "index": "plate_prod_default_products",
+   "query": "5021290102958",
+   "nbHits": 1,
+   "hits": [
+    {
+     "name": "Final Fantasy RESONANCE",
+     "url": "https://www.platekompaniet.no/gaming/playstation/spill/rpg-rollespill/final-fantasy-resonance-spill-playstation-5",
+     "sku": "3972742",
+     "ean": 5021290102958,
+     "isbn": null,
+     "price": {
+      "NOK": {
+       "default": 699,
+       "default_formated": "kr 699,00",
+       "special_from_date": "",
+       "special_to_date": ""
+      }
+     },
+     "active_price": 699,
+     "in_stock": 1
+    }
+   ]
+  },
+  {
+   "index": "plate_prod_default_products",
+   "query": "Final Fantasy Resonance",
+   "nbHits": 4,
+   "hits": [
+    {
+     "name": "Final Fantasy RESONANCE",
+     "url": "https://www.platekompaniet.no/gaming/playstation/spill/rpg-rollespill/final-fantasy-resonance-spill-playstation-5",
+     "sku": "3972742",
+     "ean": 5021290102958,
+     "isbn": null,
+     "price": {
+      "NOK": {
+       "default": 699,
+       "default_formated": "kr 699,00",
+       "special_from_date": "",
+       "special_to_date": ""
+      }
+     },
+     "active_price": 699,
+     "in_stock": 1
+    },
+    {
+     "name": "Final Fantasy RESONANCE",
+     "url": "https://www.platekompaniet.no/gaming/nintendo/spill/rpg-rollespill/final-fantasy-resonance-spill-nintendo-switch-2",
+     "sku": "3972744",
+     "ean": 5021290103054,
+     "isbn": null,
+     "price": {
+      "NOK": {
+       "default": 699,
+       "default_formated": "699,00 kr",
+       "special_from_date": "",
+       "special_to_date": ""
+      }
+     },
+     "active_price": 699,
+     "in_stock": 1
+    },
+    {
+     "name": "Final Fantasy RESONANCE",
+     "url": "https://www.platekompaniet.no/gaming/nintendo/spill/rpg-rollespill/final-fantasy-resonance-spill-nintendo-switch",
+     "sku": "3972743",
+     "ean": 5021290103016,
+     "isbn": null,
+     "price": {
+      "NOK": {
+       "default": 699,
+       "default_formated": "kr 699,00",
+       "special_from_date": "",
+       "special_to_date": ""
+      }
+     },
+     "active_price": 699,
+     "in_stock": 1
+    },
+    {
+     "name": "Crystalline Resonance - Final Fantasy Piano Coll",
+     "url": "https://www.platekompaniet.no/musikk/cd/filmmusikk/crystalline-resonance-final-fantasy-piano-coll-usa-import-cd",
+     "sku": "3669792",
+     "ean": 4988601471435,
+     "isbn": null,
+     "price": {
+      "NOK": {
+       "default": 449,
+       "default_formated": "449,00 kr",
+       "special_from_date": "",
+       "special_to_date": ""
+      }
+     },
+     "active_price": 449,
+     "in_stock": 1
+    }
+   ]
+  }
+ ]
+}

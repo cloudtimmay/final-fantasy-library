@@ -1,0 +1,118 @@
+{
+ "results": [
+  {
+   "index": "norli_pwa_products",
+   "query": "9781408845691",
+   "nbHits": 1,
+   "hits": [
+    {
+     "name": "Harry Potter and the Half-Blood Prince",
+     "url": "https://checkout.norli.no/boker/skjonnlitteratur/romaner/engelske-romaner/harry-potter-and-the-half-blood-prince-9781408845691",
+     "sku": "9781408845691",
+     "price": {
+      "NOK": {
+       "default": 529,
+       "default_formated": "529,-",
+       "special_from_date": "",
+       "special_to_date": "",
+       "default_final_price_formated": "529,-"
+      }
+     },
+     "price_on_sale": {
+      "NOK": {
+       "default": false
+      }
+     },
+     "in_stock": 1
+    }
+   ]
+  },
+  {
+   "index": "norli_pwa_products",
+   "query": "Harry Potter and the Half-Blood Prince",
+   "nbHits": 9,
+   "hits": [
+    {
+     "name": "Harry Potter and the Half-Blood Prince",
+     "url": "https://checkout.norli.no/boker/skjonnlitteratur/romaner/engelske-romaner/harry-potter-and-the-half-blood-prince-9781408845691",
+     "sku": "9781408845691",
+     "price": {
+      "NOK": {
+       "default": 529,
+       "default_formated": "529,-",
+       "special_from_date": "",
+       "special_to_date": "",
+       "default_final_price_formated": "529,-"
+      }
+     },
+     "price_on_sale": {
+      "NOK": {
+       "default": false
+      }
+     },
+     "in_stock": 1
+    },
+    {
+     "name": "Harry Potter and the half-blood prince ; Harry Potter and the half-blood prince ; Harry Potter and t",
+     "url": "https://checkout.norli.no/boker/barneboker/fra-10-ar/harry-potter-and-the-half-blood-prince-1",
+     "sku": "9781408855706",
+     "price": {
+      "NOK": {
+       "default": 169,
+       "default_formated": "169,-",
+       "special_from_date": "",
+       "special_to_date": "",
+       "default_final_price_formated": "169,-"
+      }
+     },
+     "price_on_sale": {
+      "NOK": {
+       "default": false
+      }
+     },
+     "in_stock": 1
+    },
+    {
+     "name": "Harry Potter and the Half-Blood Prince",
+     "url": "https://checkout.norli.no/harry-potter-and-the-half-blood-prince-3",
+     "sku": "9781408894767",
+     "price": {
+      "NOK": {
+       "default": 169,
+       "default_formated": "169,-",
+       "special_from_date": "",
+       "special_to_date": "",
+       "default_final_price_formated": "169,-"
+      }
+     },
+     "price_on_sale": {
+      "NOK": {
+       "default": false
+      }
+     },
+     "in_stock": 1
+    },
+    {
+     "name": "Harry Potter and the Half-Blood Prince",
+     "url": "https://checkout.norli.no/harry-potter-and-the-half-blood-prince-4",
+     "sku": "9781408855942",
+     "price": {
+      "NOK": {
+       "default": 279,
+       "default_formated": "279,-",
+       "special_from_date": "",
+       "special_to_date": "",
+       "default_final_price_formated": "279,-"
+      }
+     },
+     "price_on_sale": {
+      "NOK": {
+       "default": false
+      }
+     },
+     "in_stock": 1
+    }
+   ]
+  }
+ ]
+}

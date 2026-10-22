@@ -30,16 +30,20 @@ const MAX_PAGE_BYTES = 5 * 1024 * 1024
 export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
 export type FetchResult = { ok: true; html: string } | { ok: false; reason: string }
-export type FetchHtml = (url: string, timeoutMs: number) => Promise<FetchResult>
+// `init` is only for the stores whose search is an API call (a POST with a JSON body).
+export type FetchInit = { method?: 'GET' | 'POST'; body?: string; headers?: Record<string, string> }
+export type FetchHtml = (url: string, timeoutMs: number, init?: FetchInit) => Promise<FetchResult>
 
 // The real fetch, shared with find-prices.ts's page-price check: normal browser headers, a
 // hard timeout, and a reason on failure for the diagnostic line.
-export const fetchHtml: FetchHtml = async (url, timeoutMs) => {
+export const fetchHtml: FetchHtml = async (url, timeoutMs, init) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'nb-NO,nb;q=0.9,en;q=0.8' },
+      method: init?.method || 'GET',
+      body: init?.body,
+      headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'nb-NO,nb;q=0.9,en;q=0.8', ...init?.headers },
       redirect: 'follow',
       signal: controller.signal,
     })
@@ -57,7 +61,12 @@ export const fetchHtml: FetchHtml = async (url, timeoutMs) => {
 
 // --- per-store rules ----------------------------------------------------------------------
 
-export type StoreCandidate = { url: string; name?: string | null; code?: string | null }
+// `price`/`inStock` are only set by a store whose own search data carries them (the Algolia
+// stores below) — used when the product page itself has no structured price.
+export type StoreCandidate = { url: string; name?: string | null; code?: string | null; price?: number | null; inStock?: boolean | null }
+
+export type SearchContext = { fetchPage: FetchHtml; timeout: (maxMs: number) => number }
+export type SearchOutcome = { ok: true; candidates: StoreCandidate[] } | { ok: false; reason: string }
 
 type StoreRule = {
   // Overrides NORWAY_STORE_SITES[store].searchUrl for server-side searching.
@@ -67,6 +76,9 @@ type StoreRule = {
   // 'name': search by name only — one request per search, for a store whose search finds
   // nothing by JAN/ISBN. Default: JAN/ISBN first, then the name if that finds nothing.
   searchBy?: 'name'
+  // A store whose search is an API call rather than a page: runs every query itself (in
+  // as few requests as it can) and returns the candidates, best query first.
+  search?: (queries: string[], ctx: SearchContext) => Promise<SearchOutcome>
 }
 
 function decodeEntities(s: string): string {
@@ -79,8 +91,10 @@ function outlandCandidates(html: string): StoreCandidate[] | null {
   let products: any
   try { products = JSON.parse(m[1])?.props?.pageProps?.products } catch { return null }
   if (!products || !Array.isArray(products.items)) return null
-  // The unfiltered default listing (the whole catalog) means the query wasn't applied.
-  if (typeof products.total_count === 'number' && products.total_count > 10000) return null
+  // The unfiltered default listing (the whole catalog, ~82 000 products in October 2026)
+  // means the query wasn't applied. A broad real query can still match many — "Final Fantasy
+  // Resonance" matched 15 961 — so the line is drawn well above that.
+  if (typeof products.total_count === 'number' && products.total_count > 50000) return null
   return products.items
     .filter((i: any) => typeof i?.url_key === 'string' && i.url_key)
     .map((i: any) => ({ url: `https://www.outland.no/p/${i.url_key}`, name: i.name ?? null, code: i.sku ?? null }))
@@ -114,6 +128,111 @@ function powerCandidates(body: string): StoreCandidate[] | null {
     .map((p: any) => ({ url: 'https://www.power.no' + p.url, name: p.title ?? null, code: null }))
 }
 
+// --- Algolia stores (Platekompaniet, Norli) ------------------------------------------------
+// Both search through Algolia in the browser, and both have product pages that are browser-
+// only shells with no structured data — so their price comes from the store's own search
+// data (verified: 'store-search'), unless a product page ever does expose one. The app id,
+// index and where the key comes from, all in one place:
+// - Platekompaniet: the public search key from its storeConfig (GraphQL getStoreConfigData,
+//   algoliasearch_api_key) — not tied to an IP, so it's used as-is. Read October 2026; if
+//   it's rotated, Algolia answers 403 and the store is skipped with that reason.
+// - Norli: no public key — its site asks GraphQL (mutation createAlgoliaKey) for one per
+//   visitor, restricted to the caller's IP, so a fresh one is fetched on every search.
+export const ALGOLIA_STORES = {
+  Platekompaniet: {
+    appId: 'H4ZQSN0RMC',
+    index: 'plate_prod_default_products',
+    apiKey: 'NTA5ZGNjMjBlM2FmZTMwZWQxZTlkMTNiYzQxN2RiMTAwMmRmYWE4ZDczZWQwYWQ3NTk3ZTA5ZTlhNGM4ZDFjYXRhZ0ZpbHRlcnM9',
+  },
+  Norli: {
+    appId: 'AEEYIEERSJ',
+    index: 'norli_pwa_products',
+    keyUrl: 'https://www.norli.no/graphql',
+  },
+} as const
+
+const NORLI_KEY_MUTATION = 'mutation createAlgoliaKey($userToken: String!) {\n  createAlgoliaKey(input: {user_token: $userToken})\n}\n'
+const ALGOLIA_HITS_PER_QUERY = 10
+
+function algoliaCode(hit: any): string | null {
+  for (const v of [hit?.ean, hit?.isbn, hit?.sku]) {
+    // Platekompaniet's ean is a JSON number and its sku an internal number; only a
+    // barcode-shaped value counts.
+    const s = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : ''
+    if (/^(\d{8}|\d{12,13}|\d{9}[\dX])$/i.test(s)) return s
+  }
+  return null
+}
+
+// What you'd pay: Platekompaniet's active_price, then a sale price, then the regular price.
+function algoliaPrice(hit: any): number | null {
+  for (const v of [hit?.active_price, hit?.price_on_sale?.NOK?.default, hit?.price?.NOK?.default]) {
+    if (typeof v === 'number' && isFinite(v) && v >= 0) return v
+  }
+  return null
+}
+
+// An Algolia multi-query response -> candidates from the first query that found anything
+// (queries are sent JAN/ISBN first). null = not an Algolia response; [] = no hits at all.
+export function algoliaCandidates(body: string, fixUrl: (url: string) => string = (u) => u): StoreCandidate[] | null {
+  let data: any
+  try { data = JSON.parse(body) } catch { return null }
+  if (!Array.isArray(data?.results)) return null
+  const hits = data.results.find((r: any) => Array.isArray(r?.hits) && r.hits.length)?.hits || []
+  return hits
+    .filter((h: any) => typeof h?.url === 'string' && h.url.startsWith('https://'))
+    .map((h: any) => ({
+      url: fixUrl(h.url),
+      name: typeof h.name === 'string' ? h.name : null,
+      code: algoliaCode(h),
+      price: algoliaPrice(h),
+      inStock: h.in_stock === 1 || h.in_stock === true ? true : h.in_stock === 0 || h.in_stock === false ? false : null,
+    }))
+}
+
+// One request for all queries (Algolia's multi-query endpoint).
+async function algoliaSearch(
+  cfg: { appId: string; index: string },
+  apiKey: string,
+  queries: string[],
+  ctx: SearchContext,
+  fixUrl?: (url: string) => string
+): Promise<SearchOutcome> {
+  const ms = ctx.timeout(SEARCH_TIMEOUT_MS)
+  if (ms < MIN_FETCH_MS) return { ok: false, reason: 'out of time' }
+  const res = await ctx.fetchPage(`https://${cfg.appId.toLowerCase()}-dsn.algolia.net/1/indexes/*/queries`, ms, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Algolia-Application-Id': cfg.appId, 'X-Algolia-API-Key': apiKey },
+    body: JSON.stringify({ requests: queries.map((q) => ({ indexName: cfg.index, params: `hitsPerPage=${ALGOLIA_HITS_PER_QUERY}&query=${encodeURIComponent(q)}` })) }),
+  })
+  if (!res.ok) return { ok: false, reason: res.reason }
+  const candidates = algoliaCandidates(res.html, fixUrl)
+  return candidates === null ? { ok: false, reason: 'layout not recognized' } : { ok: true, candidates }
+}
+
+async function platekompanietSearch(queries: string[], ctx: SearchContext): Promise<SearchOutcome> {
+  return algoliaSearch(ALGOLIA_STORES.Platekompaniet, ALGOLIA_STORES.Platekompaniet.apiKey, queries, ctx)
+}
+
+// Norli's hits link to checkout.norli.no, which just redirects to the same path on www.
+const norliUrl = (url: string) => url.replace(/^https:\/\/checkout\.norli\.no\//, 'https://www.norli.no/')
+
+async function norliSearch(queries: string[], ctx: SearchContext): Promise<SearchOutcome> {
+  const cfg = ALGOLIA_STORES.Norli
+  const ms = ctx.timeout(SEARCH_TIMEOUT_MS)
+  if (ms < MIN_FETCH_MS) return { ok: false, reason: 'out of time' }
+  const keyRes = await ctx.fetchPage(cfg.keyUrl, ms, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ operationName: 'createAlgoliaKey', variables: { userToken: '' }, query: NORLI_KEY_MUTATION }),
+  })
+  if (!keyRes.ok) return { ok: false, reason: `search key: ${keyRes.reason}` }
+  let key: unknown
+  try { key = JSON.parse(keyRes.html)?.data?.createAlgoliaKey } catch {}
+  if (typeof key !== 'string' || !key) return { ok: false, reason: 'search key: not in the response' }
+  return algoliaSearch(cfg, key, queries, ctx, norliUrl)
+}
+
 // Any store without its own rule: same-host links that look like product pages.
 const PRODUCT_PATH = /\/(p|product|products|produkt|produkter|vare|varer|boker|bok|item)\/[^/?#]+|-\d{8,14}\/?$/i
 export function genericCandidates(html: string, pageUrl: string): StoreCandidate[] | null {
@@ -141,6 +260,8 @@ export const STORE_RULES: Record<string, StoreRule> = {
     candidates: powerCandidates,
     searchBy: 'name',
   },
+  Platekompaniet: { search: platekompanietSearch },
+  Norli: { search: norliSearch },
 }
 
 export function storeSearchUrl(store: string, query: string): string | null {
@@ -202,7 +323,9 @@ export type DirectResult = {
   url: string
   inStock: boolean | null
   availability?: Availability
-  verified: true
+  // true = price read from the product page itself; 'store-search' = from the store's own
+  // search data (Platekompaniet/Norli, whose product pages have no structured price).
+  verified: true | 'store-search'
   matchedBy: 'code' | 'name'
   direct: true
   note?: string
@@ -221,9 +344,15 @@ async function lookupStore(
 
   // JAN/ISBN first (exact), then the name if that finds nothing at this store.
   const name = searchName(product.productName)
-  const queries = STORE_RULES[store]?.searchBy === 'name' ? [name] : [...new Set([product.jan, name].filter((q): q is string => !!q))]
+  const rule = STORE_RULES[store]
+  const queries = rule?.searchBy === 'name' ? [name] : [...new Set([product.jan, name].filter((q): q is string => !!q))]
   let picked: StoreCandidate[] = []
-  for (const q of queries) {
+  if (rule?.search) {
+    const found = await rule.search(queries, { fetchPage, timeout })
+    if (!found.ok) return fail(found.reason)
+    picked = rankCandidates(found.candidates, product)
+  }
+  for (const q of rule?.search ? [] : queries) {
     const url = storeSearchUrl(store, q)
     if (!url) return fail('no search URL')
     const ms = timeout(SEARCH_TIMEOUT_MS)
@@ -238,26 +367,33 @@ async function lookupStore(
 
   const checked = await Promise.all(
     picked.map(async (c): Promise<DirectResult | null> => {
+      // The product page is always tried: a price on the page itself wins.
       const ms = timeout(PRODUCT_TIMEOUT_MS)
-      if (ms < MIN_FETCH_MS) return null
-      const page = await fetchPage(c.url, ms)
-      if (!page.ok) return null
-      const price = extractPagePrice(page.html)
-      if (!price || (price.currency && price.currency !== 'NOK')) return null
-      const matchedBy = judgeMatch(extractProductIdentity(page.html), product)
-      if (!matchedBy) return null
-      const a = price.availability
-      return {
-        store: label,
-        price: price.price,
-        currency: 'NOK',
-        url: c.url,
-        inStock: a === 'InStock' ? true : a === 'OutOfStock' ? false : null,
-        ...(a ? { availability: a } : {}),
-        verified: true,
-        matchedBy,
-        direct: true,
+      const page = ms >= MIN_FETCH_MS ? await fetchPage(c.url, ms) : null
+      const pagePrice = page?.ok ? extractPagePrice(page.html) : null
+      if (pagePrice && (!pagePrice.currency || pagePrice.currency === 'NOK')) {
+        const identity = extractProductIdentity(page!.ok ? page!.html : '')
+        // The page's own name/code first; the search data's where the page has none.
+        const matchedBy = judgeMatch({ name: identity.name || c.name || null, gtin: identity.gtin || c.code || null }, product)
+        if (!matchedBy) return null
+        const a = pagePrice.availability
+        return {
+          store: label,
+          price: pagePrice.price,
+          currency: 'NOK',
+          url: c.url,
+          inStock: a === 'InStock' ? true : a === 'OutOfStock' ? false : c.inStock ?? null,
+          ...(a ? { availability: a } : {}),
+          verified: true,
+          matchedBy,
+          direct: true,
+        }
       }
+      // No price on the page: only a store whose search data has one can still give a result.
+      if (typeof c.price !== 'number') return null
+      const matchedBy = judgeMatch({ name: c.name || null, gtin: c.code || null }, product)
+      if (!matchedBy) return null
+      return { store: label, price: c.price, currency: 'NOK', url: c.url, inStock: c.inStock ?? null, verified: 'store-search', matchedBy, direct: true }
     })
   )
   const results = checked.filter((r): r is DirectResult => !!r)

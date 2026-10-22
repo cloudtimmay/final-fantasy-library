@@ -9,6 +9,8 @@ import {
   judgeMatch,
   lookupNorwayStores,
   mergeFindPricesResults,
+  algoliaCandidates,
+  ALGOLIA_STORES,
   type FetchHtml,
   type DirectResult,
 } from '../src/lib/store-lookup'
@@ -31,6 +33,11 @@ test.describe('store lookup: search URLs and search-page parsing', () => {
     const c = storeCandidates('Outland', sample('outland-search-name.html'), 'https://www.outland.no/search/x')!
     expect(c.length).toBe(6)
     expect(c[0]).toEqual({ url: 'https://www.outland.no/p/half-blood-prince', name: 'Harry Potter and the Half-Blood Prince', code: '9781408855706' })
+  })
+
+  test('Outland: a broad but real result (15 961 hits) is accepted', () => {
+    const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { products: { total_count: 15961, items: [{ name: 'Final Fantasy Starter Kit', url_key: 'ff-starter', sku: 'x' }] } } } })}</script>`
+    expect(storeCandidates('Outland', html, 'https://www.outland.no/search/x')).toHaveLength(1)
   })
 
   test('Outland: the unfiltered default listing (query not applied) is not taken as results', () => {
@@ -134,7 +141,7 @@ test.describe('store lookup: all stores in parallel', () => {
     expect(byStore['Tanum (Cappelen Damm)']).toEqual({ store: 'Tanum (Cappelen Damm)', found: 1 })
     expect(byStore['Outland']).toEqual({ store: 'Outland', found: 0 }) // only other editions there
     expect(byStore['Ark'].reason).toBe('blocked (HTTP 429)')
-    expect(byStore['Norli'].reason).toBe('layout not recognized')
+    expect(byStore['Norli'].reason).toBe('search key: blocked (HTTP 403)') // its key request isn't in this fake
     expect(byStore['Komplett'].reason).toBe('timed out')
     expect(result.stores.map((s) => s.store)).not.toContain('Adlibris') // no search URL
   })
@@ -193,6 +200,97 @@ test.describe('store lookup: Power (JSON search API)', () => {
     expect(result.results).toEqual([
       expect.objectContaining({ store: 'Power', price: 449, currency: 'NOK', availability: 'InStock', inStock: true, matchedBy: 'code', url: INTERGRADE_URL }),
     ])
+  })
+})
+
+test.describe('store lookup: Algolia stores (Platekompaniet, Norli) — price from the store search', () => {
+  const PLATE_ALGOLIA = 'https://h4zqsn0rmc-dsn.algolia.net/1/indexes/*/queries'
+  const NORLI_ALGOLIA = 'https://aeeyieersj-dsn.algolia.net/1/indexes/*/queries'
+  const PLATE_URL = 'https://www.platekompaniet.no/gaming/playstation/spill/rpg-rollespill/final-fantasy-resonance-spill-playstation-5'
+  const NORLI_URL = 'https://www.norli.no/boker/skjonnlitteratur/romaner/engelske-romaner/harry-potter-and-the-half-blood-prince-9781408845691'
+  const SHELL = '<!doctype html><html><head><title>Norli</title></head><body><div id="root"></div></body></html>'
+
+  test('key and index live in one place', () => {
+    expect(ALGOLIA_STORES.Platekompaniet).toMatchObject({ appId: 'H4ZQSN0RMC', index: 'plate_prod_default_products' })
+    expect(ALGOLIA_STORES.Platekompaniet.apiKey).toMatch(/^[A-Za-z0-9+/=]+$/)
+    expect(ALGOLIA_STORES.Norli).toMatchObject({ appId: 'AEEYIEERSJ', index: 'norli_pwa_products', keyUrl: 'https://www.norli.no/graphql' })
+  })
+
+  test('Platekompaniet hits: EAN (a JSON number), price and stock; the internal sku is not a code', () => {
+    const c = algoliaCandidates(sample('platekompaniet-algolia.json'))!
+    expect(c[0]).toEqual({ url: PLATE_URL, name: 'Final Fantasy RESONANCE', code: '5021290102958', price: 699, inStock: true })
+  })
+
+  test('Norli hits: the Half-Blood Prince (illustrated) is ISBN 9781408845691 at 529 NOK, URL on www', () => {
+    const c = algoliaCandidates(sample('norli-algolia.json'), (u) => u.replace('https://checkout.norli.no/', 'https://www.norli.no/'))!
+    expect(c).toEqual([{ url: NORLI_URL, name: 'Harry Potter and the Half-Blood Prince', code: '9781408845691', price: 529, inStock: true }])
+  })
+
+  test('the name query is used when the code query finds nothing; other editions are then dropped by ISBN', () => {
+    const data = JSON.parse(sample('norli-algolia.json'))
+    data.results[0].hits = []
+    const c = algoliaCandidates(JSON.stringify(data))!
+    expect(c.length).toBeGreaterThan(1)
+    expect(rankCandidates(c, { productName: 'Harry Potter and the Half-Blood Prince', jan: '9781408845691' }).map((x) => x.code)).toEqual(['9781408845691'])
+    expect(algoliaCandidates('<html>blocked</html>')).toBeNull()
+  })
+
+  test('Norli: key via GraphQL, then ONE Algolia request with both queries; no page price -> store-search', async () => {
+    const calls: { url: string; init?: any }[] = []
+    const fetchPage: FetchHtml = async (url, _ms, init) => {
+      calls.push({ url, init })
+      if (url === 'https://www.norli.no/graphql') return { ok: true, html: JSON.stringify({ data: { createAlgoliaKey: 'TEST-KEY' } }) }
+      if (url === NORLI_ALGOLIA) return { ok: true, html: sample('norli-algolia.json') }
+      if (url === NORLI_URL) return { ok: true, html: SHELL }
+      return { ok: false, reason: 'blocked (HTTP 403)' }
+    }
+    const result = await lookupNorwayStores('book', HP_ILLUSTRATED, { deadline: Date.now() + 30000, fetchPage })
+
+    const key = calls.find((c) => c.url === 'https://www.norli.no/graphql')!
+    expect(key.init.method).toBe('POST')
+    expect(JSON.parse(key.init.body).operationName).toBe('createAlgoliaKey')
+    const algolia = calls.filter((c) => c.url === NORLI_ALGOLIA)
+    expect(algolia).toHaveLength(1)
+    expect(algolia[0].init.headers['X-Algolia-API-Key']).toBe('TEST-KEY')
+    expect(JSON.parse(algolia[0].init.body).requests.map((r: any) => r.params)).toEqual([
+      'hitsPerPage=10&query=9781408845691',
+      `hitsPerPage=10&query=${encodeURIComponent('Harry Potter and the Half-Blood Prince')}`,
+    ])
+    expect(result.results).toEqual([
+      { store: 'Norli', price: 529, currency: 'NOK', url: NORLI_URL, inStock: true, verified: 'store-search', matchedBy: 'code', direct: true },
+    ])
+  })
+
+  test('Norli: a failed key request skips Norli with the reason', async () => {
+    const result = await lookupNorwayStores('book', HP_ILLUSTRATED, {
+      deadline: Date.now() + 30000,
+      fetchPage: async (url) => (url === 'https://www.norli.no/graphql' ? { ok: false, reason: 'timed out' } : { ok: false, reason: 'blocked (HTTP 403)' }),
+    })
+    expect(result.stores.find((s) => s.store === 'Norli')).toEqual({ store: 'Norli', found: 0, reason: 'search key: timed out' })
+    expect(result.results).toEqual([])
+  })
+
+  test('Platekompaniet: one Algolia request with the public key; a price on the product page wins', async () => {
+    const pageWithPrice = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: 'Final Fantasy RESONANCE', gtin13: '5021290102958', offers: { price: 649, priceCurrency: 'NOK', availability: 'InStock' } })}</script>`
+    const calls: { url: string; init?: any }[] = []
+    const run = (productPage: string) =>
+      lookupNorwayStores('album', { productName: 'Final Fantasy Resonance', jan: '5021290102958' }, {
+        deadline: Date.now() + 30000,
+        fetchPage: async (url, _ms, init) => {
+          calls.push({ url, init })
+          if (url === PLATE_ALGOLIA) return { ok: true, html: sample('platekompaniet-algolia.json') }
+          if (url === PLATE_URL) return { ok: true, html: productPage }
+          return { ok: false, reason: 'blocked (HTTP 403)' }
+        },
+      })
+
+    const fromSearch = await run('<html><div id="root"></div></html>')
+    expect(calls.filter((c) => c.url === PLATE_ALGOLIA)).toHaveLength(1)
+    expect(calls.find((c) => c.url === PLATE_ALGOLIA)!.init.headers['X-Algolia-API-Key']).toBe(ALGOLIA_STORES.Platekompaniet.apiKey)
+    expect(fromSearch.results).toEqual([expect.objectContaining({ store: 'Platekompaniet', price: 699, verified: 'store-search', matchedBy: 'code' })])
+
+    const fromPage = await run(pageWithPrice)
+    expect(fromPage.results).toEqual([expect.objectContaining({ store: 'Platekompaniet', price: 649, verified: true, availability: 'InStock', matchedBy: 'code' })])
   })
 })
 
@@ -266,6 +364,23 @@ test.describe('add-price: direct store lookup results', () => {
     await expect(page.locator('.ap-find-prices-meta')).toContainText("Found in the store's own search")
     await expect(page.locator('.ap-find-prices-meta')).not.toContainText('same barcode')
     await expect(page.locator('.ap-find-prices-diagnostics')).toContainText('AI search failed: Search timed out — try again. Store search: Outland 1 found.')
+  })
+
+  test('a price from the store\'s own search data gets its own label', async ({ page }) => {
+    await findWith(page, {
+      ok: true,
+      results: [
+        { store: 'Norli', price: 529, currency: 'NOK', url: 'https://www.norli.no/boker/test-fixture-9781408845691', inStock: true, verified: 'store-search', matchedBy: 'code', direct: true },
+        { store: 'Outland', price: 579, currency: 'NOK', url: 'https://www.outland.no/p/test-fixture', inStock: null, verified: true, matchedBy: 'code', direct: true },
+        { store: 'Proshop', price: 549, currency: 'NOK', url: 'https://www.proshop.no/test-fixture', inStock: null, verified: false },
+      ],
+      diagnostics: { searches: 6, candidates: 1, dropped: [], stores: [{ store: 'Norli', found: 1 }, { store: 'Outland', found: 1 }] },
+    })
+    const checks = page.locator('.ap-find-prices-check')
+    await expect(checks.nth(0)).toHaveText("Price from the store's own search")
+    await expect(checks.nth(0)).toHaveClass(/ap-find-prices-check-store/)
+    await expect(checks.nth(1)).toHaveText('✓ Price checked on page')
+    await expect(checks.nth(2)).toHaveText('Unverified (from search)')
   })
 
   test('nothing found anywhere: the message lists the store search too', async ({ page }) => {

@@ -221,6 +221,8 @@ const ownedByPerson = await fetchOwnedByPerson()
   <script>
     import { findOwnersOf } from '../lib/product-match'
     import { currencyForIdentifiedPrice } from '../lib/identify-result'
+    import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
+    import { describeFindPricesDiagnostics } from '../lib/find-prices-results'
 
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
@@ -870,6 +872,35 @@ const ownedByPerson = await fetchOwnedByPerson()
       findPricesResultsWrap.hidden = false
     }
 
+    // "Search on <store>" fallback under a Norway search's result (found or not) — each
+    // opens that store's own search page for the product in a new tab, for when the AI
+    // search missed something the store does have.
+    function renderStoreFallback(region, category, productName) {
+      if (region !== 'norway') return
+      const links = norwayStoreSearchLinks(category, productName)
+      if (links.length === 0) return
+      const wrap = document.createElement('div')
+      wrap.className = 'ap-find-prices-fallback'
+      const label = document.createElement('p')
+      label.className = 'ap-find-prices-note'
+      label.textContent = 'Or search the stores yourself:'
+      wrap.appendChild(label)
+      const btns = document.createElement('div')
+      btns.className = 'ap-find-prices-fallback-btns'
+      links.forEach(({ store, url }) => {
+        const a = document.createElement('a')
+        a.className = 'ap-find-prices-store-search'
+        a.href = url
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        a.textContent = 'Search on ' + store
+        btns.appendChild(a)
+      })
+      wrap.appendChild(btns)
+      findPricesResultsWrap.appendChild(wrap)
+      findPricesResultsWrap.hidden = false
+    }
+
     async function findPrices() {
       hideFindPricesMsg()
       findPricesResultsWrap.replaceChildren()
@@ -916,16 +947,22 @@ const ownedByPerson = await fetchOwnedByPerson()
         const data = await res.json().catch(() => null)
         if (!res.ok) {
           showFindPricesMsg((data && data.error) || 'Search failed.', false)
+          renderStoreFallback(region, category, productName)
           return
         }
         if (!data.results || data.results.length === 0) {
-          showFindPricesMsg('No reliable prices found.', false)
+          // Say why — how many searches ran and what was dropped — not just that nothing came back.
+          const why = data.diagnostics ? ' ' + describeFindPricesDiagnostics(data.diagnostics) : ''
+          showFindPricesMsg('No reliable prices found.' + why, false)
+          renderStoreFallback(region, category, productName)
           return
         }
         hideFindPricesMsg()
         renderFindPricesResults(data.results, region, { productName, jan, category })
+        renderStoreFallback(region, category, productName)
       } catch (e) {
         showFindPricesMsg('Network error.', false)
+        renderStoreFallback(region, category, productName)
       } finally {
         findPricesBtn.disabled = false
         findPricesBtn.textContent = '🔎 Find prices'
@@ -1286,5 +1323,12 @@ const ownedByPerson = await fetchOwnedByPerson()
       padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
     }
     .ap-find-prices-done-btn:hover { border-color: var(--accent); }
+    .ap-find-prices-fallback { margin-top: 0.75rem; }
+    .ap-find-prices-fallback-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .ap-find-prices-store-search {
+      font-size: 0.8rem; padding: 0.35rem 0.65rem; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); background: var(--surface); text-decoration: none; white-space: nowrap;
+    }
+    .ap-find-prices-store-search:hover { border-color: var(--accent); }
   </style>
 </Base>

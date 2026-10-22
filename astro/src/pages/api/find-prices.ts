@@ -1,7 +1,8 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { CATEGORIES, CURRENCIES } from '../../lib/price-entry-fields'
-import { buildFindPricesSystemPrompt } from '../../lib/find-prices-prompt'
+import { CATEGORIES } from '../../lib/price-entry-fields'
+import { buildFindPricesSystemPrompt, norwaySearchQueries, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
+import { validateFindPricesResults, hostnameOf } from '../../lib/find-prices-results'
 
 export const prerender = false
 
@@ -31,15 +32,12 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 // System prompt (including the Norwegian store list, grouped by category) lives in
-// lib/find-prices-prompt.ts, not here — see that file's own comment for why.
+// lib/find-prices-prompt.ts, and result validation in lib/find-prices-results.ts — see those
+// files' own comments for why.
 
-function hostnameOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '').toLowerCase()
-  } catch {
-    return null
-  }
-}
+// Online searches stay at 5; Norway gets NORWAY_MAX_SEARCHES (6), one per targeted
+// "site:" search — more would risk the 55s timeout below (Vercel maxDuration is 60s).
+const ONLINE_MAX_SEARCHES = 5
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)
@@ -73,6 +71,10 @@ export const POST: APIRoute = async ({ request }) => {
   if (productNameJp) lines.push(`Product name (Japanese): ${productNameJp}`)
   if (jan) lines.push(`JAN/barcode: ${jan}`)
   lines.push(`Region: ${region === 'norway' ? 'Norwegian stores, prices in NOK' : 'international stores that ship to Norway'}`)
+  if (region === 'norway') {
+    lines.push('Run these searches, in this order:')
+    for (const q of norwaySearchQueries(category, { productName, productNameJp, jan })) lines.push(`- ${q}`)
+  }
   const userPrompt = lines.join('\n')
 
   // Same pattern as identify-product.ts / SANITY_TOKEN — read via import.meta.env so it
@@ -98,7 +100,7 @@ export const POST: APIRoute = async ({ request }) => {
         model: MODEL,
         max_tokens: MAX_TOKENS,
         system: buildFindPricesSystemPrompt(category),
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: region === 'norway' ? NORWAY_MAX_SEARCHES : ONLINE_MAX_SEARCHES }],
         messages: [
           {
             role: 'user',
@@ -143,6 +145,7 @@ export const POST: APIRoute = async ({ request }) => {
   // possible invented URL. web_search_tool_result's `content` is either an array of
   // { url, title, ... } hits, or a single error object — only the array case has URLs.
   const seenHostnames = new Set<string>()
+  const searches = content.filter((b) => b?.type === 'server_tool_use' && b?.name === 'web_search').length
   for (const block of content) {
     if (block?.type === 'web_search_tool_result' && Array.isArray(block.content)) {
       for (const hit of block.content) {
@@ -184,28 +187,8 @@ export const POST: APIRoute = async ({ request }) => {
     return json(502, { error: 'Could not read the AI response' })
   }
 
-  const results: Record<string, any>[] = []
-  for (const item of parsed) {
-    if (!item || typeof item !== 'object') continue
-    const store = typeof item.store === 'string' ? item.store.trim() : ''
-    if (!store) continue
-    if (typeof item.price !== 'number' || !isFinite(item.price) || item.price < 0) continue
-    if (!CURRENCIES.includes(item.currency)) continue
-    // The prompt tells the model Norway prices must be in NOK — enforced here too,
-    // rather than just trusted, since a geo-converted display price on a non-Norwegian
-    // page could otherwise slip through labeled with the wrong store/currency pairing.
-    if (region === 'norway' && item.currency !== 'NOK') continue
-    const url = typeof item.url === 'string' ? item.url.trim() : ''
-    if (!url.startsWith('https://')) continue
-    const hostname = hostnameOf(url)
-    if (!hostname || !seenHostnames.has(hostname)) continue
+  const { results, dropped, candidates } = validateFindPricesResults(parsed, region, seenHostnames)
+  if (dropped.length) console.error('[find-prices] dropped candidates:', JSON.stringify(dropped))
 
-    const inStock = item.inStock === true ? true : item.inStock === false ? false : null
-    const note = typeof item.note === 'string' && item.note.trim() ? item.note.trim().slice(0, 200) : undefined
-
-    results.push({ store, price: item.price, currency: item.currency, url, inStock, note })
-    if (results.length >= 6) break
-  }
-
-  return json(200, { ok: true, results })
+  return json(200, { ok: true, results, diagnostics: { searches, candidates, dropped } })
 }

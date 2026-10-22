@@ -220,6 +220,7 @@ const ownedByPerson = await fetchOwnedByPerson()
 
   <script>
     import { findOwnersOf } from '../lib/product-match'
+    import { currencyForIdentifiedPrice } from '../lib/identify-result'
 
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
@@ -400,9 +401,9 @@ const ownedByPerson = await fetchOwnedByPerson()
         if (result.category) categorySel.value = result.category
         if (typeof result.price === 'number') {
           priceInput.value = String(result.price)
-          currencySel.value = 'JPY'
+          currencySel.value = currencyForIdentifiedPrice(result.currency, currentSource(), currencySel.value)
           applyCurrency()
-          if (typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
+          if (currencySel.value === 'JPY' && typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
         }
         checkNameDuplicate()
         checkOwnedByFamily()

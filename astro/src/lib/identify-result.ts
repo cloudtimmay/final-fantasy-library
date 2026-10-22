@@ -1,0 +1,70 @@
+// Validation of /api/identify-product's model output, and the rule for which currency an
+// identified price goes in on /add-price — pulled out of identify-product.ts so both can be
+// imported and tested directly (identify-product.ts itself uses `import.meta.env`, which
+// Playwright's test transform can't load — same reason as find-prices-prompt.ts).
+import { CATEGORIES } from './price-entry-fields'
+
+// The only currencies a price tag photo is expected to show: ¥/円 in Japan, kr/NOK in Norway.
+export const IDENTIFY_CURRENCIES = ['JPY', 'NOK']
+
+export type IdentifyResult = {
+  productName?: string
+  productNameJp?: string
+  jan?: string
+  category?: string
+  price?: number
+  currency?: 'JPY' | 'NOK'
+  taxIncluded?: boolean
+  confidence?: 'high' | 'medium' | 'low'
+  notes?: string
+}
+
+// Every field checked against the same rules used elsewhere for a priceEntry; anything
+// invalid is dropped rather than failing the whole request.
+export function validateIdentifyResult(parsed: any): IdentifyResult {
+  const result: IdentifyResult = {}
+  if (!parsed || typeof parsed !== 'object') return result
+
+  if (typeof parsed.productName === 'string' && parsed.productName.trim()) {
+    result.productName = parsed.productName.trim()
+  }
+  if (typeof parsed.productNameJp === 'string' && parsed.productNameJp.trim()) {
+    result.productNameJp = parsed.productNameJp.trim()
+  }
+  if (typeof parsed.jan === 'string') {
+    const digits = parsed.jan.replace(/\D/g, '')
+    if ([8, 12, 13].includes(digits.length)) result.jan = digits
+  }
+  if (CATEGORIES.includes(parsed.category)) {
+    result.category = parsed.category
+  }
+  if (typeof parsed.price === 'number' && isFinite(parsed.price) && parsed.price >= 0) {
+    result.price = parsed.price
+  }
+  if (IDENTIFY_CURRENCIES.includes(parsed.currency)) {
+    result.currency = parsed.currency
+  }
+  // 税込/税抜 only exists on a yen price tag — a NOK price always includes MVA, so a
+  // taxIncluded the model reports alongside a NOK price is meaningless and dropped.
+  if (typeof parsed.taxIncluded === 'boolean' && result.currency !== 'NOK') {
+    result.taxIncluded = parsed.taxIncluded
+  }
+  if (['high', 'medium', 'low'].includes(parsed.confidence)) {
+    result.confidence = parsed.confidence
+  }
+  if (typeof parsed.notes === 'string' && parsed.notes.trim()) {
+    result.notes = parsed.notes.trim()
+  }
+  return result
+}
+
+// Which currency an identified price is entered in on /add-price: the currency read off
+// the tag if the model reported one; otherwise the form's selected source decides — a Japan
+// shop is JPY, a Norwegian store is NOK, and Online could be anything, so the currency the
+// form already has is left alone.
+export function currencyForIdentifiedPrice(tagCurrency: unknown, source: string, currentCurrency: string): string {
+  if (typeof tagCurrency === 'string' && IDENTIFY_CURRENCIES.includes(tagCurrency)) return tagCurrency
+  if (source === 'japanStore') return 'JPY'
+  if (source === 'norway') return 'NOK'
+  return currentCurrency
+}

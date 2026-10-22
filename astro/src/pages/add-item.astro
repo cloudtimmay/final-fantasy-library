@@ -304,7 +304,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
           barcodeInput.value = result.jan
           checkDuplicate(result.jan)
         }
-        if (typeof result.price === 'number') yenInput.value = String(result.price)
+        if (typeof result.price === 'number') (result.currency === 'NOK' ? nokInput : yenInput).value = String(result.price)
         if (result.notes) notesInput.value = result.notes
       },
     })

@@ -222,8 +222,11 @@ window.createIdentifyFlow = function (config) {
     addRow('JAN', result.jan)
     addRow('Category', result.category ? (categoryLabels[result.category] || result.category) : null)
     if (typeof result.price === 'number') {
+      // Shown in the currency read off the tag; no symbol when the tag didn't show one.
+      const amount = result.price.toLocaleString('en-US')
+      const priceText = result.currency === 'JPY' ? '¥' + amount : result.currency === 'NOK' ? amount + ' kr' : amount
       const taxText = result.taxIncluded === true ? 'tax included' : result.taxIncluded === false ? 'tax excluded' : ''
-      addRow('Price', '¥' + result.price.toLocaleString('en-US') + (taxText ? ' (' + taxText + ')' : ''))
+      addRow('Price', priceText + (taxText ? ' (' + taxText + ')' : ''))
     }
 
     if (result.confidence) {

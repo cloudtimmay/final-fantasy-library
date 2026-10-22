@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { CATEGORIES } from '../../lib/price-entry-fields'
+import { validateIdentifyResult } from '../../lib/identify-result'
 
 export const prerender = false
 
@@ -19,13 +19,14 @@ const TIMEOUT_MS = 25000
 // off before (or partway through) the actual JSON. Generous headroom avoids that.
 const MAX_TOKENS = 2048
 
-const SYSTEM_PROMPT = `You are looking at one or more photos of the same product in a shop in Japan (Final Fantasy and other games, music, books, and merchandise). The photos may show different sides or details of the same item — for example the front, the back with a barcode, or a separate close-up of a price tag. Combine the information from all of the photos into a single identification. Return ONLY a JSON object, with no other text, no markdown code fences, and no explanation. The JSON object must have exactly these fields:
+const SYSTEM_PROMPT = `You are looking at one or more photos of the same product in a shop — usually in Japan, sometimes in Norway (Final Fantasy and other games, music, books, and merchandise). The photos may show different sides or details of the same item — for example the front, the back with a barcode, or a separate close-up of a price tag. Combine the information from all of the photos into a single identification. Return ONLY a JSON object, with no other text, no markdown code fences, and no explanation. The JSON object must have exactly these fields:
 - productName: string, the product's name in English.
 - productNameJp: string, the product's name in Japanese exactly as printed on the packaging, or null if not visible.
 - jan: string of digits only, the JAN/EAN/UPC barcode, ONLY if clearly readable on the packaging, otherwise null.
 - category: one of "album", "game", "book", "figure", "other". "figure" means any merchandise (plushies, wearables, statues, etc.), not just figures specifically.
 - price: number, the price shown on a visible price tag, or null if no price tag is visible.
-- taxIncluded: true if the price tag shows 税込 (tax included), false if it shows 税抜 (tax excluded), null if unclear or there is no price tag.
+- currency: the currency shown on the price tag — "JPY" if it shows ¥ or 円, "NOK" if it shows kr or NOK, or null if there is no price tag or the currency is not shown.
+- taxIncluded: only for a yen price — true if the price tag shows 税込 (tax included), false if it shows 税抜 (tax excluded), null if unclear, if there is no price tag, or if the price is not in yen.
 - confidence: one of "high", "medium", "low" for your overall confidence in this identification.
 - notes: a short string noting anything relevant (e.g. "price tag partially hidden"), or null if there is nothing to note.`
 
@@ -145,35 +146,6 @@ export const POST: APIRoute = async ({ request }) => {
     return json(502, { error: 'Could not read the AI response' })
   }
 
-  // Validate every field against the same rules used elsewhere for a priceEntry;
-  // anything invalid is dropped rather than failing the whole request.
-  const result: Record<string, any> = {}
-
-  if (typeof parsed.productName === 'string' && parsed.productName.trim()) {
-    result.productName = parsed.productName.trim()
-  }
-  if (typeof parsed.productNameJp === 'string' && parsed.productNameJp.trim()) {
-    result.productNameJp = parsed.productNameJp.trim()
-  }
-  if (typeof parsed.jan === 'string') {
-    const digits = parsed.jan.replace(/\D/g, '')
-    if ([8, 12, 13].includes(digits.length)) result.jan = digits
-  }
-  if (CATEGORIES.includes(parsed.category)) {
-    result.category = parsed.category
-  }
-  if (typeof parsed.price === 'number' && isFinite(parsed.price) && parsed.price >= 0) {
-    result.price = parsed.price
-  }
-  if (typeof parsed.taxIncluded === 'boolean') {
-    result.taxIncluded = parsed.taxIncluded
-  }
-  if (['high', 'medium', 'low'].includes(parsed.confidence)) {
-    result.confidence = parsed.confidence
-  }
-  if (typeof parsed.notes === 'string' && parsed.notes.trim()) {
-    result.notes = parsed.notes.trim()
-  }
-
-  return json(200, { ok: true, result })
+  // Every field validated (and anything invalid dropped) in lib/identify-result.ts.
+  return json(200, { ok: true, result: validateIdentifyResult(parsed) })
 }

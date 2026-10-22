@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
 import { CATEGORIES, CURRENCIES } from '../../lib/price-entry-fields'
 import { extractPagePrice, applyPagePrice } from '../../lib/page-price'
+import { fetchHtml, lookupNorwayStores, mergeFindPricesResults } from '../../lib/store-lookup'
 import { buildFindPricesSystemPrompt, norwaySearchQueries, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
 import { validateFindPricesResults, hostnameOf } from '../../lib/find-prices-results'
 
@@ -40,38 +41,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 // "site:" search — more would risk the 55s timeout below (Vercel maxDuration is 60s).
 const ONLINE_MAX_SEARCHES = 5
 
-// Each found result is then checked against its own product page (see lib/page-price.ts) —
-// the model's price comes from the search index and can be stale. All pages are fetched in
-// parallel, each for at most PAGE_FETCH_TIMEOUT_MS, and never past TOTAL_BUDGET_MS from the
-// start of the request (Vercel maxDuration is 60s): a page still loading at the deadline is
-// left unverified rather than delaying the response.
+// Each AI result is then checked against its own product page (see lib/page-price.ts) — the
+// model's price comes from the search index and can be stale — and for Norway the stores'
+// own search pages are looked up directly (see lib/store-lookup.ts), in parallel with the AI
+// call from the start of the request. Every page fetch has its own short timeout and none
+// runs past TOTAL_BUDGET_MS from the start of the request (Vercel maxDuration is 60s): a page
+// still loading at the deadline is left out or left unverified rather than delaying the
+// response.
 const PAGE_FETCH_TIMEOUT_MS = 5000
 const TOTAL_BUDGET_MS = 58000
 const MIN_PAGE_FETCH_MS = 500
-const MAX_PAGE_BYTES = 5 * 1024 * 1024
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
-
-async function fetchPageHtml(url: string, deadline: number): Promise<string | null> {
-  const ms = Math.min(PAGE_FETCH_TIMEOUT_MS, deadline - Date.now())
-  if (ms < MIN_PAGE_FETCH_MS) return null
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), ms)
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'nb-NO,nb;q=0.9,en;q=0.8' },
-      redirect: 'follow',
-      signal: controller.signal,
-    })
-    if (!res.ok) return null
-    if (Number(res.headers.get('content-length') || 0) > MAX_PAGE_BYTES) return null
-    const html = await res.text()
-    return html.length > MAX_PAGE_BYTES ? null : html
-  } catch {
-    return null // blocked, timed out, TLS/network error — the result just stays unverified
-  } finally {
-    clearTimeout(timer)
-  }
-}
 
 export const POST: APIRoute = async ({ request }) => {
   const startedAt = Date.now()
@@ -112,12 +91,31 @@ export const POST: APIRoute = async ({ request }) => {
   }
   const userPrompt = lines.join('\n')
 
+  // Norway: the stores' own search pages, looked up while the AI searches. Never throws.
+  const deadline = startedAt + TOTAL_BUDGET_MS
+  const directLookup =
+    region === 'norway'
+      ? lookupNorwayStores(category, { productName, productNameJp, jan }, { deadline })
+      : Promise.resolve({ results: [], stores: [] })
+
+  // If the AI call fails but the store lookup found something, return that rather than an
+  // error, with the AI failure in the diagnostics.
+  const aiFailed = async (status: number, error: string) => {
+    const direct = await directLookup
+    if (!direct.results.length) return json(status, { error, diagnostics: { searches: 0, candidates: 0, dropped: [], stores: direct.stores } })
+    return json(200, {
+      ok: true,
+      results: mergeFindPricesResults([], direct.results),
+      diagnostics: { searches: 0, candidates: 0, dropped: [], stores: direct.stores, aiError: error },
+    })
+  }
+
   // Same pattern as identify-product.ts / SANITY_TOKEN — read via import.meta.env so it
   // works from astro/.env locally and from the Vercel Secret in Production/Preview, and
   // is never bundled into any client-side script.
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[find-prices] ANTHROPIC_API_KEY set:', !!apiKey)
-  if (!apiKey) return json(500, { error: 'API key missing' })
+  if (!apiKey) return aiFailed(500, 'API key missing')
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -161,16 +159,16 @@ export const POST: APIRoute = async ({ request }) => {
       const errMessage = errBody?.error?.message
       console.error('[find-prices] upstream error, status:', res.status, 'type:', errType, 'message:', errMessage)
       if (typeof errMessage === 'string' && /web[_ ]?search/i.test(errMessage)) {
-        return json(502, { error: 'Web search is not enabled for this Anthropic account. Enable it in the Anthropic Console (Settings → Web search), or ask your organization admin to.' })
+        return aiFailed(502, 'Web search is not enabled for this Anthropic account. Enable it in the Anthropic Console (Settings → Web search), or ask your organization admin to.')
       }
-      return json(502, { error: `API error: ${errMessage || errType || `HTTP ${res.status}`}` })
+      return aiFailed(502, `API error: ${errMessage || errType || `HTTP ${res.status}`}`)
     }
     raw = await res.json()
   } catch (e: any) {
     clearTimeout(timeout)
-    if (e && e.name === 'AbortError') return json(504, { error: 'Search timed out — try again' })
+    if (e && e.name === 'AbortError') return aiFailed(504, 'Search timed out — try again')
     console.error('[find-prices] request failed:', e?.message || e)
-    return json(502, { error: 'API error: request failed' })
+    return aiFailed(502, 'API error: request failed')
   }
 
   const content: any[] = Array.isArray(raw?.content) ? raw.content : []
@@ -197,7 +195,7 @@ export const POST: APIRoute = async ({ request }) => {
   const text = textBlocks.map((b) => b.text).join('\n')
   if (!text.trim()) {
     console.error('[find-prices] no text block in response, stop_reason:', raw?.stop_reason, 'block types:', content.map((b) => b?.type))
-    return json(502, { error: 'Could not read the AI response' })
+    return aiFailed(502, 'Could not read the AI response')
   }
   if (raw?.stop_reason === 'max_tokens') {
     console.error('[find-prices] response was truncated at max_tokens')
@@ -219,7 +217,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
   if (!Array.isArray(parsed)) {
     console.error('[find-prices] could not parse JSON array from model text:', text.slice(0, 500))
-    return json(502, { error: 'Could not read the AI response' })
+    return aiFailed(502, 'Could not read the AI response')
   }
 
   const { results: found, dropped, candidates } = validateFindPricesResults(parsed, region, seenHostnames)
@@ -227,17 +225,19 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Only https URLs on a hostname the search actually returned get here (validated above),
   // so this never fetches an address the model made up.
-  const deadline = startedAt + TOTAL_BUDGET_MS
-  const results = await Promise.all(
+  const checked = await Promise.all(
     found.map(async (r) => {
-      const html = await fetchPageHtml(r.url, deadline)
-      const checked = applyPagePrice(r, html ? extractPagePrice(html) : null, region, CURRENCIES)
-      if (checked.searchPrice !== undefined) {
-        console.error('[find-prices] page price differs from search:', r.url, `${checked.searchPrice} ${checked.searchCurrency} -> ${checked.price} ${checked.currency}`)
+      const ms = Math.min(PAGE_FETCH_TIMEOUT_MS, deadline - Date.now())
+      const page = ms >= MIN_PAGE_FETCH_MS ? await fetchHtml(r.url, ms) : null
+      const result = applyPagePrice(r, page?.ok ? extractPagePrice(page.html) : null, region, CURRENCIES)
+      if (result.searchPrice !== undefined) {
+        console.error('[find-prices] page price differs from search:', r.url, `${result.searchPrice} ${result.searchCurrency} -> ${result.price} ${result.currency}`)
       }
-      return checked
+      return result
     })
   )
 
-  return json(200, { ok: true, results, diagnostics: { searches, candidates, dropped } })
+  const direct = await directLookup
+  const results = mergeFindPricesResults(checked, direct.results)
+  return json(200, { ok: true, results, diagnostics: { searches, candidates, dropped, stores: direct.stores } })
 }

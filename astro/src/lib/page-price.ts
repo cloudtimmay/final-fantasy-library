@@ -76,19 +76,26 @@ function fromOffer(offer: any): Omit<PagePrice, 'source'> | null {
   return { price, currency: typeof currency === 'string' ? currency.toUpperCase() : null, availability: parseAvailability(offer.availability) }
 }
 
-function fromJsonLd(html: string): PagePrice | null {
-  const re = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+// Every parseable JSON-LD block's Product (or ProductGroup) nodes. The `+` in the type may
+// be HTML-encoded — Komplett writes type="application/ld&#x2B;json".
+function* jsonLdProducts(html: string): Generator<any> {
+  const re = /<script[^>]*type\s*=\s*["']application\/ld(?:\+|&#x2B;|&#43;)json["'][^>]*>([\s\S]*?)<\/script>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(html))) {
     let data: any
     try { data = JSON.parse(m[1].trim()) } catch { continue }
     for (const node of walk(data)) {
-      if (!isType(node, 'Product') && !isType(node, 'ProductGroup')) continue
-      const offers = Array.isArray(node.offers) ? node.offers : node.offers ? [node.offers] : []
-      for (const offer of offers) {
-        const found = fromOffer(offer)
-        if (found) return { ...found, source: 'json-ld' }
-      }
+      if (isType(node, 'Product') || isType(node, 'ProductGroup')) yield node
+    }
+  }
+}
+
+function fromJsonLd(html: string): PagePrice | null {
+  for (const node of jsonLdProducts(html)) {
+    const offers = Array.isArray(node.offers) ? node.offers : node.offers ? [node.offers] : []
+    for (const offer of offers) {
+      const found = fromOffer(offer)
+      if (found) return { ...found, source: 'json-ld' }
     }
   }
   return null
@@ -133,6 +140,68 @@ function fromMicrodata(html: string): PagePrice | null {
   if (price === null) return null
   const currency = itempropValue(html, 'priceCurrency')
   return { price, currency: currency ? currency.toUpperCase() : null, availability: parseAvailability(itempropValue(html, 'availability')), source: 'microdata' }
+}
+
+// --- product identity (name + GTIN/ISBN) -----------------------------------------------
+
+// A real EAN-13/UPC-12/EAN-8/GTIN-14 (mod-10 check digit) or ISBN-10 — anything else is a
+// store's internal number (Komplett's sku "1344609") and must not be compared as a barcode.
+function validGtin(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const s = String(value).toUpperCase().replace(/^(isbn|ean|gtin\d*|upc):/i, '').replace(/[\s-]/g, '')
+  if (/^\d{9}[\dX]$/.test(s)) {
+    let sum = 0
+    for (let i = 0; i < 10; i++) sum += (s[i] === 'X' ? 10 : Number(s[i])) * (10 - i)
+    return sum % 11 === 0 ? s : null
+  }
+  if (!/^(\d{8}|\d{12,14})$/.test(s)) return null
+  const digits = s.split('').map(Number)
+  const check = digits.pop()!
+  const sum = digits.reverse().reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 3 : 1), 0)
+  return (10 - (sum % 10)) % 10 === check ? s : null
+}
+
+function codeFromProduct(node: any): string | null {
+  for (const key of ['gtin13', 'gtin12', 'gtin8', 'gtin14', 'gtin', 'isbn', 'productID']) {
+    const code = validGtin(node[key])
+    if (code) return code
+  }
+  // identifier / additionalProperty: { "@type": "PropertyValue", name: "EAN", value: "..." }
+  for (const n of walk([node.identifier, node.additionalProperty])) {
+    if (isType(n, 'PropertyValue') && /ean|gtin|isbn/i.test(String(n.name || n.propertyID || ''))) {
+      const code = validGtin(n.value)
+      if (code) return code
+    }
+  }
+  if (typeof node.identifier === 'string') return validGtin(node.identifier)
+  // Last: the sku, but only when it actually is a barcode (Outland's sku is the EAN/ISBN).
+  return validGtin(node.sku)
+}
+
+export type ProductIdentity = { name: string | null; gtin: string | null }
+
+// The product's name and GTIN/ISBN from its page, for matching a store's own search hit
+// against what's being searched for — JSON-LD Product first, then microdata, then og:title.
+export function extractProductIdentity(html: string): ProductIdentity {
+  let name: string | null = null
+  let gtin: string | null = null
+  for (const node of jsonLdProducts(html)) {
+    if (!name && typeof node.name === 'string' && node.name.trim()) name = node.name.trim()
+    if (!gtin) gtin = codeFromProduct(node)
+    if (name && gtin) break
+  }
+  if (!gtin) {
+    for (const prop of ['gtin13', 'gtin', 'gtin12', 'gtin8', 'isbn']) {
+      gtin = validGtin(itempropValue(html, prop))
+      if (gtin) break
+    }
+  }
+  if (!name) {
+    const ogTitle = (html.match(/<meta\b[^>]*property\s*=\s*["']og:title["'][^>]*>/i) || [])[0]
+    name = itempropValue(html, 'name') || (ogTitle ? attr(ogTitle, 'content') : null)
+    name = name ? name.replace(/\s+/g, ' ').trim() || null : null
+  }
+  return { name, gtin }
 }
 
 // JSON-LD offers first, then meta tags, then microdata — the first source with a price wins.

@@ -15,10 +15,16 @@ export type FoundPrice = {
 
 export type DroppedCandidate = { store: string; reason: string }
 
+// One Norwegian store's direct lookup (lib/store-lookup.ts): how many matches it gave, or why
+// it was skipped (blocked, timed out, layout not recognized, ...).
+export type StoreOutcome = { store: string; found: number; reason?: string }
+
 export type FindPricesDiagnostics = {
   searches: number // web searches the model actually ran
   candidates: number // listings it reported, kept or not
   dropped: DroppedCandidate[]
+  stores?: StoreOutcome[] // Norway only
+  aiError?: string // the AI search failed, but the direct store lookup still found something
 }
 
 const MAX_RESULTS = 6
@@ -74,10 +80,19 @@ export function validateFindPricesResults(
 // e.g. "6 searches, 2 candidates found, 2 dropped: Proshop (price in EUR, not NOK), Komplett
 // (not a match: different edition)". Shown on /add-price when a search finds nothing.
 export function describeFindPricesDiagnostics(d: FindPricesDiagnostics): string {
-  if (d.searches === 0) return 'The AI did not run any web search.'
+  const store = d.stores?.length ? ' ' + describeStoreLookup(d.stores) : ''
+  if (d.aiError) return `AI search failed: ${d.aiError}.${store}`
+  if (d.searches === 0) return 'The AI did not run any web search.' + store
   const searches = d.searches === 1 ? '1 search' : `${d.searches} searches`
   const candidates = `${d.candidates} candidate${d.candidates === 1 ? '' : 's'} found`
-  if (d.dropped.length === 0) return `${searches}, ${candidates}.`
+  if (d.dropped.length === 0) return `${searches}, ${candidates}.${store}`
   const reasons = d.dropped.map((x) => `${x.store} (${x.reason})`).join(', ')
-  return `${searches}, ${candidates}, ${d.dropped.length} dropped: ${reasons}`
+  return `${searches}, ${candidates}, ${d.dropped.length} dropped: ${reasons}${store ? '.' + store : ''}`
+}
+
+// e.g. "Store search: Outland 1 found, Komplett no match, Ark skipped (blocked (HTTP 429))."
+export function describeStoreLookup(stores: StoreOutcome[]): string {
+  if (!stores.length) return ''
+  const parts = stores.map((s) => (s.reason ? `${s.store} skipped (${s.reason})` : s.found ? `${s.store} ${s.found} found` : `${s.store} no match`))
+  return `Store search: ${parts.join(', ')}.`
 }

@@ -104,6 +104,12 @@ function namesMatch(a: MatchName, b: MatchName): boolean {
   return nameMatchRank(a, b) !== null
 }
 
+// nameMatchRank() for plain strings, for callers outside this module (store-lookup.ts):
+// 0 = same name, 1 = `a` appears in `b` as whole words, 2 = `b` appears in `a`, null = no match.
+export function compareNames(a: string | null | undefined, b: string | null | undefined): 0 | 1 | 2 | null {
+  return nameMatchRank(nameForMatch(a), nameForMatch(b))
+}
+
 // Exact JAN matches first (labelled "Same barcode"), then name-similarity matches against
 // either productName or productNameJp, normalized (labelled "Similar name") — a product
 // already matched by JAN is never also listed as a name match. Order of the returned array

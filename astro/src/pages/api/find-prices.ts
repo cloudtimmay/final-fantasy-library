@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { CATEGORIES } from '../../lib/price-entry-fields'
+import { CATEGORIES, CURRENCIES } from '../../lib/price-entry-fields'
+import { extractPagePrice, applyPagePrice } from '../../lib/page-price'
 import { buildFindPricesSystemPrompt, norwaySearchQueries, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
 import { validateFindPricesResults, hostnameOf } from '../../lib/find-prices-results'
 
@@ -39,7 +40,41 @@ const CATEGORY_LABELS: Record<string, string> = {
 // "site:" search — more would risk the 55s timeout below (Vercel maxDuration is 60s).
 const ONLINE_MAX_SEARCHES = 5
 
+// Each found result is then checked against its own product page (see lib/page-price.ts) —
+// the model's price comes from the search index and can be stale. All pages are fetched in
+// parallel, each for at most PAGE_FETCH_TIMEOUT_MS, and never past TOTAL_BUDGET_MS from the
+// start of the request (Vercel maxDuration is 60s): a page still loading at the deadline is
+// left unverified rather than delaying the response.
+const PAGE_FETCH_TIMEOUT_MS = 5000
+const TOTAL_BUDGET_MS = 58000
+const MIN_PAGE_FETCH_MS = 500
+const MAX_PAGE_BYTES = 5 * 1024 * 1024
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+
+async function fetchPageHtml(url: string, deadline: number): Promise<string | null> {
+  const ms = Math.min(PAGE_FETCH_TIMEOUT_MS, deadline - Date.now())
+  if (ms < MIN_PAGE_FETCH_MS) return null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'nb-NO,nb;q=0.9,en;q=0.8' },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    if (!res.ok) return null
+    if (Number(res.headers.get('content-length') || 0) > MAX_PAGE_BYTES) return null
+    const html = await res.text()
+    return html.length > MAX_PAGE_BYTES ? null : html
+  } catch {
+    return null // blocked, timed out, TLS/network error — the result just stays unverified
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const POST: APIRoute = async ({ request }) => {
+  const startedAt = Date.now()
   const body = await parseJsonBody(request)
   if (!body) return json(400, { error: 'Bad request' })
 
@@ -187,8 +222,22 @@ export const POST: APIRoute = async ({ request }) => {
     return json(502, { error: 'Could not read the AI response' })
   }
 
-  const { results, dropped, candidates } = validateFindPricesResults(parsed, region, seenHostnames)
+  const { results: found, dropped, candidates } = validateFindPricesResults(parsed, region, seenHostnames)
   if (dropped.length) console.error('[find-prices] dropped candidates:', JSON.stringify(dropped))
+
+  // Only https URLs on a hostname the search actually returned get here (validated above),
+  // so this never fetches an address the model made up.
+  const deadline = startedAt + TOTAL_BUDGET_MS
+  const results = await Promise.all(
+    found.map(async (r) => {
+      const html = await fetchPageHtml(r.url, deadline)
+      const checked = applyPagePrice(r, html ? extractPagePrice(html) : null, region, CURRENCIES)
+      if (checked.searchPrice !== undefined) {
+        console.error('[find-prices] page price differs from search:', r.url, `${checked.searchPrice} ${checked.searchCurrency} -> ${checked.price} ${checked.currency}`)
+      }
+      return checked
+    })
+  )
 
   return json(200, { ok: true, results, diagnostics: { searches, candidates, dropped } })
 }

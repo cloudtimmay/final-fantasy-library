@@ -304,6 +304,25 @@ const renderedAt = Date.now()
       .bottom-nav a .bn-icon { font-size: 20px; line-height: 1; }
       .bottom-nav a.active { color: var(--accent); }
     }
+
+    /* Tap-to-enlarge photos (public/lightbox.js): any img[data-lightbox] opens full screen
+       in a <dialog>. display is only set while [open] — an unconditional display would
+       override the browser's own hiding of a closed dialog (the same trap as [hidden]). No
+       position: sticky / backdrop-filter (black screen on mobile, see CLAUDE.md). */
+    img[data-lightbox] { cursor: zoom-in; }
+    .lb-dialog {
+      width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none;
+      margin: 0; padding: 0; border: 0; background: transparent; overflow: auto;
+    }
+    .lb-dialog:not([open]) { display: none; }
+    .lb-dialog[open] { display: flex; align-items: center; justify-content: center; }
+    .lb-dialog::backdrop { background: rgba(0, 0, 0, 0.92); }
+    .lb-img { display: block; max-width: 100vw; max-height: 100vh; max-height: 100dvh; object-fit: contain; }
+    .lb-close {
+      position: fixed; top: 0.75rem; right: 0.75rem; width: 2.75rem; height: 2.75rem;
+      border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(0, 0, 0, 0.6);
+      color: #fff; font-size: 1.2rem; line-height: 1; cursor: pointer;
+    }
   </style>
 </head>
 <body data-rendered-at={renderedAt}>
@@ -395,6 +414,9 @@ const renderedAt = Date.now()
       window.addEventListener('pageshow', checkAge)
     })()
   </script>
+
+  <!-- Tap a photo (img[data-lightbox]) to see it full screen — styles: "lb-" above. -->
+  <script is:inline src="/lightbox.js" defer></script>
 
   <script>
     // Registered from every page (not just /offline) so sw.js's cache stays warm no

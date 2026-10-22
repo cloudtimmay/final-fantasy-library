@@ -39,12 +39,16 @@ export function initImageUpload() {
       uploadMsg.textContent = 'Uploaded ✓'
       if (photo && data.url) {
         const fresh = data.url + '?w=900&auto=format&t=' + Date.now()
+        // Tap to enlarge (public/lightbox.js) at full size.
+        const large = data.url + '?w=2000&fit=max&auto=format'
         if (photo.tagName === 'IMG') {
           photo.src = fresh
+          photo.dataset.lightbox = large
         } else {
           const img = document.createElement('img')
           img.className = 'detail-photo'
           img.src = fresh
+          img.dataset.lightbox = large
           img.alt = document.querySelector('h1')?.textContent || ''
           photo.replaceWith(img)
         }

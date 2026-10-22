@@ -68,9 +68,9 @@ const multiDisc = discNumbers.length > 1
     )}
 
     {a.image
-      ? <img class="detail-photo" src={urlFor(a.image).width(640).url()} alt={a.title} />
+      ? <img class="detail-photo" src={urlFor(a.image).width(640).url()} data-lightbox={urlFor(a.image).width(2000).fit('max').url()} alt={a.title} />
       : a.externalImageUrl
-      ? <img class="detail-photo" src={a.externalImageUrl} alt={a.title} />
+      ? <img class="detail-photo" src={a.externalImageUrl} data-lightbox={a.externalImageUrl} alt={a.title} />
       : <div class="detail-photo placeholder">🎵</div>
     }
 

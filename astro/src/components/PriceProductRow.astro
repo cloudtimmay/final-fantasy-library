@@ -66,7 +66,7 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
   <details data-key={p.key}>
     <summary>
       {p.image ? (
-        <img class="thumb" src={cdnImage(p.image.url, 160)} alt={p.productName} />
+        <img class="thumb" src={cdnImage(p.image.url, 160)} data-lightbox={cdnImage(p.image.url, 2000)} alt={p.productName} />
       ) : (
         <div class="thumb thumb-placeholder">🏷️</div>
       )}

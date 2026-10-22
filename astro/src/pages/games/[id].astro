@@ -28,9 +28,9 @@ const STATUSES = ['owned', 'wishlist', 'sold', 'lent']
     )}
 
     {g.image
-      ? <img class="detail-photo" src={urlFor(g.image).height(600).url()} alt={g.title} />
+      ? <img class="detail-photo" src={urlFor(g.image).height(600).url()} data-lightbox={urlFor(g.image).width(2000).fit('max').url()} alt={g.title} />
       : g.externalImageUrl
-      ? <img class="detail-photo" src={g.externalImageUrl} alt={g.title} />
+      ? <img class="detail-photo" src={g.externalImageUrl} data-lightbox={g.externalImageUrl} alt={g.title} />
       : <div class="detail-photo-placeholder">🎮</div>
     }
 

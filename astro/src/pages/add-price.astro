@@ -55,7 +55,7 @@ const myCollection = (await fetchCollectionForMatching())
         </label>
       </div>
       <span id="p-photo-name" class="photo-name" hidden></span>
-      <img id="p-preview" class="photo-preview" hidden alt="Preview" />
+      <img id="p-preview" class="photo-preview" hidden alt="Preview" data-lightbox="" />
       <button id="p-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
       <button id="p-identify-btn" type="button" class="identify-btn" hidden>✨ Identify</button>
       <div id="p-extra-photo-buttons" class="extra-photo-buttons" hidden>
@@ -381,7 +381,10 @@ const myCollection = (await fetchCollectionForMatching())
     // the same preview identifyFlow uses for a freshly taken one — Identify doesn't apply
     // to it since you already know what it is.
     function updatePhotoPreview() {
-      if (reusedImage && reusedImage.url) identifyFlow.showExternalPhoto(cdnImage(reusedImage.url, 800), 'Using existing photo')
+      if (reusedImage && reusedImage.url) {
+        identifyFlow.showExternalPhoto(cdnImage(reusedImage.url, 800), 'Using existing photo')
+        preview.dataset.lightbox = cdnImage(reusedImage.url, 2000) // tap to enlarge: full size
+      }
     }
 
     function fileToBase64(file) {
@@ -405,7 +408,8 @@ const myCollection = (await fetchCollectionForMatching())
       categoryLabels: CATEGORY_LABELS,
       // A freshly taken/chosen photo always replaces whatever existing-product photo (or
       // earlier upload) was in play before it, and starts uploading straight away.
-      onPhotoChosen: () => { reusedImage = null; photoUpload.start(identifyFlow.getSelectedPhoto()) },
+      // (data-lightbox="" -> tap to enlarge shows the chosen photo's own preview.)
+      onPhotoChosen: () => { reusedImage = null; preview.dataset.lightbox = ''; photoUpload.start(identifyFlow.getSelectedPhoto()) },
       onPhotoRemoved: () => { reusedImage = null },
       onPhotoCleared: () => { photoUpload.discard() },
       // A JAN match against an already-logged product offers linking to it instead of

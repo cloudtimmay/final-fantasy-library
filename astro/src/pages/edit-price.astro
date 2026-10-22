@@ -89,7 +89,7 @@ const sourceLabel =
       <>
         <div class="product-header">
           {entry.image && entry.image.url ? (
-            <img class="thumb" src={cdnImage(entry.image.url, 200)} alt={entry.productName} />
+            <img class="thumb" src={cdnImage(entry.image.url, 200)} data-lightbox={cdnImage(entry.image.url, 2000)} alt={entry.productName} />
           ) : (
             <div class="thumb thumb-placeholder">🏷️</div>
           )}

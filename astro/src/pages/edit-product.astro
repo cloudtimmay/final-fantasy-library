@@ -41,7 +41,7 @@ const otherProducts = products.filter((p) => p.key !== key)
             </label>
           </div>
           <span id="p-photo-name" class="photo-name" hidden></span>
-          <img id="p-preview" class="photo-preview" hidden alt="Preview" />
+          <img id="p-preview" class="photo-preview" hidden alt="Preview" data-lightbox="" />
           <button id="p-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
         </div>
 
@@ -123,7 +123,10 @@ const otherProducts = products.filter((p) => p.key !== key)
       // A freshly taken/chosen photo always wins; otherwise show the product's current
       // photo unless it's been explicitly removed; otherwise nothing.
       function updatePhotoPreview() {
+        // data-lightbox: tap to enlarge — "" uses the preview itself (a freshly chosen photo),
+        // the current photo opens at full size from the CDN.
         if (selectedPhoto) {
+          preview.dataset.lightbox = ''
           preview.hidden = false
           photoRemoveBtn.hidden = false
           return
@@ -131,6 +134,7 @@ const otherProducts = products.filter((p) => p.key !== key)
         if (!imageRemoved && currentImage && currentImage.url) {
           revokeIfBlob()
           preview.src = cdnImage(currentImage.url, 800)
+          preview.dataset.lightbox = cdnImage(currentImage.url, 2000)
           preview.hidden = false
           photoName.hidden = false
           photoName.textContent = 'Current photo'

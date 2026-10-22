@@ -106,7 +106,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.filter(isTa
                       <label class="checklist-item-label">
                         <input type="checkbox" class="item-checkbox" data-item-id={item._id} />
                         {item.photoUrl ? (
-                          <img class="item-thumb" src={cdnImage(item.photoUrl, 120)} alt="" />
+                          <img class="item-thumb" src={cdnImage(item.photoUrl, 120)} data-lightbox={cdnImage(item.photoUrl, 2000)} alt="" />
                         ) : (
                           <span class="item-thumb item-thumb-placeholder">🏷️</span>
                         )}

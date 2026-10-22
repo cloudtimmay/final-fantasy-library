@@ -69,6 +69,13 @@ export function validateIdentifyResult(parsed: any): IdentifyResult {
 // form already has is left alone.
 export function currencyForIdentifiedPrice(tagCurrency: unknown, source: string, currentCurrency: string): string {
   if (typeof tagCurrency === 'string' && IDENTIFY_CURRENCIES.includes(tagCurrency)) return tagCurrency
+  return currencyForSource(source, currentCurrency)
+}
+
+// The currency a source implies, used when the source radio is switched on /add-price and
+// /edit-price (and above, when a tag shows no currency): a Japan shop is JPY, a Norwegian
+// store is NOK, and Online could be anything, so the current currency is left alone.
+export function currencyForSource(source: string, currentCurrency: string): string {
   if (source === 'japanStore') return 'JPY'
   if (source === 'norway') return 'NOK'
   return currentCurrency

@@ -228,7 +228,7 @@ const myCollection = (await fetchCollectionForMatching())
   <script>
     import { findOwnersOf, findCollectionMatches } from '../lib/product-match'
     import { detailHref } from '../lib/collection-fields'
-    import { currencyForIdentifiedPrice } from '../lib/identify-result'
+    import { currencyForIdentifiedPrice, currencyForSource, IDENTIFY_CURRENCIES } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
     import { describeFindPricesDiagnostics, describeStoreLookup } from '../lib/find-prices-results'
 
@@ -342,6 +342,17 @@ const myCollection = (await fetchCollectionForMatching())
     currencySel.addEventListener('change', applyCurrency)
     applyCurrency()
 
+    // Switching the source sets the currency it implies (Shop in Japan -> JPY, Norway -> NOK,
+    // Online -> unchanged) — except when Identify read a currency off the price tag, which
+    // wins until a currency is picked by hand, Identify runs again, or the form resets.
+    let currencyFromTag = false
+    sourceRadios.forEach((r) => r.addEventListener('change', () => {
+      if (currencyFromTag) return
+      currencySel.value = currencyForSource(currentSource(), currencySel.value)
+      applyCurrency()
+    }))
+    currencySel.addEventListener('change', () => { currencyFromTag = false })
+
     // Only meaningful for a Japan shop purchase — Online/Norway purchases are never
     // paid with a passport at a Japanese register, so they're always treated as not
     // tax-free (see the price-entry-update.ts side of this).
@@ -413,9 +424,11 @@ const myCollection = (await fetchCollectionForMatching())
         if (result.productNameJp) nameJpInput.value = result.productNameJp
         if (result.jan) janInput.value = result.jan
         if (result.category) categorySel.value = result.category
+        currencyFromTag = false
         if (typeof result.price === 'number') {
           priceInput.value = String(result.price)
           currencySel.value = currencyForIdentifiedPrice(result.currency, currentSource(), currencySel.value)
+          currencyFromTag = IDENTIFY_CURRENCIES.includes(result.currency)
           applyCurrency()
           if (currencySel.value === 'JPY' && typeof result.taxIncluded === 'boolean') taxCheckbox.checked = result.taxIncluded
         }
@@ -1040,6 +1053,7 @@ const myCollection = (await fetchCollectionForMatching())
     // since "bought" shouldn't carry over to the next item; the Find Prices results are
     // specific to the product just cleared, so they're dropped too.
     function resetFormAfterSave() {
+      currencyFromTag = false
       nameInput.value = ''
       nameJpInput.value = ''
       janInput.value = ''

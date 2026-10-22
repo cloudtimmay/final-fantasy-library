@@ -261,6 +261,8 @@ const sourceLabel =
   <script is:inline src="/trip-select.js"></script>
 
   <script>
+    import { currencyForSource } from '../lib/identify-result'
+
     const dataEl = document.querySelector('#edit-price-data')
     if (dataEl) {
       const DATA = JSON.parse(dataEl.textContent || '{}')
@@ -317,6 +319,14 @@ const sourceLabel =
       }
       currencySel.addEventListener('change', applyCurrency)
       applyCurrency()
+
+      // Switching the source sets the currency it implies (Shop in Japan -> JPY, Norway ->
+      // NOK, Online -> unchanged). Only on a switch — an entry opened for editing keeps its
+      // stored currency until its source is changed.
+      sourceRadios.forEach((r) => r.addEventListener('change', () => {
+        currencySel.value = currencyForSource(currentSource(), currencySel.value)
+        applyCurrency()
+      }))
 
       const LAST_TRIP_KEY = 'ff-last-trip'
       let initialTripId = DATA.tripId || ''

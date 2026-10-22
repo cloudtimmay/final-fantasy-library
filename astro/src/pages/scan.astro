@@ -4,6 +4,7 @@ import { sanity, urlFor } from '../lib/sanity'
 import { fetchProducts, fetchOwnedByPerson, fetchCollectionForMatching } from '../lib/price-products'
 import { findProductMatches, findOwnersOf, findCollectionMatches } from '../lib/product-match'
 import { detailHref } from '../lib/collection-fields'
+import { cdnImage } from '../lib/image-url'
 
 const STUDIO_URL = 'https://fflibrary.sanity.studio'
 
@@ -158,7 +159,7 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
           {priceMatches.map(({ product, label }) => (
             <a class="price-match-row" href={`/prices?open=${encodeURIComponent(product.key)}`}>
               {product.image ? (
-                <img class="price-match-thumb" src={`${product.image.url}?w=100`} alt={product.productName} />
+                <img class="price-match-thumb" src={cdnImage(product.image.url, 160)} alt={product.productName} />
               ) : (
                 <div class="price-match-thumb placeholder">🏷️</div>
               )}

@@ -147,7 +147,7 @@ const today = new Date().toISOString().split('T')[0]
       photoName.textContent = 'Processing photo…'
       let chosen = file
       try {
-        if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+        if (window.resizeImage) chosen = await window.resizeImage(file)
       } catch (e) { chosen = file }
       selectedPhoto = chosen
       photoName.textContent = file.name

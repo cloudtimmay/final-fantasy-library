@@ -20,8 +20,10 @@ export const sanityWrite = createClient({
 
 const builder = imageUrlBuilder(sanity)
 
+// auto('format'): the CDN sends WebP/AVIF to browsers that take them, instead of the stored
+// JPEG. Callers add the size (.width()/.height()), so a thumbnail never loads the full photo.
 export function urlFor(source: any) {
-  return builder.image(source)
+  return builder.image(source).auto('format')
 }
 
 // Re-usable GROQ query fragments

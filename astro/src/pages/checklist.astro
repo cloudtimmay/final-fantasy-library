@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro'
+import { cdnImage } from '../lib/image-url'
 import {
   fetchTripsForSpending,
   fetchFamilyPurchasesForTrip,
@@ -105,7 +106,7 @@ const totalItems = qualifyingGroups.reduce((sum, g) => sum + g.items.filter(isTa
                       <label class="checklist-item-label">
                         <input type="checkbox" class="item-checkbox" data-item-id={item._id} />
                         {item.photoUrl ? (
-                          <img class="item-thumb" src={`${item.photoUrl}?w=60`} alt="" />
+                          <img class="item-thumb" src={cdnImage(item.photoUrl, 120)} alt="" />
                         ) : (
                           <span class="item-thumb item-thumb-placeholder">🏷️</span>
                         )}

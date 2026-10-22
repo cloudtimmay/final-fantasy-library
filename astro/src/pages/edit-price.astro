@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { fetchProducts, fetchShopGroups, fetchTrips, productKey } from '../lib/price-products'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { cdnImage } from '../lib/image-url'
 
 type EntryDoc = {
   _id: string
@@ -88,7 +89,7 @@ const sourceLabel =
       <>
         <div class="product-header">
           {entry.image && entry.image.url ? (
-            <img class="thumb" src={`${entry.image.url}?w=100`} alt={entry.productName} />
+            <img class="thumb" src={cdnImage(entry.image.url, 200)} alt={entry.productName} />
           ) : (
             <div class="thumb thumb-placeholder">🏷️</div>
           )}

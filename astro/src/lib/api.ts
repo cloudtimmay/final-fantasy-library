@@ -12,6 +12,13 @@ export async function parseJsonBody(request: Request): Promise<any | null> {
   }
 }
 
+// An image field referencing an already-uploaded Sanity asset (the background upload, see
+// src/scripts/background-upload.js), or undefined if `assetId` isn't an image asset id.
+export function imageFromAssetId(assetId: unknown): { _type: 'image'; asset: { _type: 'reference'; _ref: string } } | undefined {
+  const id = String(assetId ?? '').trim()
+  return /^image-[A-Za-z0-9-]+$/.test(id) ? { _type: 'image', asset: { _type: 'reference', _ref: id } } : undefined
+}
+
 const toNum = (v: any) => (v === '' || v == null || isNaN(Number(v)) ? undefined : Number(v))
 const toStr = (v: any) => { const s = String(v ?? '').trim(); return s || undefined }
 

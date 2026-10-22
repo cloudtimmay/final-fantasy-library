@@ -17,6 +17,7 @@
 //     onUseSuggestion: (result) => { ... },                  // required
 //     onPhotoChosen: () => { ... },                          // optional — a NEW photo was taken/picked
 //     onPhotoRemoved: () => { ... },                         // optional — only fires for an externally-shown photo
+//     onPhotoCleared: () => { ... },                         // optional — the module's own photo was removed (✕ button)
 //   })
 //   flow.getSelectedPhoto() / flow.getExtraPhotos() / flow.reset() / flow.showExternalPhoto(url, label)
 //
@@ -132,7 +133,8 @@ window.createIdentifyFlow = function (config) {
     els.photoName.textContent = 'Processing photo…'
     let chosen = file
     try {
-      if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+      // The stored-photo size (resize-image.js defaults: max 1400 px, JPEG 0.8).
+      if (window.resizeImage) chosen = await window.resizeImage(file)
     } catch (e) { chosen = file }
     selectedPhoto = chosen
     revokeIfBlob()
@@ -161,6 +163,7 @@ window.createIdentifyFlow = function (config) {
     const wasExternal = externalPhotoActive
     reset()
     if (wasExternal && config.onPhotoRemoved) config.onPhotoRemoved()
+    if (!wasExternal && config.onPhotoCleared) config.onPhotoCleared()
   })
 
   // For a host that shows a photo it owns itself (e.g. add-price.astro's "reuse this

@@ -19,10 +19,24 @@ export const POST: APIRoute = async ({ request }) => {
   const field = String(form.get('field') || 'image').trim()
 
   if (!(file instanceof File)) return json(400, { error: 'No file' })
-  if (!docId) return json(400, { error: 'Missing docId' })
   if (field !== 'image' && field !== 'photos') return json(400, { error: 'Invalid field' })
   if (!file.type.startsWith('image/')) return json(400, { error: 'Not an image' })
   if (file.size > 10 * 1024 * 1024) return json(400, { error: 'Image too large (max 10MB)' })
+
+  // No docId: upload the image as a standalone asset and just return its id — the
+  // background upload on /add-price, /add-item and /edit-product (src/scripts/
+  // background-upload.js), where the document is created (or saved) later and only
+  // references the asset (imageAssetId). An asset that's never referenced stays in the
+  // media library — see CLEANUP.md.
+  if (!docId) {
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const asset = await sanityWrite.assets.upload('image', buffer, { filename: file.name || 'upload.jpg', contentType: file.type })
+      return json(200, { ok: true, assetId: asset._id, url: asset.url })
+    } catch {
+      return json(500, { error: 'Upload failed' })
+    }
+  }
 
   try {
     // Confirm the target document exists and is an allowed type.

@@ -1,6 +1,8 @@
 // Shared camera/gallery image upload for detail pages.
 // Uploads to /api/upload-image and swaps the existing photo or placeholder for the new image.
-// Used on albums, games, books and merchandise detail pages.
+// Used on albums, games, books and merchandise detail pages. The photo is first resized to
+// the stored-photo size (resize-image.js defaults, max 1400 px) — before October 2026 these
+// pages uploaded the camera original as-is (~5 MB for a 4000x3000 phone photo).
 export function initImageUpload() {
   const camera = document.querySelector('#img-camera')
   const gallery = document.querySelector('#img-gallery')
@@ -15,8 +17,13 @@ export function initImageUpload() {
     uploadMsg.style.color = 'var(--muted)'
     uploadMsg.textContent = 'Uploading…'
 
+    let chosen = file
+    try {
+      if (window.resizeImage) chosen = await window.resizeImage(file)
+    } catch (e) { chosen = file }
+
     const form = new FormData()
-    form.append('file', file)
+    form.append('file', chosen)
     form.append('docId', window.location.pathname.split('/').pop())
     form.append('field', 'image')
 
@@ -31,7 +38,7 @@ export function initImageUpload() {
       uploadMsg.style.color = '#2ecc71'
       uploadMsg.textContent = 'Uploaded ✓'
       if (photo && data.url) {
-        const fresh = data.url + '?t=' + Date.now()
+        const fresh = data.url + '?w=900&auto=format&t=' + Date.now()
         if (photo.tagName === 'IMG') {
           photo.src = fresh
         } else {

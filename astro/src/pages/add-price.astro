@@ -231,6 +231,8 @@ const myCollection = (await fetchCollectionForMatching())
     import { currencyForIdentifiedPrice, currencyForSource, IDENTIFY_CURRENCIES } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
     import { summarizeDiagnostics } from '../lib/find-prices-results'
+    import { createBackgroundUpload } from '../scripts/background-upload.js'
+    import { cdnImage } from '../lib/image-url'
 
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
@@ -272,13 +274,11 @@ const myCollection = (await fetchCollectionForMatching())
     // orthogonal to identifyFlow's own selected/extra photos, shown in the same #p-preview
     // via identifyFlow.showExternalPhoto() since Identify doesn't apply to it.
     let reusedImage = null
-    // Cache for the Sanity image asset created from `selectedPhoto` the first time it's
-    // actually uploaded (by whichever happens first: a "Save this price" click, or the
-    // main Save button) — every later save during this form session reuses this id
-    // instead of re-uploading the same file. Reset whenever the underlying photo changes
-    // (a new one is taken/chosen) or the form itself resets.
-    let uploadedPhotoAssetId = null
-    let uploadedPhotoUrl = null
+    // A freshly chosen photo is uploaded right away, as a standalone Sanity asset (src/
+    // scripts/background-upload.js) — every save this form session (each "Save this price",
+    // and the main Save) then only references that one asset. Discarded when the photo is
+    // removed or replaced, or the form resets.
+    const photoUpload = createBackgroundUpload()
     const nameJpInput = document.querySelector('#p-name-jp')
     const janInput = document.querySelector('#p-jan')
     const categorySel = document.querySelector('#p-category')
@@ -373,8 +373,7 @@ const myCollection = (await fetchCollectionForMatching())
 
     function resetPhoto() {
       reusedImage = null
-      uploadedPhotoAssetId = null
-      uploadedPhotoUrl = null
+      photoUpload.discard()
       identifyFlow.reset()
     }
 
@@ -382,7 +381,7 @@ const myCollection = (await fetchCollectionForMatching())
     // the same preview identifyFlow uses for a freshly taken one — Identify doesn't apply
     // to it since you already know what it is.
     function updatePhotoPreview() {
-      if (reusedImage && reusedImage.url) identifyFlow.showExternalPhoto(reusedImage.url, 'Using existing photo')
+      if (reusedImage && reusedImage.url) identifyFlow.showExternalPhoto(cdnImage(reusedImage.url, 800), 'Using existing photo')
     }
 
     function fileToBase64(file) {
@@ -404,10 +403,11 @@ const myCollection = (await fetchCollectionForMatching())
         extraPhotoButtons, extraPhotoCamera, extraPhotoGallery, extraPhotosWrap,
       },
       categoryLabels: CATEGORY_LABELS,
-      // A freshly taken/chosen photo always invalidates whatever existing-product photo
-      // (or already-uploaded asset) was in play before it.
-      onPhotoChosen: () => { reusedImage = null; uploadedPhotoAssetId = null; uploadedPhotoUrl = null },
-      onPhotoRemoved: () => { reusedImage = null; uploadedPhotoAssetId = null; uploadedPhotoUrl = null },
+      // A freshly taken/chosen photo always replaces whatever existing-product photo (or
+      // earlier upload) was in play before it, and starts uploading straight away.
+      onPhotoChosen: () => { reusedImage = null; photoUpload.start(identifyFlow.getSelectedPhoto()) },
+      onPhotoRemoved: () => { reusedImage = null },
+      onPhotoCleared: () => { photoUpload.discard() },
       // A JAN match against an already-logged product offers linking to it instead of
       // filling in the (possibly slightly different) suggested details as a new product.
       findExisting: (result) => {
@@ -438,42 +438,15 @@ const myCollection = (await fetchCollectionForMatching())
       },
     })
 
-    // What to send as imageAssetId on a create call: an existing product's photo always
-    // wins if one is selected; otherwise a freshly-taken photo that's already been
-    // uploaded this session (by an earlier "Save this price" or Save) can be referenced
-    // directly; a freshly-taken photo not yet uploaded has no asset id yet — that case is
-    // handled after creation by uploadSelectedPhotoTo().
-    function imageAssetIdForCreate() {
-      if (reusedImage) return reusedImage.assetId
-      if (identifyFlow.getSelectedPhoto() && uploadedPhotoAssetId) return uploadedPhotoAssetId
-      return undefined
-    }
-
-    // Uploads the selected photo and attaches it to `docId`, exactly once per form session —
-    // a no-op (returning success) if there's no fresh photo or it's already been
-    // uploaded. The resulting asset id/url are cached so every later save this session
-    // (another "Save this price", or the main Save button) reuses them via
-    // imageAssetIdForCreate() instead of uploading the same file again.
-    async function uploadSelectedPhotoTo(docId) {
-      const selectedPhoto = identifyFlow.getSelectedPhoto()
-      if (!selectedPhoto || uploadedPhotoAssetId) return true
-      try {
-        const form = new FormData()
-        form.append('file', selectedPhoto)
-        form.append('docId', docId)
-        form.append('field', 'image')
-        const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
-        if (!upRes.ok) return false
-        const upData = await upRes.json().catch(() => null)
-        if (upData && upData.assetId && upData.url) {
-          uploadedPhotoAssetId = upData.assetId
-          uploadedPhotoUrl = upData.url
-          return true
-        }
-        return false
-      } catch (e) {
-        return false
-      }
+    // The photo a create call references: an existing product's photo always wins;
+    // otherwise the freshly chosen one, uploaded in the background when it was picked —
+    // this waits if that upload is still running and retries once if it failed. `failed`:
+    // there is a fresh photo, but it couldn't be uploaded (the entry is saved without it).
+    async function photoForCreate() {
+      if (reusedImage) return { image: reusedImage, failed: false }
+      if (!identifyFlow.getSelectedPhoto()) return { image: null, failed: false }
+      const uploaded = await photoUpload.ensure()
+      return uploaded ? { image: { assetId: uploaded.assetId, url: uploaded.url }, failed: false } : { image: null, failed: true }
     }
 
     function productKey(jan, name) {
@@ -756,6 +729,7 @@ const myCollection = (await fetchCollectionForMatching())
       btn.disabled = true
       btn.textContent = 'Saving…'
       try {
+        const photo = await photoForCreate()
         const res = await fetch('/api/price-entry', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -774,7 +748,7 @@ const myCollection = (await fetchCollectionForMatching())
             price: result.price,
             currency: result.currency,
             note: result.note || undefined,
-            imageAssetId: imageAssetIdForCreate(),
+            imageAssetId: photo.image ? photo.image.assetId : undefined,
           }),
         })
         const data = await res.json().catch(() => null)
@@ -785,16 +759,9 @@ const myCollection = (await fetchCollectionForMatching())
           return
         }
 
-        // A freshly-taken photo that hasn't been uploaded yet this session can't be
-        // attached until the entry exists — upload it now and cache the asset id so
-        // every later "Save this price" and the main Save button reuse it instead of
-        // uploading the same file again. The photo itself stays in the form either way.
-        if (identifyFlow.getSelectedPhoto() && !uploadedPhotoAssetId && data.id) {
-          await uploadSelectedPhotoTo(data.id)
-        }
-
+        // The photo stays in the form either way — the next save references the same asset.
         btn.textContent = 'Saved ✓'
-        const uploadedImage = reusedImage || (uploadedPhotoAssetId ? { assetId: uploadedPhotoAssetId, url: uploadedPhotoUrl } : null)
+        const uploadedImage = photo.image
         rememberSavedPrice(
           productName,
           janInput.value.trim(),
@@ -1151,6 +1118,17 @@ const myCollection = (await fetchCollectionForMatching())
       saveBtn.textContent = 'Saving…'
 
       try {
+        // The photo was uploaded in the background when it was chosen — normally done by
+        // now. If it's still uploading this waits for it; if it failed it's retried once,
+        // and a second failure only costs the photo, never the price entry itself. The
+        // entry references the asset from the start, so the familyPurchase/collection item
+        // a Bought save creates below sees the photo too.
+        if (identifyFlow.getSelectedPhoto() && !photoUpload.peek()) saveBtn.textContent = 'Uploading photo…'
+        const photo = await photoForCreate()
+        const photoFailed = photo.failed
+        const uploadedImage = photo.image
+        saveBtn.textContent = 'Saving…'
+
         // Always created as Considering — the Bought transition (and the familyPurchase/
         // collection-item side effects it triggers) only ever runs through
         // /api/price-entry-update, so that logic is never duplicated here.
@@ -1174,7 +1152,7 @@ const myCollection = (await fetchCollectionForMatching())
             buyer: buyerSel.value || undefined,
             tripId: tripSel.value || undefined,
             note: noteInput.value.trim() || undefined,
-            imageAssetId: imageAssetIdForCreate(),
+            imageAssetId: uploadedImage ? uploadedImage.assetId : undefined,
           }),
         })
         const data = await res.json()
@@ -1182,20 +1160,6 @@ const myCollection = (await fetchCollectionForMatching())
           showMsg(data.error || 'Save failed.', false)
           return
         }
-
-        // Upload the photo (if any) after the entry exists, so a failed upload never
-        // costs you the price entry itself. Must happen before the Bought call below,
-        // so the familyPurchase/collection item it may create can see the photo too.
-        // Skipped entirely if a "Save this price" click already uploaded this same
-        // photo earlier in the session — imageAssetIdForCreate() above already
-        // referenced that asset directly.
-        let photoFailed = false
-        if (identifyFlow.getSelectedPhoto() && !uploadedPhotoAssetId && data.id) {
-          saveBtn.textContent = 'Uploading photo…'
-          const ok = await uploadSelectedPhotoTo(data.id)
-          if (!ok) photoFailed = true
-        }
-        const uploadedImage = reusedImage || (uploadedPhotoAssetId ? { assetId: uploadedPhotoAssetId, url: uploadedPhotoUrl } : null)
 
         let boughtError = null
         if (markingBought && data.id) {

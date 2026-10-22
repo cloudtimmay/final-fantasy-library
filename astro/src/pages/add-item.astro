@@ -183,6 +183,8 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
   <script is:inline src="/identify-flow.js"></script>
 
   <script>
+    import { createBackgroundUpload } from '../scripts/background-upload.js'
+
     const CONFIG = {
       album: { endpoint: '/api/album-create', backLabel: 'album', creatorLabel: 'Composer / Artist', yearLabel: 'Release year',
         lookups: [['vgmdb','VGMdb'],['google','Google'],['googleimg','Google Images']] },
@@ -284,11 +286,17 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     }
     ownerSelect.addEventListener('change', refreshFieldVisibility)
 
+    // A chosen photo starts uploading right away (a standalone Sanity asset); Save then only
+    // sends its id — see src/scripts/background-upload.js.
+    const photoUpload = createBackgroundUpload()
+
     const identifyFlow = window.createIdentifyFlow({
       els: {
         photoCamera, photoGallery, photoName, preview, photoRemoveBtn, identifyBtn, identifyMsg, identifyCard,
         extraPhotoButtons, extraPhotoCamera, extraPhotoGallery, extraPhotosWrap,
       },
+      onPhotoChosen: () => photoUpload.start(identifyFlow.getSelectedPhoto()),
+      onPhotoCleared: () => photoUpload.discard(),
       // No "existing item" concept here (unlike add-price's existing-product dropdown) —
       // a suggestion always just fills fields, never offers to link to something else.
       onUseSuggestion: (result) => {
@@ -414,17 +422,21 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       return base
     }
 
-    async function uploadPhotoIfAny(docId) {
-      const selectedPhoto = identifyFlow.getSelectedPhoto()
-      if (!selectedPhoto || !docId) return
-      saveBtn.textContent = 'Uploading photo…'
-      const form = new FormData()
-      form.append('file', selectedPhoto); form.append('docId', docId); form.append('field', 'image')
-      try { await fetch('/api/upload-image', { method: 'POST', body: form }) } catch (e) {}
+    // The chosen photo's asset id for the create call — normally already uploaded in the
+    // background; waits if it's still going, retries once if it failed. `failed`: there was a
+    // photo but it couldn't be uploaded (the item is still saved, without it).
+    async function photoForCreate() {
+      if (!identifyFlow.getSelectedPhoto()) return { assetId: undefined, failed: false }
+      if (!photoUpload.peek()) saveBtn.textContent = 'Uploading photo…'
+      const uploaded = await photoUpload.ensure()
+      saveBtn.textContent = 'Saving…'
+      return uploaded ? { assetId: uploaded.assetId, failed: false } : { assetId: undefined, failed: true }
     }
+    const savedMsg = (photo) => (photo.failed ? 'Saved ✓ — but the photo could not be uploaded.' : 'Saved ✓ — ready for the next one.')
 
     function resetSharedFields() {
       titleInput.value = ''; nameJpInput.value = ''; barcodeInput.value = ''; notesInput.value = ''
+      photoUpload.discard()
       identifyFlow.reset()
       dupWarn.hidden = true; dupWarn.innerHTML = ''
       titleInput.focus()
@@ -435,14 +447,14 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
       const cfg = CONFIG[type]
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
       try {
+        const photo = await photoForCreate()
         const res = await fetch(cfg.endpoint, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildBody(type)),
+          body: JSON.stringify({ ...buildBody(type), imageAssetId: photo.assetId }),
         })
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
-        await uploadPhotoIfAny(data.id)
-        showMsg('Saved ✓ — ready for the next one.', true)
+        showMsg(savedMsg(photo), !photo.failed)
         creatorInput.value = ''; manufacturerInput.value = ''; catalogInput.value = ''
         scaleInput.value = ''; conditionInput.value = ''; platformSelect.value = ''; categorySelect.value = 'figure'
         seriesSelect.value = ''; seriesNewInput.value = ''; seriesNewInput.hidden = true
@@ -455,6 +467,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     async function saveFamilyItem() {
       saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
       try {
+        const photo = await photoForCreate()
         const res = await fetch('/api/family-item-create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -464,12 +477,12 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
             jan: barcodeInput.value.trim() || undefined,
             category: TYPE_TO_CATEGORY[currentType()],
             note: notesInput.value.trim() || undefined,
+            imageAssetId: photo.assetId,
           }),
         })
         const data = await res.json()
         if (!res.ok) { showMsg(data.error || 'Save failed.', false); return }
-        await uploadPhotoIfAny(data.id)
-        showMsg('Saved ✓ — ready for the next one.', true)
+        showMsg(savedMsg(photo), !photo.failed)
         resetSharedFields()
       } catch (e) { showMsg('Network error.', false) }
       finally { saveBtn.disabled = false; saveBtn.textContent = 'Save family item' }

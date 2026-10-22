@@ -34,6 +34,7 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 - `itinerary.astro` bruker to ulike vis/skjul-mønstre (`[hidden]` for `.add-form`/`.af-custom`, `.open`-klasse for `.mc-panel`) — se Funn under testing, punkt 2.
 - `add-item.astro` sin `CONFIG.merch`-nøkkel og skjemaets `type=merch`-verdi heter fortsatt «merch» (endepunktet er omdøpt til `figure-create.ts`).
 - Valgfritt: generalisere `got-it.js` med et callback for suksess-oppførsel — se **Bevisst beholdt**.
+- **Ubrukte bilde-assets kan hope seg opp i Sanity.** Siden oktober 2026 lastes et produktbilde opp i bakgrunnen så snart det velges på `/add-price`, `/add-item` og `/edit-product` (`astro/src/scripts/background-upload.js`, `/api/upload-image` uten `docId`), som en frittstående bilde-asset uten dokument — lagringen refererer så bare asset-id-en. Fjernes eller byttes bildet før lagring, eller forlates skjemaet, blir den opplastede asset-en liggende ureferert. Ingen skade (bare lagringsplass), og kan ryddes i Studio sitt mediebibliotek (filtrer på ubrukte bilder), eller med et engangsskript som sletter `sanity.imageAsset`-dokumenter uten referanser. Bevisst avveining: raskere lagring (målt: ~6 av ~8 sekunder på 4G var bildeopplastingen) mot litt søppel.
 
 ---
 

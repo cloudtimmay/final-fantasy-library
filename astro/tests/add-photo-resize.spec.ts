@@ -2,7 +2,7 @@ import { test, expect, testName } from './fixtures'
 import { findIdByField } from './helpers/sanity-test-client'
 
 test.describe('add family purchase: photo', () => {
-  test('resizes the photo to at most 1600px JPEG before uploading', async ({ page, sanity, trackDoc }) => {
+  test('resizes the photo to at most 1400px JPEG (the stored-photo size) before uploading', async ({ page, sanity, trackDoc }) => {
     const trip = await sanity.create({
       _type: 'tripSettings',
       label: testName(`Add Photo Trip ${Date.now()}`),
@@ -32,7 +32,7 @@ test.describe('add family purchase: photo', () => {
 
     await page.goto('/add')
 
-    // A 3000x2000 PNG, well over the 1600px limit.
+    // A 3000x2000 PNG, well over the 1400px limit.
     const dataUrl = await page.evaluate(() => {
       const c = document.createElement('canvas')
       c.width = 3000
@@ -62,6 +62,6 @@ test.describe('add family purchase: photo', () => {
 
     expect(uploads).toBe(1)
     const uploaded = await page.evaluate(() => (window as any).__uploadedPhoto)
-    expect(uploaded).toEqual({ name: 'big.jpg', type: 'image/jpeg', width: 1600, height: 1067 })
+    expect(uploaded).toEqual({ name: 'big.jpg', type: 'image/jpeg', width: 1400, height: 933 })
   })
 })

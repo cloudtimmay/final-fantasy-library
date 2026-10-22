@@ -89,11 +89,13 @@ const otherProducts = products.filter((p) => p.key !== key)
   <script is:inline src="/resize-image.js"></script>
 
   <script>
+    import { createBackgroundUpload } from '../scripts/background-upload.js'
+    import { cdnImage } from '../lib/image-url'
+
     const dataEl = document.querySelector('#edit-data')
     if (dataEl) {
       const DATA = JSON.parse(dataEl.textContent || '{}')
       const ORIGINAL_KEY = DATA.key
-      const MOST_RECENT_ID = DATA.mostRecentId
       const OTHER_PRODUCTS = DATA.otherProducts || []
       let currentImage = DATA.image
 
@@ -111,6 +113,8 @@ const otherProducts = products.filter((p) => p.key !== key)
 
       let selectedPhoto = null
       let imageRemoved = false
+      // Uploads a newly chosen photo right away, so Save only references the asset.
+      const photoUpload = createBackgroundUpload()
 
       function revokeIfBlob() {
         if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
@@ -126,7 +130,7 @@ const otherProducts = products.filter((p) => p.key !== key)
         }
         if (!imageRemoved && currentImage && currentImage.url) {
           revokeIfBlob()
-          preview.src = currentImage.url
+          preview.src = cdnImage(currentImage.url, 800)
           preview.hidden = false
           photoName.hidden = false
           photoName.textContent = 'Current photo'
@@ -148,9 +152,10 @@ const otherProducts = products.filter((p) => p.key !== key)
         photoName.textContent = 'Processing photo…'
         let chosen = file
         try {
-          if (window.resizeImage) chosen = await window.resizeImage(file, 1600, 0.85)
+          if (window.resizeImage) chosen = await window.resizeImage(file)
         } catch (e) { chosen = file }
         selectedPhoto = chosen
+        photoUpload.start(chosen)
         revokeIfBlob()
         preview.src = URL.createObjectURL(chosen)
         photoName.textContent = file.name || 'photo'
@@ -163,6 +168,7 @@ const otherProducts = products.filter((p) => p.key !== key)
       photoRemoveBtn.addEventListener('click', () => {
         revokeIfBlob()
         selectedPhoto = null
+        photoUpload.discard()
         imageRemoved = true
         photoCamera.value = ''
         photoGallery.value = ''
@@ -252,22 +258,15 @@ const otherProducts = products.filter((p) => p.key !== key)
           let removeImage
 
           if (selectedPhoto) {
-            saveBtn.textContent = 'Uploading photo…'
-            const form = new FormData()
-            form.append('file', selectedPhoto)
-            form.append('docId', MOST_RECENT_ID)
-            form.append('field', 'image')
-            const upRes = await fetch('/api/upload-image', { method: 'POST', body: form })
-            if (!upRes.ok) {
+            // Normally already uploaded in the background; waits if it's still going, and
+            // retries once if it failed.
+            if (!photoUpload.peek()) saveBtn.textContent = 'Uploading photo…'
+            const uploaded = await photoUpload.ensure()
+            if (!uploaded) {
               showMsg('Photo upload failed — product was not updated.', false)
               return
             }
-            const upData = await upRes.json().catch(() => null)
-            if (!upData || !upData.assetId) {
-              showMsg('Photo upload failed — product was not updated.', false)
-              return
-            }
-            imageAssetId = upData.assetId
+            imageAssetId = uploaded.assetId
             saveBtn.textContent = 'Saving…'
           } else if (imageRemoved) {
             removeImage = true

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
-import { json, parseJsonBody, buildDoc } from '../../lib/api'
+import { json, parseJsonBody, buildDoc, imageFromAssetId } from '../../lib/api'
 import { CATEGORIES, PEOPLE_LIST, OWNER } from '../../lib/price-entry-fields'
 
 export const prerender = false
@@ -26,6 +26,10 @@ export const POST: APIRoute = async ({ request }) => {
     ]
   )
   if (body.category && CATEGORIES.includes(body.category)) doc.category = body.category
+
+  // A photo already uploaded in the background (src/scripts/background-upload.js).
+  const image = imageFromAssetId(body.imageAssetId)
+  if (image) doc.image = image
 
   try {
     const created = await sanityWrite.create(doc)

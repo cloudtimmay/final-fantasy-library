@@ -7,7 +7,13 @@
 //   query server-side and returns the default listing of all ~82 000 products.
 // - Komplett: yes (?q=, also by EAN); results are embedded as JSON (preloadedSearchResult).
 // - Cappelen Damm (Tanum): yes (?query=, by ISBN or name); result links end in the ISBN.
-// - Power, Norli, Platekompaniet: no — their results are rendered in the browser only.
+// - Power: yes, through the JSON API its own search page calls (GET /api/v2/productlists?q=),
+//   by name only — an EAN query returns no hits. Product pages have JSON-LD with the GTIN.
+// - Norli, Platekompaniet: no. Their search runs on Algolia in the browser. Norli's Algolia
+//   key comes from a GraphQL mutation and is bound to the caller's IP (two requests per
+//   search); Platekompaniet's key is public in its storeConfig. Both searches work from Node,
+//   but both stores' product pages are browser-only shells with no structured data, so a
+//   price can't be checked on the page — checked October 2026.
 // - Ark, Elkjøp: no — HTTP 429 (bot protection). CDON, Proshop: no — HTTP 403.
 // Stores that fail are tried anyway (in parallel, so it costs no time) and reported in the
 // diagnostic line, so a store that starts working again shows up without a code change.
@@ -58,6 +64,9 @@ type StoreRule = {
   searchUrl?: (query: string) => string
   // The product links on a search page. null = layout not recognized; [] = no hits.
   candidates?: (html: string, pageUrl: string) => StoreCandidate[] | null
+  // 'name': search by name only — one request per search, for a store whose search finds
+  // nothing by JAN/ISBN. Default: JAN/ISBN first, then the name if that finds nothing.
+  searchBy?: 'name'
 }
 
 function decodeEntities(s: string): string {
@@ -94,6 +103,17 @@ function cappelenDammCandidates(html: string): StoreCandidate[] | null {
   return urls.map((path) => ({ url: 'https://www.cappelendamm.no' + path, code: (path.match(/-(\d{13})$/) || [])[1] ?? null }))
 }
 
+// Power's search API: { products: [{ title, url: "/gaming/.../p-4198158/", price, ... }] }.
+// No EAN in the listing — the product page has it (JSON-LD gtin13).
+function powerCandidates(body: string): StoreCandidate[] | null {
+  let data: any
+  try { data = JSON.parse(body) } catch { return null }
+  if (!Array.isArray(data?.products)) return null
+  return data.products
+    .filter((p: any) => typeof p?.url === 'string' && p.url.startsWith('/'))
+    .map((p: any) => ({ url: 'https://www.power.no' + p.url, name: p.title ?? null, code: null }))
+}
+
 // Any store without its own rule: same-host links that look like product pages.
 const PRODUCT_PATH = /\/(p|product|products|produkt|produkter|vare|varer|boker|bok|item)\/[^/?#]+|-\d{8,14}\/?$/i
 export function genericCandidates(html: string, pageUrl: string): StoreCandidate[] | null {
@@ -115,6 +135,12 @@ export const STORE_RULES: Record<string, StoreRule> = {
   Outland: { searchUrl: (q) => 'https://www.outland.no/search/' + encodeURIComponent(q), candidates: outlandCandidates },
   Komplett: { candidates: komplettCandidates },
   Tanum: { candidates: cappelenDammCandidates },
+  Power: {
+    // The same request power.no's own search page makes (October 2026).
+    searchUrl: (q) => `https://www.power.no/api/v2/productlists?size=36&q=${encodeURIComponent(q)}&s=5&from=0&o=false&cd=false`,
+    candidates: powerCandidates,
+    searchBy: 'name',
+  },
 }
 
 export function storeSearchUrl(store: string, query: string): string | null {
@@ -195,7 +221,7 @@ async function lookupStore(
 
   // JAN/ISBN first (exact), then the name if that finds nothing at this store.
   const name = searchName(product.productName)
-  const queries = [...new Set([product.jan, name].filter((q): q is string => !!q))]
+  const queries = STORE_RULES[store]?.searchBy === 'name' ? [name] : [...new Set([product.jan, name].filter((q): q is string => !!q))]
   let picked: StoreCandidate[] = []
   for (const q of queries) {
     const url = storeSearchUrl(store, q)

@@ -1,0 +1,35 @@
+{
+ "products": [
+  {
+   "productId": 4198158,
+   "title": "Final Fantasy VII Remake Intergrade (Nintendo Switch)",
+   "url": "/gaming/nintendo/nintendo-spill/final-fantasy-vii-remake-intergrade-nintendo-switch/p-4198158/",
+   "price": 449
+  },
+  {
+   "productId": 4246355,
+   "title": "Final Fantasy VII - Rebirth (Nintendo Switch 2)",
+   "url": "/gaming/nintendo/nintendo-spill/final-fantasy-vii-rebirth-nintendo-switch-2/p-4246355/",
+   "price": 519
+  },
+  {
+   "productId": 2799384,
+   "title": "Final Fantasy VII: Rebirth - Deluxe Edition (PS5)",
+   "url": "/gaming/playstation/playstation-spill/final-fantasy-vii-rebirth-deluxe-edition-ps5/p-2799384/",
+   "price": 1199
+  },
+  {
+   "productId": 4246357,
+   "title": "Final Fantasy VII - Rebirth + Promo card (Nintendo Switch 2)",
+   "url": "/gaming/nintendo/nintendo-spill/final-fantasy-vii-rebirth-promo-card-nintendo-switch-2/p-4246357/",
+   "price": 579
+  },
+  {
+   "productId": 2699534,
+   "title": "Final Fantasy VII - Rebirth (PS5)",
+   "url": "/gaming/playstation/playstation-spill/final-fantasy-vii-rebirth-ps5/p-2699534/",
+   "price": 509
+  }
+ ],
+ "totalProductCount": 5
+}

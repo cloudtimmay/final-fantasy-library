@@ -151,6 +151,51 @@ test.describe('store lookup: all stores in parallel', () => {
   })
 })
 
+test.describe('store lookup: Power (JSON search API)', () => {
+  const POWER_API = (q: string) => `https://www.power.no/api/v2/productlists?size=36&q=${encodeURIComponent(q)}&s=5&from=0&o=false&cd=false`
+  const INTERGRADE_URL = 'https://www.power.no/gaming/nintendo/nintendo-spill/final-fantasy-vii-remake-intergrade-nintendo-switch/p-4198158/'
+
+  test('search URL is the API request power.no makes itself', () => {
+    expect(storeSearchUrl('Power', 'Final Fantasy VII')).toBe(POWER_API('Final Fantasy VII'))
+  })
+
+  test('product links and titles from the API response; not JSON -> layout not recognized', () => {
+    const c = storeCandidates('Power', sample('power-search.json'), POWER_API('x'))!
+    expect(c.length).toBe(5)
+    expect(c[0]).toEqual({ url: INTERGRADE_URL, name: 'Final Fantasy VII Remake Intergrade (Nintendo Switch)', code: null })
+    expect(storeCandidates('Power', '<html>blocked</html>', POWER_API('x'))).toBeNull()
+  })
+
+  test('the product page gives price, availability and the GTIN', () => {
+    const html = sample('power-product.html')
+    expect(extractProductIdentity(html)).toEqual({ name: 'Final Fantasy VII Remake Intergrade (Nintendo Switch)', gtin: '5021290101722' })
+    expect(judgeMatch(extractProductIdentity(html), { productName: 'x', jan: '5021290101722' })).toBe('code')
+  })
+
+  test('one search request per search, by name even when an EAN is given; a sure match by the page GTIN', async () => {
+    const requested: string[] = []
+    const pages: Record<string, string> = {
+      [POWER_API('Final Fantasy VII Remake Intergrade')]: sample('power-search.json'),
+      [INTERGRADE_URL]: sample('power-product.html'),
+    }
+    const result = await lookupNorwayStores(
+      'game',
+      { productName: 'Final Fantasy VII Remake Intergrade (Nintendo Switch)', jan: '5021290101722' },
+      {
+        deadline: Date.now() + 30000,
+        fetchPage: async (url) => {
+          requested.push(url)
+          return pages[url] ? { ok: true, html: pages[url] } : { ok: false, reason: 'blocked (HTTP 403)' }
+        },
+      }
+    )
+    expect(requested.filter((u) => u.startsWith('https://www.power.no/api/'))).toEqual([POWER_API('Final Fantasy VII Remake Intergrade')])
+    expect(result.results).toEqual([
+      expect.objectContaining({ store: 'Power', price: 449, currency: 'NOK', availability: 'InStock', inStock: true, matchedBy: 'code', url: INTERGRADE_URL }),
+    ])
+  })
+})
+
 test.describe('merging direct and AI results', () => {
   const direct = (url: string, matchedBy: 'code' | 'name', price = 279): DirectResult => ({
     store: 'Outland', price, currency: 'NOK', url, inStock: true, verified: true, matchedBy, direct: true,

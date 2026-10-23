@@ -316,6 +316,42 @@ test.describe('merging direct and AI results', () => {
     ])
   })
 
+  test('Finn listings sort after every shop result, even name-only matches', () => {
+    const ai = [
+      { store: 'Finn (used)', price: 1200, currency: 'NOK', url: 'https://www.finn.no/recommerce/forsale/item/1', source: 'finn' as const },
+      { store: 'Proshop', price: 299, currency: 'NOK', url: 'https://www.proshop.no/x' },
+      { store: 'CDON via Prisjakt', price: 289, currency: 'NOK', url: 'https://www.prisjakt.no/product.php?p=1', source: 'prisjakt' as const, shop: 'CDON' },
+    ]
+    const merged = mergeFindPricesResults(ai, [direct('https://www.power.no/p/beast', 'name')])
+    expect(merged.map((r) => r.url)).toEqual([
+      'https://www.proshop.no/x',
+      'https://www.prisjakt.no/product.php?p=1',
+      'https://www.power.no/p/beast',
+      'https://www.finn.no/recommerce/forsale/item/1',
+    ])
+  })
+
+  test("a Prisjakt offer is dropped when the shop has its own result; several shops on one Prisjakt page are all kept", () => {
+    const via = (shop: string, price: number) => ({
+      store: `${shop} via Prisjakt`, price, currency: 'NOK', url: 'https://www.prisjakt.no/product.php?p=42', source: 'prisjakt' as const, shop,
+    })
+    const ai = [
+      via('Outland', 249), // Outland's own page (direct, verified) wins
+      via('Elkjøp', 259), // the AI also found Elkjøp's own page: it wins
+      { store: 'Elkjop', price: 269, currency: 'NOK', url: 'https://www.elkjop.no/product/1' },
+      via('Komplett', 279),
+      via('Komplett', 289), // the same shop twice on Prisjakt: the first is kept
+      via('CDON', 299),
+    ]
+    const merged = mergeFindPricesResults(ai, [direct('https://www.outland.no/p/flareon', 'code')])
+    expect(merged.map((r) => [r.store, r.price])).toEqual([
+      ['Outland', 279],
+      ['Elkjop', 269],
+      ['Komplett via Prisjakt', 279],
+      ['CDON via Prisjakt', 299],
+    ])
+  })
+
   test('store outcomes are classified: blocked, temporary, found, no match', () => {
     expect(classifyStoreOutcome({ store: 'Ark', found: 0, reason: 'blocked (HTTP 429)' })).toBe('blocked')
     expect(classifyStoreOutcome({ store: 'Norli', found: 0, reason: 'search key: blocked (HTTP 403)' })).toBe('blocked')
@@ -467,12 +503,15 @@ test.describe('add-price: direct store lookup results', () => {
     await expect(details.locator('p').nth(1)).toContainText('Elkjøp (blocked (HTTP 429))')
 
     // "Search on" buttons: the stores to check by hand / with a temporary problem first, in
-    // the category's order, then the rest (figure: Outland, Komplett, Elkjøp, Power, Proshop, CDON).
+    // the category's order, then the rest: Prisjakt and Finn, then the stores (figure: Outland,
+    // Komplett, Elkjøp, Power, Proshop, CDON).
     await expect(page.locator('.ap-find-prices-store-search')).toHaveText([
       'Search on Komplett',
       'Search on Elkjøp',
       'Search on Proshop',
       'Search on CDON',
+      'Search on Prisjakt',
+      'Search on Finn',
       'Search on Outland',
       'Search on Power',
     ])

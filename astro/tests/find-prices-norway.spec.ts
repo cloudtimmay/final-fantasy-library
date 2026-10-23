@@ -27,25 +27,34 @@ test.describe('find-prices: targeted Norway searches', () => {
     expect(searchName('(only a note)')).toBe('(only a note)')
   })
 
-  test('figure: site: searches, Outland first, short name', () => {
+  test('figure: site: searches, Prisjakt and Finn first, then Outland, short name', () => {
     const q = norwaySearchQueries('figure', { productName: 'Beast Ball (pokemon replica, Wand Company)' })
-    expect(q[0]).toBe('site:outland.no Beast Ball')
+    expect(q.slice(0, 3)).toEqual(['site:prisjakt.no Beast Ball', 'site:finn.no Beast Ball', 'site:outland.no Beast Ball'])
     expect(q.every((x) => x.startsWith('site:'))).toBe(true)
     expect(q.length).toBeLessThanOrEqual(NORWAY_MAX_SEARCHES)
   })
 
-  test('the first store is also searched by JAN and Japanese name when given', () => {
-    const q = norwaySearchQueries('figure', { productName: 'Beast Ball', productNameJp: 'ウルトラボール', jan: '5060178520736' })
-    expect(q.slice(0, 3)).toEqual([
+  test('with a JAN: Prisjakt by name and JAN, Finn by name, then the first store by name and JAN', () => {
+    const q = norwaySearchQueries('figure', { productName: 'Beast Ball', jan: '5060178520736' })
+    expect(q.slice(0, 5)).toEqual([
+      'site:prisjakt.no Beast Ball',
+      'site:prisjakt.no 5060178520736',
+      'site:finn.no Beast Ball',
       'site:outland.no Beast Ball',
       'site:outland.no 5060178520736',
-      'site:outland.no ウルトラボール',
     ])
+  })
+
+  test('every category searches Prisjakt and Finn first', () => {
+    for (const category of ['album', 'game', 'book', 'figure', 'other']) {
+      const q = norwaySearchQueries(category, { productName: 'Final Fantasy X' })
+      expect(q.slice(0, 2), category).toEqual(['site:prisjakt.no Final Fantasy X', 'site:finn.no Final Fantasy X'])
+    }
   })
 
   test('book: the book stores come before the general ones, capped at the search budget', () => {
     const q = norwaySearchQueries('book', { productName: 'Art of Final Fantasy XVI' })
-    expect(q[0]).toBe('site:outland.no Art of Final Fantasy XVI')
+    expect(q[2]).toBe('site:outland.no Art of Final Fantasy XVI')
     expect(q).toContain('site:ark.no Art of Final Fantasy XVI')
     expect(q).toHaveLength(NORWAY_MAX_SEARCHES)
   })
@@ -56,10 +65,17 @@ test.describe('find-prices: targeted Norway searches', () => {
     expect(prompt).toContain('site:outland.no')
   })
 
-  test('store search links: one per store with a search URL, product name encoded', () => {
+  test('store search links: Prisjakt and Finn, then one per store with a search URL, product name encoded', () => {
     const links = norwayStoreSearchLinks('figure', 'Beast Ball (pokemon replica, Wand Company)')
-    expect(links[0]).toEqual({ store: 'Outland', url: 'https://www.outland.no/search?q=Beast%20Ball' })
-    expect(links.map((l) => l.store)).toEqual(['Outland', 'Komplett', 'Elkjøp', 'Power', 'Proshop', 'CDON'])
+    expect(links.slice(0, 3)).toEqual([
+      { store: 'Prisjakt', url: 'https://www.prisjakt.no/search?query=Beast%20Ball' },
+      { store: 'Finn', url: 'https://www.finn.no/bap/forsale/search?q=Beast%20Ball' },
+      { store: 'Outland', url: 'https://www.outland.no/search?q=Beast%20Ball' },
+    ])
+    expect(links.map((l) => l.store)).toEqual(['Prisjakt', 'Finn', 'Outland', 'Komplett', 'Elkjøp', 'Power', 'Proshop', 'CDON'])
+    for (const category of ['album', 'game', 'book', 'other']) {
+      expect(norwayStoreSearchLinks(category, 'X').map((l) => l.store).slice(0, 2), category).toEqual(['Prisjakt', 'Finn'])
+    }
 
     const books = norwayStoreSearchLinks('book', 'Art of Final Fantasy XVI').map((l) => l.store)
     expect(books).toContain('Cappelen Damm')
@@ -91,6 +107,29 @@ test.describe('find-prices: result validation with drop reasons', () => {
       { store: 'Power', reason: 'not a match: different edition' },
       { store: 'Elkjøp', reason: 'no price' },
     ])
+  })
+
+  test('Prisjakt offers are labelled "<shop> via Prisjakt"; Finn listings "Finn (used)" with the condition', () => {
+    const { results } = validateFindPricesResults(
+      [
+        { store: 'Outland', price: 2399, currency: 'NOK', url: 'https://www.prisjakt.no/product.php?p=123', inStock: true, via: 'Prisjakt' },
+        { store: 'Prisjakt', price: 2299, currency: 'NOK', url: 'https://www.prisjakt.no/product.php?p=123', inStock: null, via: 'Prisjakt' },
+        { store: 'Finn', price: 1500, currency: 'NOK', url: 'https://www.finn.no/recommerce/forsale/item/456', inStock: null, via: 'Finn', condition: 'som ny', note: 'pickup in Oslo' },
+        { store: 'Finn', price: 1200, currency: 'NOK', url: 'https://www.finn.no/recommerce/forsale/item/789', inStock: null, via: 'Finn', condition: null },
+        // The site decides the label, not the model's "via": a shop's own page stays a shop result.
+        { store: 'Outland', price: 2499, currency: 'NOK', url: 'https://www.outland.no/p/beast-ball', inStock: true, via: 'Prisjakt' },
+      ],
+      'norway',
+      new Set(['prisjakt.no', 'finn.no', 'outland.no'])
+    )
+    expect(results.map((r) => [r.store, r.source, r.note])).toEqual([
+      ['Outland via Prisjakt', 'prisjakt', undefined],
+      ['Prisjakt', 'prisjakt', undefined],
+      ['Finn (used)', 'finn', 'Condition: som ny · pickup in Oslo'],
+      ['Finn (used)', 'finn', undefined],
+      ['Outland', undefined, undefined],
+    ])
+    expect(results[0].shop).toBe('Outland')
   })
 
   test('the summary says how many searches, candidates and drops, and why', () => {
@@ -135,7 +174,43 @@ test.describe('add-price: Find prices diagnostics and store fallback', () => {
     // searchName() drops both the "[test] " prefix and the parenthetical note.
     await expect(outland).toHaveAttribute('href', 'https://www.outland.no/search?q=Beast%20Ball')
     await expect(outland).toHaveAttribute('target', '_blank')
-    await expect(page.locator('.ap-find-prices-store-search')).toHaveCount(6)
+    await expect(page.locator('.ap-find-prices-store-search')).toHaveCount(8)
+    await expect(page.locator('.ap-find-prices-store-search', { hasText: 'Search on Prisjakt' })).toHaveAttribute(
+      'href',
+      'https://www.prisjakt.no/search?query=Beast%20Ball'
+    )
+    await expect(page.locator('.ap-find-prices-store-search', { hasText: 'Search on Finn' })).toHaveAttribute(
+      'href',
+      'https://www.finn.no/bap/forsale/search?q=Beast%20Ball'
+    )
+    await expect(page.locator('.ap-find-prices-store-search', { hasText: 'PriceRunner' })).toHaveCount(0)
+  })
+
+  test('Prisjakt and Finn results: own labels, Finn marked as a used listing, never as checked', async ({ page }) => {
+    await page.route('**/api/find-prices', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          results: [
+            { store: 'Outland', price: 2499, currency: 'NOK', url: 'https://www.outland.no/p/test-fixture', inStock: true, verified: true },
+            { store: 'Komplett via Prisjakt', price: 2399, currency: 'NOK', url: 'https://www.prisjakt.no/product.php?p=1', inStock: true, verified: false, source: 'prisjakt', shop: 'Komplett' },
+            { store: 'Finn (used)', price: 1500, currency: 'NOK', url: 'https://www.finn.no/recommerce/forsale/item/1', inStock: null, verified: false, source: 'finn', note: 'Condition: som ny' },
+          ],
+          diagnostics: { searches: 8, candidates: 3, dropped: [] },
+        }),
+      })
+    )
+    await fillForFindPrices(page, 'norway')
+    await page.locator('#p-find-prices-btn').click()
+
+    const items = page.locator('.ap-find-prices-item')
+    await expect(items).toHaveCount(3)
+    await expect(items.locator('.ap-find-prices-store')).toHaveText(['Outland', 'Komplett via Prisjakt', 'Finn (used)'])
+    await expect(items.nth(1).locator('.ap-find-prices-check')).toHaveText('Unverified (from Prisjakt, check the shop)')
+    await expect(items.nth(2).locator('.ap-find-prices-check')).toHaveText('Used listing from a private seller, not a shop price')
+    await expect(items.nth(2).locator('.ap-find-prices-meta')).toHaveText('Condition: som ny')
   })
 
   test('results found: the store links are shown under them too', async ({ page }) => {

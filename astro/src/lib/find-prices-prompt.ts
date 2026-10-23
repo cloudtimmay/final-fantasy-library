@@ -40,6 +40,30 @@ export const NORWAY_STORE_SITES: Record<string, { label?: string; domain: string
   Adlibris: { domain: 'adlibris.com', searchUrl: null },
 }
 
+// Norwegian price-comparison and classifieds sites, for every category. These are reached
+// ONLY through the AI's web search ("site:" queries) and a "Search on <site>" button — never
+// fetched by the server (no direct lookup, no page-price check), because both forbid it:
+// Prisjakt's terms (June 2025) ban automated collection ("skraping og indeksering") and its
+// robots.txt disallows /search; Finn's robots.txt says "Crawling FINN.no is prohibited unless
+// you have written permission". Checked October 2026. Search URLs: Prisjakt's own schema.org
+// SearchAction; Finn's search.html redirects to /bap/forsale/search. PriceRunner isn't here:
+// pricerunner.no doesn't exist any more — it redirects to klarna.com/no.
+// `kind`: 'comparison' lists other shops' offers ("<shop> via Prisjakt"); 'classifieds' is
+// private sellers' listings, labelled "Finn (used)" and never ranked with shop prices.
+export const NORWAY_COMPARISON_SITES = [
+  { name: 'Prisjakt', domain: 'prisjakt.no', searchUrl: 'https://www.prisjakt.no/search?query=', kind: 'comparison' },
+  { name: 'Finn', domain: 'finn.no', searchUrl: 'https://www.finn.no/bap/forsale/search?q=', kind: 'classifieds' },
+] as const
+
+export type ComparisonSite = (typeof NORWAY_COMPARISON_SITES)[number]
+
+// Which comparison site a URL is on (www./m. subdomains included), or null for a shop's own page.
+export function comparisonSiteOf(url: string): ComparisonSite | null {
+  let host: string
+  try { host = new URL(url).hostname.toLowerCase() } catch { return null }
+  return NORWAY_COMPARISON_SITES.find((s) => host === s.domain || host.endsWith('.' + s.domain)) || null
+}
+
 // The category-specific group first, then the general stores, deduplicated (several groups
 // include Outland) — specific first because that's where the product is most likely to be,
 // and the search budget may run out before the end of the list. "other" has no specific
@@ -57,13 +81,17 @@ export function searchName(productName: string): string {
   return short || productName.trim()
 }
 
-// Up to 6 web searches per Norway request (find-prices.ts NORWAY_MAX_SEARCHES).
-export const NORWAY_MAX_SEARCHES = 6
+// Up to 8 web searches per Norway request (find-prices.ts NORWAY_MAX_SEARCHES): 6 before the
+// comparison sites were added; the 2 extra keep the stores' own searches from being crowded
+// out. Each search is $0.01 (Anthropic web search, $10 per 1,000) plus its results as input
+// tokens, so at most ~2-3 cents more per Norway search — and a few more seconds.
+export const NORWAY_MAX_SEARCHES = 8
 
-// The exact searches to run for region "norway", in priority order: the first store by
-// English name, then by JAN and Japanese name (if given), then the remaining stores by
-// English name. Generic searches surface international stores (in testing, 39 hits from US/
-// AU/UK shops and none from a Norwegian one), so every one of these is a site: search.
+// The exact searches to run for region "norway", in priority order: the comparison sites
+// first (Prisjakt by name, then by JAN if given — one Prisjakt page lists many shops' offers —
+// then Finn by name), then the category's first store by name and JAN, then the remaining
+// stores by name. Generic searches surface international stores (in testing, 39 hits from
+// US/AU/UK shops and none from a Norwegian one), so every one of these is a site: search.
 export function norwaySearchQueries(
   category: string,
   product: { productName: string; productNameJp?: string; jan?: string },
@@ -71,23 +99,30 @@ export function norwaySearchQueries(
 ): string[] {
   const domains = norwayStoresFor(category).map((s) => NORWAY_STORE_SITES[s]?.domain).filter((d): d is string => !!d)
   const name = searchName(product.productName)
+  const queries: string[] = []
+  for (const site of NORWAY_COMPARISON_SITES) {
+    queries.push(`site:${site.domain} ${name}`)
+    if (product.jan && site.kind === 'comparison') queries.push(`site:${site.domain} ${product.jan}`)
+  }
   const [first, ...rest] = domains
-  const queries = [`site:${first} ${name}`]
+  queries.push(`site:${first} ${name}`)
   if (product.jan) queries.push(`site:${first} ${product.jan}`)
   if (product.productNameJp) queries.push(`site:${first} ${product.productNameJp}`)
   for (const d of rest) queries.push(`site:${d} ${name}`)
   return queries.slice(0, max)
 }
 
-// "Search on <store>" fallback links for /add-price — the category's Norwegian stores, each
-// opening that store's own search page for the product name. Stores without a known
-// searchUrl are left out.
+// "Search on <site>" fallback links for /add-price — Prisjakt and Finn first (every
+// category), then the category's Norwegian stores, each opening that site's own search page
+// for the product name. Stores without a known searchUrl are left out.
 export function norwayStoreSearchLinks(category: string, productName: string): { store: string; url: string }[] {
   const q = encodeURIComponent(searchName(productName))
-  return norwayStoresFor(category)
+  const comparison = NORWAY_COMPARISON_SITES.map((s) => ({ store: s.name, url: s.searchUrl + q }))
+  const stores = norwayStoresFor(category)
     .map((s) => ({ s, site: NORWAY_STORE_SITES[s] }))
     .filter(({ site }) => !!site?.searchUrl)
     .map(({ s, site }) => ({ store: site.label || s, url: site.searchUrl + q }))
+  return [...comparison, ...stores]
 }
 
 export function buildFindPricesSystemPrompt(category: string): string {
@@ -96,7 +131,9 @@ export function buildFindPricesSystemPrompt(category: string): string {
 
 Search strategy: if a JAN/EAN/UPC barcode is given, search by that first — it is the most reliable way to match the exact edition. Otherwise search by product name, trying both the English name and, if given, the Japanese name.
 
-For region "norway": search Norwegian retailers — ${norwayStores}, and other Norwegian shops you find. Prices must be in NOK. General searches mostly return international stores, so search each store directly with "site:" (for example "site:outland.no Beast Ball"). The request lists the exact searches to run — run them in that order. A store's own product title is often shorter or worded differently from the name given (for example "Diecast Replica" instead of "pokemon replica"), so judge a hit by what the product is, not by exact wording.
+For region "norway": search the price-comparison site Prisjakt (prisjakt.no) and the classifieds site Finn (finn.no) first, then Norwegian retailers — ${norwayStores}, and other Norwegian shops you find. Prices must be in NOK.
+
+A Prisjakt product page lists several shops' offers. Report each matching offer as its own result: store = the shop's name (for example "Outland", not "Prisjakt"), price and inStock as Prisjakt shows them for that shop, url = the Prisjakt page you found, via = "Prisjakt". Match the Prisjakt product by EAN/ISBN when one is given and shown; otherwise only if its name names the same edition. A Finn listing is a private seller's ad: store = "Finn", via = "Finn", condition = the condition the ad states (for example "brukt", "som ny", "ny i uåpnet emballasje"), or null if it says nothing. General searches mostly return international stores, so search each store directly with "site:" (for example "site:outland.no Beast Ball"). The request lists the exact searches to run — run them in that order. A store's own product title is often shorter or worded differently from the name given (for example "Diecast Replica" instead of "pokemon replica"), so judge a hit by what the product is, not by exact wording.
 
 For region "online": search international stores that ship to Norway, for example CDJapan, AmiAmi, Play-Asia, Amazon.co.jp, Amazon.com, and Mercari (via a proxy/forwarding service, since Mercari itself does not ship internationally). These stores typically bill in JPY, USD or EUR.
 
@@ -106,13 +143,15 @@ Only include a result if you are confident the product actually matches — same
 
 If a product photo is included, it shows the exact item being searched for. Use it only to confirm the edition and format you see in each search result (for example vinyl vs CD, or a limited vs standard edition) and drop any result that doesn't match what the photo shows — the web search itself must still be done by text (product name, Japanese name, or JAN), never by searching for the image.
 
-After searching, respond with ONLY a JSON array (no other text, no markdown code fences, no explanation) of up to 6 matching listings, plus up to 4 listings you found but rejected, each with exactly these fields:
+After searching, respond with ONLY a JSON array (no other text, no markdown code fences, no explanation) of up to 8 matching listings, plus up to 4 listings you found but rejected, each with exactly these fields:
 - store: string, the store/site name.
 - price: number, the price shown on the page (do not convert currencies).
 - currency: one of "JPY", "NOK", "USD", "EUR" — matching what the page actually shows.
 - url: string, the exact product page URL you found via search — never invent or guess a URL.
 - inStock: true if clearly in stock, false if clearly out of stock/sold out, null if unclear.
 - note: a short string noting anything relevant (e.g. "used", "pre-order", "different edition?"), or null if there is nothing to note.
+- via: "Prisjakt" or "Finn" when the listing was found on that site (see above), otherwise null.
+- condition: for a Finn listing, the condition the ad states, or null; null for everything else.
 - rejected: null for a matching listing; for a listing you found but are not using, a short reason (e.g. "different edition", "different product", "price not shown").
 
 If you find nothing at all, respond with an empty JSON array: []`

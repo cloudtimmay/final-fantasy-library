@@ -3,6 +3,7 @@
 // find-prices-prompt.ts) so it can be tested directly, and so /add-price can show WHY a
 // search came back empty instead of just "No reliable prices found".
 import { CURRENCIES } from './price-entry-fields'
+import { comparisonSiteOf } from './find-prices-prompt'
 
 export type FoundPrice = {
   store: string
@@ -11,6 +12,10 @@ export type FoundPrice = {
   url: string
   inStock: boolean | null
   note?: string
+  // Found on Prisjakt or Finn (lib/find-prices-prompt.ts NORWAY_COMPARISON_SITES), never
+  // fetched or verified by the server. `shop`: the shop Prisjakt listed the offer for.
+  source?: 'prisjakt' | 'finn'
+  shop?: string
 }
 
 export type DroppedCandidate = { store: string; reason: string }
@@ -27,7 +32,7 @@ export type FindPricesDiagnostics = {
   aiError?: string // the AI search failed, but the direct store lookup still found something
 }
 
-const MAX_RESULTS = 6
+const MAX_RESULTS = 8
 
 export function hostnameOf(url: string): string | null {
   try {
@@ -71,10 +76,25 @@ export function validateFindPricesResults(
 
     const inStock = item.inStock === true ? true : item.inStock === false ? false : null
     const note = typeof item.note === 'string' && item.note.trim() ? item.note.trim().slice(0, 200) : undefined
-    results.push({ store, price: item.price, currency: item.currency, url, inStock, note })
+    results.push(labelBySource({ store, price: item.price, currency: item.currency, url, inStock, note }, item.condition))
   }
 
   return { results, dropped, candidates }
+}
+
+// The label follows the URL's site, not the model's "via" field: an offer on a Prisjakt page
+// is "<shop> via Prisjakt"; anything on Finn is "Finn (used)", with the ad's condition first
+// in the note. A shop's own URL stays a plain shop result whatever "via" says.
+function labelBySource(r: FoundPrice, condition: unknown): FoundPrice {
+  const site = comparisonSiteOf(r.url)
+  if (!site) return r
+  if (site.kind === 'classifieds') {
+    const cond = typeof condition === 'string' && condition.trim() ? `Condition: ${condition.trim().slice(0, 60)}` : undefined
+    const note = [cond, r.note].filter(Boolean).join(' · ') || undefined
+    return { ...r, store: 'Finn (used)', note, source: 'finn' }
+  }
+  const shop = /^prisjakt$/i.test(r.store) ? undefined : r.store
+  return { ...r, store: shop ? `${shop} via Prisjakt` : 'Prisjakt', source: 'prisjakt', ...(shop ? { shop } : {}) }
 }
 
 // The AI search part only, e.g. "6 searches, 2 candidates found, 2 dropped: Proshop (price in

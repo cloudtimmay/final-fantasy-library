@@ -464,19 +464,49 @@ function hostOf(url: string): string {
 
 export const MAX_MERGED_RESULTS = 10
 
+// "Elkjøp", "elkjop.no" and "Elkjop" all give "elkjop"; a trailing ".no"/".com" is dropped.
+function shopKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a')
+    .replace(/\.(no|com)$/, '')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
 // Sure (same GTIN/ISBN) matches first — direct or AI — then AI results whose page couldn't
-// be read, then name-only matches ("check the edition"). One entry per product page (the
-// direct one wins — it's verified and knows how it matched), and a store with a sure match
-// loses its name-only matches.
-export function mergeFindPricesResults<A extends { url: string; matchedBy?: 'code' | 'name' }>(ai: A[], direct: DirectResult[]): (A | DirectResult)[] {
+// be read, then name-only matches ("check the edition"), and Finn's used listings last of
+// all: a private seller's ad is never ranked with a shop's price. One entry per product page
+// (the direct one wins — it's verified and knows how it matched), and a store with a sure
+// match loses its name-only matches. A Prisjakt offer ("<shop> via Prisjakt") is dropped when
+// that shop already has a result of its own (its own page beats Prisjakt's copy of the
+// price), and only the first offer per shop is kept.
+export function mergeFindPricesResults<A extends { url: string; store?: string; matchedBy?: 'code' | 'name'; source?: 'prisjakt' | 'finn'; shop?: string }>(
+  ai: A[],
+  direct: DirectResult[]
+): (A | DirectResult)[] {
   const directKeys = new Set(direct.map((d) => urlKey(d.url)))
   const all: (A | DirectResult)[] = [...direct, ...ai.filter((a) => !directKeys.has(urlKey(a.url)))]
   const sureHosts = new Set(all.filter((r) => r.matchedBy === 'code').map((r) => hostOf(r.url)))
-  const kept = all.filter((r) => !(r.matchedBy === 'name' && sureHosts.has(hostOf(r.url))))
-  const rank = (r: A | DirectResult) => (r.matchedBy === 'code' ? 0 : r.matchedBy === 'name' ? 2 : 1)
+  // A shop's own results, by their store name and by their site (outland.no -> "outland").
+  const ownShops = new Set(
+    all.filter((r) => !('source' in r && r.source)).flatMap((r) => [r.store ? shopKey(r.store) : '', shopKey(hostOf(r.url).split('.')[0])]).filter(Boolean)
+  )
+  const viaShops = new Set<string>()
+  const kept = all.filter((r) => {
+    if (r.matchedBy === 'name' && sureHosts.has(hostOf(r.url))) return false
+    if (!('source' in r) || r.source !== 'prisjakt' || !r.shop) return true
+    const key = shopKey(r.shop)
+    if (ownShops.has(key) || viaShops.has(key)) return false
+    viaShops.add(key)
+    return true
+  })
+  const rank = (r: A | DirectResult) =>
+    'source' in r && r.source === 'finn' ? 3 : r.matchedBy === 'code' ? 0 : r.matchedBy === 'name' ? 2 : 1
   const ordered = kept.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i).map((x) => x.r)
+  // One Prisjakt page carries several shops' offers, so its URL alone doesn't identify a result.
+  const key = (r: A | DirectResult) => urlKey(r.url) + ('source' in r && r.source === 'prisjakt' && r.shop ? '#' + shopKey(r.shop) : '')
   const seen = new Set<string>()
-  return ordered.filter((r) => !seen.has(urlKey(r.url)) && seen.add(urlKey(r.url))).slice(0, MAX_MERGED_RESULTS)
+  return ordered.filter((r) => !seen.has(key(r)) && seen.add(key(r))).slice(0, MAX_MERGED_RESULTS)
 }
 
 // An AI result, after its product page was read for the price check: the same code as the

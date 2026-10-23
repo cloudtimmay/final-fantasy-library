@@ -880,9 +880,13 @@ const myCollection = (await fetchCollectionForMatching())
         // store whose product pages carry no price (Platekompaniet, Norli) gives its own
         // search data's price instead: trusted more than an AI search, less than the page.
         const check = document.createElement('div')
-        const level = r.verified === 'store-search' ? 'store' : r.verified ? 'ok' : 'unverified'
+        // Prisjakt and Finn pages are never fetched (their terms forbid it): a Prisjakt offer is
+        // Prisjakt's copy of the shop's price, and a Finn ad is a private seller, not a shop.
+        const level = r.source === 'finn' ? 'used' : r.verified === 'store-search' ? 'store' : r.verified ? 'ok' : 'unverified'
         check.className = 'ap-find-prices-check ap-find-prices-check-' + level
-        if (level === 'store') check.textContent = "Price from the store's own search"
+        if (level === 'used') check.textContent = 'Used listing from a private seller, not a shop price'
+        else if (r.source === 'prisjakt') check.textContent = 'Unverified (from Prisjakt, check the shop)'
+        else if (level === 'store') check.textContent = "Price from the store's own search"
         else if (!r.verified) check.textContent = 'Unverified (from search)'
         else if (typeof r.searchPrice === 'number') {
           check.textContent = '✓ Price checked on page: ' + formatMoney(r.price, r.currency) + ' (search said ' + formatMoney(r.searchPrice, r.searchCurrency || r.currency) + ')'
@@ -1438,6 +1442,7 @@ const myCollection = (await fetchCollectionForMatching())
     .ap-find-prices-check-ok { color: #2ecc71; }
     .ap-find-prices-check-unverified { color: var(--muted); }
     .ap-find-prices-check-store { color: var(--accent); }
+    .ap-find-prices-check-used { color: #e67e22; }
     .ap-find-prices-edition-warning { font-size: 0.78rem; font-weight: 600; color: #e67e22; }
     .ap-find-prices-diagnostics { margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); }
     .ap-diag-line { margin: 0 0 0.2rem; }

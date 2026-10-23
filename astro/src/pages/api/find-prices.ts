@@ -37,7 +37,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 // lib/find-prices-prompt.ts, and result validation in lib/find-prices-results.ts — see those
 // files' own comments for why.
 
-// Online searches stay at 5; Norway gets NORWAY_MAX_SEARCHES (6), one per targeted
+// Online searches stay at 5; Norway gets NORWAY_MAX_SEARCHES (8), one per targeted
 // "site:" search — more would risk the 55s timeout below (Vercel maxDuration is 60s).
 const ONLINE_MAX_SEARCHES = 5
 
@@ -224,9 +224,12 @@ export const POST: APIRoute = async ({ request }) => {
   if (dropped.length) console.error('[find-prices] dropped candidates:', JSON.stringify(dropped))
 
   // Only https URLs on a hostname the search actually returned get here (validated above),
-  // so this never fetches an address the model made up.
+  // so this never fetches an address the model made up. Prisjakt and Finn pages are never
+  // fetched (their terms forbid automated access — see NORWAY_COMPARISON_SITES): those
+  // results stay unverified, labelled with their source.
   const checkedAll = await Promise.all(
     found.map(async (r) => {
+      if (r.source) return applyPagePrice(r, null, region, CURRENCIES)
       const ms = Math.min(PAGE_FETCH_TIMEOUT_MS, deadline - Date.now())
       const page = ms >= MIN_PAGE_FETCH_MS ? await fetchHtml(r.url, ms) : null
       const result = applyPagePrice(r, page?.ok ? extractPagePrice(page.html) : null, region, CURRENCIES)

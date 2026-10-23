@@ -177,10 +177,12 @@ test.describe('add-price: "You already have this in your collection"', () => {
     const album = await sanity.create({ _type: 'album', title, status: 'wishlist' })
     trackDoc(album._id)
 
+    // A fake clock instead of a fixed wait: advancing it past the 300 ms debounce makes the
+    // check run for certain before asserting that it found nothing.
+    await page.clock.install()
     await page.goto('/add-price')
     await page.locator('#p-name').fill(title)
-    // Give the 300 ms debounced check time to run, then confirm it found nothing.
-    await page.waitForTimeout(800)
+    await page.clock.runFor(400)
     await expect(page.locator('#p-owned-note')).not.toContainText('You already have this')
   })
 })

@@ -1,13 +1,14 @@
-import { test, expect, testName } from './fixtures'
+import { test, expect, testName, uniqueJan } from './fixtures'
 
 test.describe('edit-product', () => {
   test('prefills product-level fields', async ({ page, trackDoc, sanity }) => {
     const productName = testName(`Edit Product Prefill ${Date.now()}`)
+    const jan = uniqueJan()
     const created = await sanity.create({
       _type: 'priceEntry',
       productName,
       productNameJp: 'プリフィル テスト',
-      jan: '4988601112223',
+      jan,
       category: 'album',
       sourceType: 'japanStore',
       price: 3000,
@@ -17,13 +18,13 @@ test.describe('edit-product', () => {
       seenAt: new Date().toISOString(),
     })
     trackDoc(created._id)
-    const key = '4988601112223'
+    const key = jan
 
     await page.goto(`/edit-product?product=${encodeURIComponent(key)}`)
 
     await expect(page.locator('#p-name')).toHaveValue(productName)
     await expect(page.locator('#p-name-jp')).toHaveValue('プリフィル テスト')
-    await expect(page.locator('#p-jan')).toHaveValue('4988601112223')
+    await expect(page.locator('#p-jan')).toHaveValue(jan)
     await expect(page.locator('#p-category')).toHaveValue('album')
   })
 
@@ -33,7 +34,7 @@ test.describe('edit-product', () => {
     sanity,
   }) => {
     const productName = testName(`Edit Product Save ${Date.now()}`)
-    const jan = '4988601334455'
+    const jan = uniqueJan()
     const created = await sanity.create({
       _type: 'priceEntry',
       productName,
@@ -66,10 +67,11 @@ test.describe('edit-product', () => {
 
   test('shows a note when another product shares the same name', async ({ page, trackDoc, sanity }) => {
     const sharedName = testName(`Shared Name ${Date.now()}`)
+    const firstJan = uniqueJan()
     const first = await sanity.create({
       _type: 'priceEntry',
       productName: sharedName,
-      jan: '4988601000011',
+      jan: firstJan,
       category: 'figure',
       sourceType: 'japanStore',
       price: 2500,
@@ -82,7 +84,7 @@ test.describe('edit-product', () => {
     const second = await sanity.create({
       _type: 'priceEntry',
       productName: sharedName,
-      jan: '4988601000022',
+      jan: uniqueJan(),
       category: 'figure',
       sourceType: 'japanStore',
       price: 2600,
@@ -93,7 +95,7 @@ test.describe('edit-product', () => {
     })
     trackDoc(second._id)
 
-    await page.goto(`/edit-product?product=${encodeURIComponent('4988601000011')}`)
+    await page.goto(`/edit-product?product=${encodeURIComponent(firstJan)}`)
 
     await expect(page.locator('#p-name-note')).toBeVisible()
     await expect(page.locator('#p-name-note')).toContainText('Another product with this name exists')

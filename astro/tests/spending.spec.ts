@@ -3,7 +3,7 @@ import { test, expect, testName } from './fixtures'
 test.describe('spending page', () => {
   test('loads without the old "My FF collection" section', async ({ page }) => {
     await page.goto('/spending')
-    await expect(page.locator('h1')).toHaveText('Spending')
+    await expect(page.getByRole('heading', { level: 1, name: 'Spending', exact: true })).toBeVisible()
     await expect(page.locator('h2', { hasText: 'My FF collection' })).toHaveCount(0)
     await expect(page.locator('#total-combined')).toHaveCount(0)
   })

@@ -245,6 +245,16 @@ test.describe('route-optimizer: optimizeRoute', () => {
 })
 
 test.describe('itinerary: "Suggest route"', () => {
+  // Apply/Undo change the plan, and the page autosaves the plan to /api/itinerary-save —
+  // the one shared itineraryState document. Answered here instead, so these tests never
+  // write the dataset's real plan (and a parallel test reading /itinerary never sees the
+  // injected "Far/Near" day).
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) })
+    )
+  })
+
   // Replaces day 0 with a small, deterministic, obviously-scrambled plan directly in the
   // page's own `state` (the inline script's top-level `let`, reachable from page.evaluate
   // since it shares the page's global scope) — the real shared itinerary data has no

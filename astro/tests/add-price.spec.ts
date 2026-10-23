@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { test, expect, testName } from './fixtures'
+import { test, expect, testName, uniqueJan } from './fixtures'
 import { findIdByField } from './helpers/sanity-test-client'
 import { mockFindPricesResults, mockFindPricesTwoResults } from './helpers/mock-ai'
 
@@ -206,11 +206,12 @@ test.describe('add-price: paid with passport only for a Japan shop purchase', ()
 test.describe('add-price: existing product', () => {
   test('reusing an existing product prefills fields and appends to Seen before', async ({ page, trackDoc, sanity }) => {
     const productName = testName(`Existing Product ${Date.now()}`)
+    const jan = uniqueJan()
     const created = await sanity.create({
       _type: 'priceEntry',
       productName,
       productNameJp: 'テスト商品',
-      jan: '4988601234567',
+      jan,
       category: 'book',
       sourceType: 'japanStore',
       price: 1200,
@@ -229,7 +230,7 @@ test.describe('add-price: existing product', () => {
 
     await expect(page.locator('#p-name')).toHaveValue(productName)
     await expect(page.locator('#p-name-jp')).toHaveValue('テスト商品')
-    await expect(page.locator('#p-jan')).toHaveValue('4988601234567')
+    await expect(page.locator('#p-jan')).toHaveValue(jan)
     await expect(page.locator('#p-category')).toHaveValue('book')
     await expect(page.locator('#p-seen-wrap')).toBeVisible()
     await expect(page.locator('#p-seen-list li')).toHaveCount(1)
@@ -410,11 +411,12 @@ test.describe('add-price: duplicate name warning', () => {
 
   test('clicking "Use existing" selects the product and fills its fields', async ({ page, trackDoc, sanity }) => {
     const productName = testName(`Duplicate Check Click ${Date.now()}`)
+    const jan = uniqueJan()
     const created = await sanity.create({
       _type: 'priceEntry',
       productName,
       productNameJp: 'クリックテスト',
-      jan: '4988601998877',
+      jan,
       category: 'game',
       sourceType: 'japanStore',
       price: 2000,
@@ -434,7 +436,7 @@ test.describe('add-price: duplicate name warning', () => {
     await expect(page.locator('#p-product')).not.toHaveValue('')
     await expect(page.locator('#p-name')).toHaveValue(productName)
     await expect(page.locator('#p-name-jp')).toHaveValue('クリックテスト')
-    await expect(page.locator('#p-jan')).toHaveValue('4988601998877')
+    await expect(page.locator('#p-jan')).toHaveValue(jan)
     await expect(page.locator('#p-category')).toHaveValue('game')
     await expect(page.locator('#p-name-warning')).toBeHidden()
   })

@@ -7,11 +7,16 @@ import { defineConfig, devices } from '@playwright/test'
 // real Anthropic API.
 export default defineConfig({
   testDir: './tests',
-  // Fixtures share one real Sanity dataset rather than an isolated DB per test, so
-  // running them serially avoids one test's in-flight create/delete interfering with
-  // another's reads.
-  fullyParallel: false,
-  workers: 1,
+  // Parallel, tests within a file included. The tests share one real Sanity dataset, which
+  // is safe only because every test touches nothing but its own fixtures: "[test] "-prefixed
+  // names, unique barcodes (uniqueJan() in tests/fixtures.ts), its own trip selected
+  // explicitly (?trip=<id>), and mocks for anything that writes shared data (the itinerary's
+  // autosave) — keep it that way when adding tests. 6 workers on this 8-thread / 8 GB
+  // machine (each is a WebKit instance, all hitting the one Astro dev server); measured
+  // October 2026, full suite: 1 worker 15.0 min, 4 workers 4.5 min, 6 workers 3.8 min.
+  // Override with PW_WORKERS (PW_WORKERS=1 for a serial run).
+  fullyParallel: true,
+  workers: Number(process.env.PW_WORKERS) || 6,
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   globalSetup: './tests/global-setup.ts',
@@ -35,10 +40,12 @@ export default defineConfig({
       use: { ...devices['iPhone 13'] },
     },
   ],
+  // An already running dev server (npm run dev:test) is reused as-is; otherwise one is
+  // started, and a cold Astro start can take well over a minute on this machine.
   webServer: {
     command: 'npm run dev:test',
     url: 'http://localhost:4321',
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    timeout: 120_000,
   },
 })

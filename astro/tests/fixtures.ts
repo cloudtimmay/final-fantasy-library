@@ -51,4 +51,15 @@ export const test = base.extend<Fixtures>({
   },
 })
 
+// A fresh 13-digit barcode for a fixture written to Sanity. Tests run in parallel against the
+// one development dataset, and price entries group into products by JAN (and collection
+// matching compares barcodes) — two tests saving the same hard-coded JAN at the same time
+// would see each other's data. The 20–29 prefix is "restricted circulation" (in-store use),
+// so it can never be a real product's code either.
+let janCounter = 0
+export function uniqueJan(): string {
+  const n = (Date.now() % 1e8) * 1000 + Math.floor(Math.random() * 100) * 10 + (janCounter++ % 10)
+  return '20' + String(n).padStart(11, '0').slice(-11)
+}
+
 export { expect, TEST_PREFIX, testName }

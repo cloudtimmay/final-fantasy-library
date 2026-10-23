@@ -1,4 +1,4 @@
-import { test, expect, testName } from './fixtures'
+import { test, expect, testName, uniqueJan } from './fixtures'
 
 test.describe('missing-info: list page', () => {
   test('shows an item missing an important field, with the specific fields named', async ({ page, trackDoc, sanity }) => {
@@ -48,7 +48,7 @@ test.describe('missing-info: list page', () => {
   test('the album OR-group (artist or composer) is satisfied by either field alone', async ({ page, trackDoc, sanity }) => {
     const title = testName(`Album Has Composer Only ${Date.now()}`)
     const album = await sanity.create({
-      _type: 'album', title, composer: 'Nobuo Uematsu', barcode: '4988601234567', catalogNumber: 'SQEX-1', releaseDate: '2020', status: 'owned',
+      _type: 'album', title, composer: 'Nobuo Uematsu', barcode: uniqueJan(), catalogNumber: 'SQEX-1', releaseDate: '2020', status: 'owned',
     })
     trackDoc(album._id)
 

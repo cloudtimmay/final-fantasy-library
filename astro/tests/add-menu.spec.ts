@@ -39,6 +39,6 @@ test.describe('add menu', () => {
     await page.goto('/add-menu')
     await page.locator('a.menu-card', { hasText: 'Add price' }).click()
     await expect(page).toHaveURL(/\/add-price/)
-    await expect(page.locator('h1')).toHaveText('Add price')
+    await expect(page.getByRole('heading', { level: 1, name: 'Add price', exact: true })).toBeVisible()
   })
 })

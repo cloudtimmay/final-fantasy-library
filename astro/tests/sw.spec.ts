@@ -22,7 +22,7 @@ test.describe('service worker', () => {
 
     await context.setOffline(true)
     await page.goto('/checklist')
-    await expect(page.locator('h1')).toHaveText('Airport checklist')
+    await expect(page.getByRole('heading', { level: 1, name: 'Airport checklist', exact: true })).toBeVisible()
     await context.setOffline(false)
   })
 

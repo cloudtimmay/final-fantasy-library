@@ -4,8 +4,18 @@ import PriceProductRow from '../components/PriceProductRow.astro'
 import { fetchProducts, type Product, type ProductPrice } from '../lib/price-products'
 import { PEOPLE_LIST } from '../lib/price-entry-fields'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
+import { findPossibleDuplicates } from '../lib/product-duplicates'
 
 const products = await fetchProducts()
+
+// Possibly the same product logged under two names (same category, same Japanese name or
+// same photo — lib/product-duplicates.ts). Never merged automatically: the product that
+// would be merged away gets a "Possible duplicate of …" note with a Merge button, so each
+// pair is shown once (in the Product grouping only).
+const duplicateNotes = new Map<string, { kept: Product; reason: 'jp-name' | 'image' }[]>()
+for (const { kept, merged, reason } of findPossibleDuplicates(products)) {
+  duplicateNotes.set(merged.key, [...(duplicateNotes.get(merged.key) ?? []), { kept, reason }])
+}
 
 // Prices are shown NOK first with yen alongside (lib/price-display.ts), at the same exchange
 // rate /spending uses: the trip from ?trip=<id> if given, otherwise the default trip
@@ -110,7 +120,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
       <>
         <div id="product-group-view" class="group-view">
           <ul class="price-list">
-            {products.map((p) => <PriceProductRow product={p} prices={p.prices} rate={rate} />)}
+            {products.map((p) => <PriceProductRow product={p} prices={p.prices} rate={rate} duplicates={duplicateNotes.get(p.key)} />)}
           </ul>
           <p class="empty-filtered" hidden>No prices match these filters.</p>
         </div>
@@ -298,6 +308,53 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
       }
       return !!target
     }
+
+    // "Merge" on a "Possible duplicate of …" note: after a confirmation naming both products
+    // and what's kept, every price of this product gets the kept product's name, Japanese
+    // name, JAN and category (the same /api/price-product-update the edit-product page
+    // uses), so they all land in the kept product's group. The button sits inside the
+    // row's <summary>, so the click mustn't also open/close the row.
+    const CATEGORY_NAMES = { album: 'Album', game: 'Game', book: 'Book', figure: 'Merchandise', other: 'Other' }
+    document.addEventListener('click', async (e) => {
+      const btn = e.target instanceof Element ? e.target.closest('.merge-btn') : null
+      if (!btn) return
+      e.preventDefault()
+      e.stopPropagation()
+      const d = btn.dataset
+      const count = Number(d.mergeFromCount) || 0
+      const ok = window.confirm(
+        `Merge "${d.mergeFromName}" (${count} price${count === 1 ? '' : 's'}) into "${d.keptName}"?\n\n` +
+        `Its prices will be kept under:\n` +
+        `• Name: ${d.keptName}\n` +
+        `• Japanese name: ${d.keptNameJp || '(none)'}\n` +
+        `• JAN: ${d.keptJan || '(none)'}\n` +
+        `• Category: ${CATEGORY_NAMES[d.keptCategory] || d.keptCategory}`
+      )
+      if (!ok) return
+      btn.disabled = true
+      btn.textContent = 'Merging…'
+      try {
+        const res = await fetch('/api/price-product-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: d.mergeFromKey,
+            productName: d.keptName,
+            productNameJp: d.keptNameJp || undefined,
+            jan: d.keptJan || undefined,
+            category: d.keptCategory,
+          }),
+        })
+        if (!res.ok) throw new Error('merge failed')
+        const url = new URL(window.location.href)
+        url.searchParams.set('open', d.keptKey)
+        window.location.href = url.toString()
+      } catch (err) {
+        btn.disabled = false
+        btn.textContent = 'Merge'
+        window.alert('Merging failed. Nothing was changed.')
+      }
+    }, true)
 
     // Arriving back from /add-price, /edit-product or /edit-price with ?open=<key> —
     // expand that product and bring it into view (filters were reset to show everything

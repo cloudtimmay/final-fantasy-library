@@ -233,6 +233,7 @@ const myCollection = (await fetchCollectionForMatching())
     import { summarizeDiagnostics } from '../lib/find-prices-results'
     import { createBackgroundUpload } from '../scripts/background-upload.js'
     import { cdnImage } from '../lib/image-url'
+    import { jpNamesMatch } from '../lib/product-duplicates'
 
     const productSel = document.querySelector('#p-product')
     const seenWrap = document.querySelector('#p-seen-wrap')
@@ -505,14 +506,18 @@ const myCollection = (await fetchCollectionForMatching())
 
     function renderNameWarning(matches) {
       nameWarning.replaceChildren()
-      matches.forEach(({ product, idx }) => {
+      matches.forEach(({ product, idx, byJp }) => {
         const row = document.createElement('div')
         row.className = 'ap-name-warning-row'
 
         const text = document.createElement('span')
         const catLabel = CATEGORY_LABELS[product.category] || product.category || 'Other'
         const n = product.prices.length
-        text.textContent = `${product.productName} already exists (${catLabel}, ${n} price${n === 1 ? '' : 's'})`
+        // Same name: it exists. Same Japanese name only: just possibly the same — a Japanese
+        // name is often only the character's (lib/product-duplicates.ts).
+        text.textContent = byJp
+          ? `Possible match: ${product.productName} (${catLabel}, ${n} price${n === 1 ? '' : 's'})`
+          : `${product.productName} already exists (${catLabel}, ${n} price${n === 1 ? '' : 's'})`
 
         const btn = document.createElement('button')
         btn.type = 'button'
@@ -539,18 +544,30 @@ const myCollection = (await fetchCollectionForMatching())
     function checkNameDuplicate() {
       if (productSel.value !== '') { hideNameWarning(); return }
       const typed = nameInput.value.trim().toLowerCase()
-      if (!typed) { hideNameWarning(); return }
-      const matches = PRODUCTS
-        .map((product, idx) => ({ product, idx }))
-        .filter(({ product }) => product.productName.trim().toLowerCase() === typed)
+      const typedJp = nameJpInput.value
+      if (!typed && !typedJp.trim()) { hideNameWarning(); return }
+      // Same name first; then products whose Japanese name normalizes to the same thing
+      // (long enough to mean something) — only ever a "Possible match", never automatic.
+      const byName = PRODUCTS
+        .map((product, idx) => ({ product, idx, byJp: false }))
+        .filter(({ product }) => typed && product.productName.trim().toLowerCase() === typed)
+      const nameIdx = new Set(byName.map(({ idx }) => idx))
+      const byJp = PRODUCTS
+        .map((product, idx) => ({ product, idx, byJp: true }))
+        .filter(({ product, idx }) => !nameIdx.has(idx) && jpNamesMatch(typedJp, product.productNameJp))
+      const matches = [...byName, ...byJp]
       if (matches.length === 0) { hideNameWarning(); return }
-      const key = matches.map(({ idx }) => idx).join(',')
+      const key = matches.map(({ idx, byJp }) => `${idx}${byJp ? 'j' : ''}`).join(',')
       if (key === nameWarningKey) return
       nameWarningKey = key
       renderNameWarning(matches)
     }
     let nameCheckTimer = null
     nameInput.addEventListener('input', () => {
+      clearTimeout(nameCheckTimer)
+      nameCheckTimer = setTimeout(checkNameDuplicate, 300)
+    })
+    nameJpInput.addEventListener('input', () => {
       clearTimeout(nameCheckTimer)
       nameCheckTimer = setTimeout(checkNameDuplicate, 300)
     })

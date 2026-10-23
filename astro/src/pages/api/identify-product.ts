@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { validateIdentifyResult } from '../../lib/identify-result'
+import { validateIdentifyResult, IDENTIFY_SYSTEM_PROMPT as SYSTEM_PROMPT } from '../../lib/identify-result'
 
 export const prerender = false
 
@@ -19,16 +19,7 @@ const TIMEOUT_MS = 25000
 // off before (or partway through) the actual JSON. Generous headroom avoids that.
 const MAX_TOKENS = 2048
 
-const SYSTEM_PROMPT = `You are looking at one or more photos of the same product in a shop — usually in Japan, sometimes in Norway (Final Fantasy and other games, music, books, and merchandise). The photos may show different sides or details of the same item — for example the front, the back with a barcode, or a separate close-up of a price tag. Combine the information from all of the photos into a single identification. Return ONLY a JSON object, with no other text, no markdown code fences, and no explanation. The JSON object must have exactly these fields:
-- productName: string, the product's name in English.
-- productNameJp: string, the product's name in Japanese exactly as printed on the packaging, or null if not visible.
-- jan: string of digits only, the JAN/EAN/UPC barcode (for a book, its ISBN), ONLY if clearly readable on the packaging, otherwise null.
-- category: one of "album", "game", "book", "figure", "other". "figure" means any merchandise (plushies, wearables, statues, etc.), not just figures specifically.
-- price: number, the price shown on a visible price tag, or null if no price tag is visible.
-- currency: the currency shown on the price tag — "JPY" if it shows ¥ or 円, "NOK" if it shows kr or NOK, or null if there is no price tag or the currency is not shown.
-- taxIncluded: only for a yen price — true if the price tag shows 税込 (tax included), false if it shows 税抜 (tax excluded), null if unclear, if there is no price tag, or if the price is not in yen.
-- confidence: one of "high", "medium", "low" for your overall confidence in this identification.
-- notes: a short string noting anything relevant (e.g. "price tag partially hidden"), or null if there is nothing to note.`
+// The system prompt lives in lib/identify-result.ts (testable there).
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)

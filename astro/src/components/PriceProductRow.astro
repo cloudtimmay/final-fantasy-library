@@ -36,9 +36,15 @@ export interface Props {
     buyer?: string
   }[]
   rate?: number | null
+  // Products this one is possibly a duplicate of — it's the one a Merge would fold into
+  // `kept` (see lib/product-duplicates.ts and /prices' frontmatter). Product grouping only.
+  duplicates?: {
+    kept: { key: string; productName: string; productNameJp?: string; jan?: string; category?: string; prices: unknown[] }
+    reason: 'jp-name' | 'image'
+  }[]
 }
 
-const { product: p, prices, rate } = Astro.props
+const { product: p, prices, rate, duplicates = [] } = Astro.props
 
 const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
   album: { icon: '🎵', label: 'Album' },
@@ -81,6 +87,27 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
           <span class="summary-price">{line?.text}</span>
           <span class="summary-more" hidden={!line || line.more === 0}>+{line?.more ?? 0}</span>
         </div>
+        {duplicates.map(({ kept, reason }) => (
+          <div class="dup-note">
+            <span class="dup-text">
+              Possible duplicate of <strong>{kept.productName}</strong>
+              <span class="dup-reason">({reason === 'image' ? 'same photo' : 'same Japanese name'})</span>
+            </span>
+            {/* Inside <summary>: /prices' script stops the click from also opening the row. */}
+            <button
+              type="button"
+              class="merge-btn"
+              data-merge-from-key={p.key}
+              data-merge-from-name={p.productName}
+              data-merge-from-count={prices.length}
+              data-kept-key={kept.key}
+              data-kept-name={kept.productName}
+              data-kept-name-jp={kept.productNameJp || ''}
+              data-kept-jan={kept.jan || ''}
+              data-kept-category={kept.category || ''}
+            >Merge</button>
+          </div>
+        ))}
       </div>
     </summary>
 
@@ -155,6 +182,18 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
     font-family: 'IBM Plex Mono', monospace;
   }
   .summary-more[hidden] { display: none; }
+
+  .dup-note {
+    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem;
+    font-size: 0.75rem; color: #e67e22;
+  }
+  .dup-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .dup-reason { color: var(--muted); margin-left: 0.25rem; }
+  .merge-btn {
+    flex-shrink: 0; min-height: 32px; padding: 0.2rem 0.7rem; border-radius: 6px; cursor: pointer;
+    background: var(--bg); color: #e67e22; border: 1px solid #e67e22; font-size: 0.78rem; font-weight: 600;
+  }
+  .merge-btn:disabled { opacity: 0.6; cursor: default; }
 
   .history-list {
     list-style: none; margin: 0; padding: 0 0.6rem 0.6rem;

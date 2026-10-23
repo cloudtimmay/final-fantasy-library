@@ -4,6 +4,10 @@ import { formatPriceNokFirst, cheapestPrice, cheapestLine, toNok } from '../src/
 // Prices are formatted with non-breaking spaces (so they never wrap); compare with plain ones.
 const plain = (s: string | null | undefined) => (s ?? '').replace(/ /g, ' ')
 const RATE = 0.0467 // ~NOK per JPY
+// The row of the product with this name — matched on the name itself, not the whole row's text
+// (another row's "Possible duplicate of <name>" note would match too).
+const productRow = (page: import('@playwright/test').Page, name: string) =>
+  page.locator('#product-group-view li.price-row').filter({ has: page.locator('.summary-name', { hasText: name }) })
 
 test.describe('price display: NOK first, yen alongside', () => {
   test('NOK price gets "≈ ¥X", rounded to ¥100', () => {
@@ -49,13 +53,15 @@ test.describe('price display: NOK first, yen alongside', () => {
 // A product with three prices in three currencies, and its own trip (known rate).
 async function threeCurrencyProduct(sanity: any, trackDoc: (id: string) => void, rate: number | null) {
   const name = testName(`Price Display ${Date.now()}`)
+  // Unique, so parallel copies of these fixtures aren't flagged as possible duplicates of each other.
+  const jp = `テスト表示${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 1000)}`
   const trip = await sanity.create({
     _type: 'tripSettings',
     label: testName(`Price Display Trip ${Date.now()}`),
     ...(rate ? { jpyToNokRate: rate } : {}),
   })
   trackDoc(trip._id)
-  const base = { _type: 'priceEntry', productName: name, productNameJp: 'テスト表示', category: 'game', condition: 'new', status: 'considering', seenAt: new Date().toISOString() }
+  const base = { _type: 'priceEntry', productName: name, productNameJp: jp, category: 'game', condition: 'new', status: 'considering', seenAt: new Date().toISOString() }
   for (const doc of [
     { ...base, sourceType: 'norway', sourceName: 'Outland', price: 649, currency: 'NOK' },
     { ...base, sourceType: 'japanStore', price: 12000, currency: 'JPY' },
@@ -64,7 +70,7 @@ async function threeCurrencyProduct(sanity: any, trackDoc: (id: string) => void,
     const created = await sanity.create(doc)
     trackDoc(created._id)
   }
-  return { name, trip }
+  return { name, trip, jp }
 }
 
 test.describe('/prices: compact rows with the cheapest price up front', () => {
@@ -72,7 +78,7 @@ test.describe('/prices: compact rows with the cheapest price up front', () => {
     const { name, trip } = await threeCurrencyProduct(sanity, trackDoc, 0.05)
     await page.goto(`/prices?trip=${trip._id}`)
 
-    const row = page.locator('#product-group-view li.price-row', { hasText: name })
+    const row = productRow(page, name)
     // ¥12 000 × 0.05 = 600 kr, cheaper than 649 kr; the USD price doesn't count.
     await expect(row.locator('.summary-price')).toHaveText('≈ 600 kr (¥12 000) · Shop')
     await expect(row.locator('.summary-more')).toHaveText('+2')
@@ -90,7 +96,7 @@ test.describe('/prices: compact rows with the cheapest price up front', () => {
     const { name, trip } = await threeCurrencyProduct(sanity, trackDoc, null)
     await page.goto(`/prices?trip=${trip._id}`)
 
-    const row = page.locator('#product-group-view li.price-row', { hasText: name })
+    const row = productRow(page, name)
     // Only the NOK price can be compared in NOK, so it's the cheapest.
     await expect(row.locator('.summary-price')).toHaveText('649 kr · Outland')
     await expect(row.locator('.summary-more')).toHaveText('+2')
@@ -102,14 +108,14 @@ test.describe('/prices: compact rows with the cheapest price up front', () => {
   })
 
   test('the list shows no Japanese name, no category badge and no "N prices" badge — search still finds the Japanese name', async ({ page, sanity, trackDoc }) => {
-    const { name, trip } = await threeCurrencyProduct(sanity, trackDoc, 0.05)
+    const { name, trip, jp } = await threeCurrencyProduct(sanity, trackDoc, 0.05)
     await page.goto(`/prices?trip=${trip._id}`)
 
-    const row = page.locator('#product-group-view li.price-row', { hasText: name })
-    await expect(row.locator('summary')).not.toContainText('テスト表示')
+    const row = productRow(page, name)
+    await expect(row.locator('summary')).not.toContainText(jp)
     await expect(row.locator('.summary-jp, .cat-badge, .count-badge, .low-badge')).toHaveCount(0)
 
-    await page.locator('#p-search').fill('テスト表示')
+    await page.locator('#p-search').fill(jp)
     await expect(row).toBeVisible()
   })
 })

@@ -8,7 +8,7 @@
 //   42.99 USD             -> "42.99 USD"             (no conversion)
 //   no rate               -> each in its own currency: "649 kr", "¥5 980"
 
-export type DisplayPrice = { price: number; currency: string; source?: string }
+export type DisplayPrice = { price: number; currency: string; source?: string; note?: string }
 
 const NBSP = ' ' // between thousands, and between number and unit, so a price never wraps
 
@@ -57,10 +57,16 @@ export function cheapestPrice<T extends DisplayPrice>(prices: T[], rate?: number
 }
 
 // The collapsed product row's price line: the cheapest price and where it is, plus how many
-// other prices there are — e.g. { text: "649 kr (≈ ¥13 900) · Outland", more: 2 }.
-export function cheapestLine(prices: DisplayPrice[], rate?: number | null): { text: string; more: number } | null {
+// other prices there are, and the first line of that price's note ('' if none) — e.g.
+// { text: "649 kr (≈ ¥13 900) · Outland", more: 2, note: "Signed copy" }.
+export function cheapestLine(prices: DisplayPrice[], rate?: number | null): { text: string; more: number; note: string } | null {
   const cheapest = cheapestPrice(prices, rate)
   if (!cheapest) return null
   const where = cheapest.source ? ` · ${cheapest.source}` : ''
-  return { text: formatPriceNokFirst(cheapest.price, cheapest.currency, rate) + where, more: prices.length - 1 }
+  return { text: formatPriceNokFirst(cheapest.price, cheapest.currency, rate) + where, more: prices.length - 1, note: firstLine(cheapest.note) }
+}
+
+// The first non-empty line of a note, trimmed; '' for no note.
+export function firstLine(note: string | null | undefined): string {
+  return (note || '').split(/\r?\n/).map((l) => l.trim()).find(Boolean) || ''
 }

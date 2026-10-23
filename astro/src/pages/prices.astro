@@ -70,7 +70,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
     <p class="hint">Everything you've logged. Tap a product to see its full price history.</p>
 
     <div class="filters-bar">
-      <input id="p-search" class="search-input" type="search" placeholder="Search name, Japanese name or JAN…" autocomplete="off" />
+      <input id="p-search" class="search-input" type="search" placeholder="Search name, Japanese name, JAN or note…" autocomplete="off" />
 
       <div class="scan-row">
         <button id="p-scan-btn" class="scan-btn" type="button">📷 Scan barcode</button>
@@ -250,7 +250,12 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
               visibleCount++
               const p = Number(item.getAttribute('data-price'))
               if (!isNaN(p)) {
-                visiblePrices.push({ price: p, currency: item.getAttribute('data-currency') || '', source: item.getAttribute('data-source') || '' })
+                visiblePrices.push({
+                  price: p,
+                  currency: item.getAttribute('data-currency') || '',
+                  source: item.getAttribute('data-source') || '',
+                  note: item.getAttribute('data-note') || '',
+                })
               }
             }
           })
@@ -259,11 +264,17 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
           row.hidden = !rowVisible
           if (rowVisible) {
             anyVisibleInSection = true
-            // The cheapest of the prices this filter leaves, and how many others there are.
+            // The cheapest of the prices this filter leaves, how many others there are, and
+            // that price's note (so the note always belongs to the price shown).
             const line = cheapestLine(visiblePrices, RATE)
             const priceEl = row.querySelector('.summary-price')
             const moreEl = row.querySelector('.summary-more')
+            const noteEl = row.querySelector('.summary-note')
             if (priceEl) priceEl.textContent = line ? line.text : ''
+            if (noteEl) {
+              noteEl.textContent = line ? line.note : ''
+              noteEl.hidden = !line || !line.note
+            }
             if (moreEl) {
               moreEl.hidden = !line || line.more === 0
               moreEl.textContent = line ? `+${line.more}` : ''

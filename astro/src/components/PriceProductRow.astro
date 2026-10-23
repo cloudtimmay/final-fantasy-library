@@ -68,7 +68,8 @@ function formatDate(iso: string | undefined): string {
 
 const cat = p.category ? CATEGORY_ICONS[p.category] || { icon: '🏷️', label: p.category } : null
 const line = cheapestLine(prices, rate)
-const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toLowerCase()
+// Every listed price's note is searchable too, not just the one shown in the collapsed row.
+const searchHay = [p.productName, p.productNameJp, p.jan, ...prices.map((x) => x.note)].filter(Boolean).join(' ').toLowerCase()
 ---
 <li class="price-row" data-search={searchHay}>
   <details data-key={p.key}>
@@ -87,6 +88,9 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
           <span class="summary-price">{line?.text}</span>
           <span class="summary-more" hidden={!line || line.more === 0}>+{line?.more ?? 0}</span>
         </div>
+        {/* The shown (cheapest) price's note, first line only. Always rendered, so /prices'
+            script can refill it when a filter changes which price is the cheapest. */}
+        <div class="summary-note" hidden={!line?.note}>{line?.note}</div>
         {duplicates.map(({ kept, reason }) => (
           <div class="dup-note">
             <span class="dup-text">
@@ -120,6 +124,7 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
           data-currency={price.currency}
           data-price={price.price}
           data-source={price.source}
+          data-note={price.note || ''}
         >
           <a class="history-row" href={`/edit-price?id=${price._id}`}>
             <div class="history-main">
@@ -182,6 +187,11 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
     font-family: 'IBM Plex Mono', monospace;
   }
   .summary-more[hidden] { display: none; }
+  .summary-note {
+    font-size: 0.74rem; color: var(--muted); margin-top: 0.05rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .summary-note[hidden] { display: none; }
 
   .dup-note {
     display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem;

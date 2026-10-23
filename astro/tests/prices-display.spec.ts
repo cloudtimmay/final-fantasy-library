@@ -1,5 +1,5 @@
 import { test, expect, testName } from './fixtures'
-import { formatPriceNokFirst, cheapestPrice, cheapestLine, toNok } from '../src/lib/price-display'
+import { formatPriceNokFirst, cheapestPrice, cheapestLine, firstLine, toNok } from '../src/lib/price-display'
 
 // Prices are formatted with non-breaking spaces (so they never wrap); compare with plain ones.
 const plain = (s: string | null | undefined) => (s ?? '').replace(/ /g, ' ')
@@ -117,5 +117,77 @@ test.describe('/prices: compact rows with the cheapest price up front', () => {
 
     await page.locator('#p-search').fill(jp)
     await expect(row).toBeVisible()
+  })
+})
+
+test.describe('/prices: the shown price\'s note under the price line', () => {
+  test('cheapestLine gives the cheapest price\'s note, first line only', () => {
+    const prices = [
+      { price: 649, currency: 'NOK', source: 'Outland', note: 'Pricier one' },
+      { price: 12000, currency: 'JPY', source: 'Mandarake', note: '\n  Signed copy  \r\nBox slightly dented' },
+    ]
+    expect(cheapestLine(prices, RATE)?.note).toBe('Signed copy')
+    expect(cheapestLine([{ price: 649, currency: 'NOK' }], RATE)?.note).toBe('')
+    expect(firstLine('   ')).toBe('')
+  })
+
+  // Two prices: the cheapest is bought and has a two-line note; the pricier one is only
+  // considered, with a note of its own.
+  async function notedProduct(sanity: any, trackDoc: (id: string) => void) {
+    const name = testName(`Price Note ${Date.now()}`)
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Price Note Trip ${Date.now()}`), jpyToNokRate: 0.05 })
+    trackDoc(trip._id)
+    const marker = `zq${Date.now()}${Math.floor(Math.random() * 1000)}`
+    const base = { _type: 'priceEntry', productName: name, category: 'book', condition: 'new', sourceType: 'norway', seenAt: new Date().toISOString() }
+    for (const doc of [
+      { ...base, sourceName: 'Outland', price: 299, currency: 'NOK', status: 'bought', note: `Cheap first line ${marker}\nSecond line` },
+      { ...base, sourceName: 'Norli', price: 399, currency: 'NOK', status: 'considering', note: `Pricier note pricey${marker}` },
+    ]) {
+      const created = await sanity.create(doc)
+      trackDoc(created._id)
+    }
+    return { name, trip, marker }
+  }
+
+  test('the row shows the first line of the cheapest price\'s note; the note follows the price when a filter changes it', async ({ page, sanity, trackDoc }) => {
+    const { name, trip, marker } = await notedProduct(sanity, trackDoc)
+    await page.goto(`/prices?trip=${trip._id}`)
+
+    const row = productRow(page, name)
+    const note = row.locator('.summary-note')
+    await expect(row.locator('.summary-price')).toHaveText('299 kr (≈ ¥6 000) · Outland')
+    await expect(note).toHaveText(`Cheap first line ${marker}`) // not "Second line"
+    // One line, cut with an ellipsis rather than wrapping.
+    await expect(note).toHaveCSS('white-space', 'nowrap')
+    await expect(note).toHaveCSS('text-overflow', 'ellipsis')
+
+    // "Considering" hides the bought (cheaper) price: the pricier one and ITS note are shown.
+    await page.locator('#status-filter .chip', { hasText: 'Considering' }).click()
+    await expect(row.locator('.summary-price')).toHaveText('399 kr (≈ ¥8 000) · Norli')
+    await expect(note).toHaveText(`Pricier note pricey${marker}`)
+
+    // The full note is still in the expanded price rows.
+    await page.locator('#status-filter .chip', { hasText: 'All' }).click()
+    await row.locator('summary').click()
+    await expect(row.locator('.history-item', { hasText: 'Outland' }).locator('.history-note')).toHaveText(`Cheap first line ${marker}\nSecond line`)
+  })
+
+  test('no note line (and no extra height) when the shown price has no note', async ({ page, sanity, trackDoc }) => {
+    const { name, trip } = await threeCurrencyProduct(sanity, trackDoc, 0.05) // no notes
+    await page.goto(`/prices?trip=${trip._id}`)
+    const row = productRow(page, name)
+    await expect(row.locator('.summary-price')).toBeVisible()
+    await expect(row.locator('.summary-note')).toBeHidden()
+    await expect(row.locator('.summary-note')).toHaveCSS('display', 'none')
+  })
+
+  test('search finds a product by note text, also a note on a price that isn\'t the one shown', async ({ page, sanity, trackDoc }) => {
+    const { name, trip, marker } = await notedProduct(sanity, trackDoc)
+    const other = await threeCurrencyProduct(sanity, trackDoc, 0.05)
+    await page.goto(`/prices?trip=${trip._id}`)
+
+    await page.locator('#p-search').fill(`pricey${marker}`.toUpperCase()) // case-insensitive
+    await expect(productRow(page, name)).toBeVisible()
+    await expect(productRow(page, other.name)).toBeHidden()
   })
 })

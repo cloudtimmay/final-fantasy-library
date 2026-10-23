@@ -432,12 +432,15 @@ async function lookupStore(
 }
 
 // All the category's Norwegian stores in parallel. Never throws: a store that fails is
-// reported in `stores` with its reason and contributes no results.
+// reported in `stores` with its reason and contributes no results. A Japanese name is
+// ignored — Norwegian stores neither search nor list by it — so only the JAN/ISBN and the
+// English name are searched and matched.
 export async function lookupNorwayStores(
   category: string,
-  product: LookupProduct,
+  { productName, jan }: LookupProduct,
   options: { fetchPage?: FetchHtml; deadline: number; now?: () => number }
 ): Promise<{ results: DirectResult[]; stores: StoreOutcome[] }> {
+  const product: LookupProduct = { productName, jan }
   const fetchPage = options.fetchPage || fetchHtml
   const now = options.now || Date.now
   const stores = norwayStoresFor(category).filter((s) => NORWAY_STORE_SITES[s]?.searchUrl || STORE_RULES[s]?.searchUrl)

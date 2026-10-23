@@ -3,7 +3,7 @@ import { json, parseJsonBody } from '../../lib/api'
 import { CATEGORIES, CURRENCIES } from '../../lib/price-entry-fields'
 import { extractPagePrice, applyPagePrice, extractProductIdentity } from '../../lib/page-price'
 import { fetchHtml, lookupNorwayStores, mergeFindPricesResults, checkAiResult } from '../../lib/store-lookup'
-import { buildFindPricesSystemPrompt, norwaySearchQueries, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
+import { buildFindPricesSystemPrompt, buildFindPricesUserPrompt, NORWAY_MAX_SEARCHES } from '../../lib/find-prices-prompt'
 import { validateFindPricesResults, hostnameOf } from '../../lib/find-prices-results'
 
 export const prerender = false
@@ -25,15 +25,7 @@ const TIMEOUT_MS = 55000
 // optional product photo this endpoint accepts.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
-const CATEGORY_LABELS: Record<string, string> = {
-  album: 'music album',
-  game: 'video game',
-  book: 'book',
-  figure: 'piece of merchandise',
-  other: 'item',
-}
-
-// System prompt (including the Norwegian store list, grouped by category) lives in
+// System and user prompts (including the Norwegian store list, grouped by category) live in
 // lib/find-prices-prompt.ts, and result validation in lib/find-prices-results.ts — see those
 // files' own comments for why.
 
@@ -80,22 +72,17 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  const lines = [`Find current prices for this ${CATEGORY_LABELS[category] || 'product'}.`]
-  lines.push(`Product name (English): ${productName}`)
-  if (productNameJp) lines.push(`Product name (Japanese): ${productNameJp}`)
-  if (jan) lines.push(`JAN/barcode: ${jan}`)
-  lines.push(`Region: ${region === 'norway' ? 'Norwegian stores, prices in NOK' : 'international stores that ship to Norway'}`)
-  if (region === 'norway') {
-    lines.push('Run these searches, in this order:')
-    for (const q of norwaySearchQueries(category, { productName, productNameJp, jan })) lines.push(`- ${q}`)
-  }
-  const userPrompt = lines.join('\n')
+  const userPrompt = buildFindPricesUserPrompt({ category, region, productName, productNameJp, jan })
+
+  // What results are matched against: Norway never uses the Japanese name (not in the AI
+  // prompt, the store lookups or the edition check) — Norwegian shops don't list it.
+  const matchAgainst = region === 'norway' ? { productName, jan } : { productName, productNameJp, jan }
 
   // Norway: the stores' own search pages, looked up while the AI searches. Never throws.
   const deadline = startedAt + TOTAL_BUDGET_MS
   const directLookup =
     region === 'norway'
-      ? lookupNorwayStores(category, { productName, productNameJp, jan }, { deadline })
+      ? lookupNorwayStores(category, matchAgainst, { deadline })
       : Promise.resolve({ results: [], stores: [] })
 
   // If the AI call fails but the store lookup found something, return that rather than an
@@ -237,7 +224,7 @@ export const POST: APIRoute = async ({ request }) => {
         console.error('[find-prices] page price differs from search:', r.url, `${result.searchPrice} ${result.searchCurrency} -> ${result.price} ${result.currency}`)
       }
       // The same page also says which edition it is (lib/edition.ts, store-lookup.ts).
-      const edition = checkAiResult(page?.ok ? extractProductIdentity(page.html) : null, { productName, productNameJp, jan })
+      const edition = checkAiResult(page?.ok ? extractProductIdentity(page.html) : null, matchAgainst)
       if (edition.drop) {
         dropped.push({ store: r.store, reason: edition.drop })
         return null

@@ -4,11 +4,13 @@ import {
   NORWAY_STORE_SITES,
   NORWAY_MAX_SEARCHES,
   buildFindPricesSystemPrompt,
+  buildFindPricesUserPrompt,
   norwaySearchQueries,
   norwayStoreSearchLinks,
   searchName,
 } from '../src/lib/find-prices-prompt'
 import { validateFindPricesResults, describeFindPricesDiagnostics } from '../src/lib/find-prices-results'
+import { lookupNorwayStores } from '../src/lib/store-lookup'
 
 // Pure-module tests, same approach as find-prices-prompt.spec.ts — find-prices.ts itself
 // can't be imported here, and its outgoing Anthropic call can't be intercepted.
@@ -80,6 +82,66 @@ test.describe('find-prices: targeted Norway searches', () => {
     const books = norwayStoreSearchLinks('book', 'Art of Final Fantasy XVI').map((l) => l.store)
     expect(books).toContain('Cappelen Damm')
     expect(books).not.toContain('Adlibris') // no confirmed search URL — see NORWAY_STORE_SITES
+  })
+})
+
+test.describe('find-prices: no Japanese name for Norway', () => {
+  const JP = 'ウルトラボール'
+  const product = { productName: 'Beast Ball', productNameJp: JP, jan: '5060178520736' }
+  const hasJapanese = (s: string) => s.includes(JP) || s.includes(encodeURIComponent(JP)) || /[぀-ヿ一-鿿]/.test(s)
+
+  test('the Norway user prompt has the JAN and English name, never the Japanese name', () => {
+    const prompt = buildFindPricesUserPrompt({ category: 'figure', region: 'norway', ...product })
+    expect(prompt).toContain('Product name (English): Beast Ball')
+    expect(prompt).toContain('JAN/barcode: 5060178520736')
+    expect(prompt).toContain('- site:prisjakt.no 5060178520736')
+    expect(prompt).not.toContain('Japanese')
+    expect(hasJapanese(prompt)).toBe(false)
+  })
+
+  test('an Online search still gets the Japanese name', () => {
+    const prompt = buildFindPricesUserPrompt({ category: 'figure', region: 'online', ...product })
+    expect(prompt).toContain(`Product name (Japanese): ${JP}`)
+  })
+
+  test('no Norway search query uses the Japanese name, even if one is passed in', () => {
+    for (const category of ['album', 'game', 'book', 'figure', 'other']) {
+      const q = norwaySearchQueries(category, product as any)
+      expect(q.some(hasJapanese), category).toBe(false)
+    }
+  })
+
+  test('the system prompt tells the model not to search Norway by the Japanese name', () => {
+    expect(buildFindPricesSystemPrompt('figure')).toContain('For region "norway" never search by a Japanese name')
+  })
+
+  test('the direct store lookup never searches by the Japanese name', async () => {
+    const fetched: string[] = []
+    await lookupNorwayStores('book', { productName: 'Beast Ball', productNameJp: JP }, {
+      deadline: Date.now() + 30000,
+      fetchPage: async (url, _ms, init) => {
+        fetched.push(url + ' ' + (init?.body || ''))
+        return { ok: false, reason: 'blocked (HTTP 403)' }
+      },
+    })
+    expect(fetched.length).toBeGreaterThan(0)
+    expect(fetched.filter(hasJapanese)).toEqual([])
+  })
+
+  test('the direct store lookup does not match a store title by the Japanese name', async () => {
+    const page = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: JP, offers: { price: 299, priceCurrency: 'NOK' } })}</script>`
+    // Proshop has no store-specific parser: any product link on its search page is opened, and
+    // the product page's own title decides the match.
+    const search = `<a href="https://www.proshop.no/p/jp">${JP}</a>`
+    const run = (p: { productName: string; productNameJp?: string }) =>
+      lookupNorwayStores('figure', p, {
+        deadline: Date.now() + 30000,
+        fetchPage: async (url) =>
+          url.startsWith('https://www.proshop.no/?s=') ? { ok: true, html: search } : url === 'https://www.proshop.no/p/jp' ? { ok: true, html: page } : { ok: false, reason: 'blocked (HTTP 403)' },
+      })
+    // Control: the same store page IS found and matched when that title is the searched name.
+    expect((await run({ productName: JP })).results).toEqual([expect.objectContaining({ store: 'Proshop', price: 299 })])
+    expect((await run({ productName: 'Beast Ball', productNameJp: JP })).results).toEqual([])
   })
 })
 

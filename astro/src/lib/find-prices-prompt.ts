@@ -92,9 +92,10 @@ export const NORWAY_MAX_SEARCHES = 8
 // then Finn by name), then the category's first store by name and JAN, then the remaining
 // stores by name. Generic searches surface international stores (in testing, 39 hits from
 // US/AU/UK shops and none from a Norwegian one), so every one of these is a site: search.
+// Never the Japanese name: Norwegian shops don't list it, so it only spends the budget.
 export function norwaySearchQueries(
   category: string,
-  product: { productName: string; productNameJp?: string; jan?: string },
+  product: { productName: string; jan?: string },
   max: number = NORWAY_MAX_SEARCHES
 ): string[] {
   const domains = norwayStoresFor(category).map((s) => NORWAY_STORE_SITES[s]?.domain).filter((d): d is string => !!d)
@@ -107,7 +108,6 @@ export function norwaySearchQueries(
   const [first, ...rest] = domains
   queries.push(`site:${first} ${name}`)
   if (product.jan) queries.push(`site:${first} ${product.jan}`)
-  if (product.productNameJp) queries.push(`site:${first} ${product.productNameJp}`)
   for (const d of rest) queries.push(`site:${d} ${name}`)
   return queries.slice(0, max)
 }
@@ -125,11 +125,41 @@ export function norwayStoreSearchLinks(category: string, productName: string): {
   return [...comparison, ...stores]
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  album: 'music album',
+  game: 'video game',
+  book: 'book',
+  figure: 'piece of merchandise',
+  other: 'item',
+}
+
+// The request's user message. Norway leaves the Japanese name out entirely (an "online"
+// search keeps it — Japanese stores list it): the barcode and English name are what
+// Norwegian shops, Prisjakt and Finn can match.
+export function buildFindPricesUserPrompt(p: {
+  category: string
+  region: 'norway' | 'online'
+  productName: string
+  productNameJp?: string
+  jan?: string
+}): string {
+  const lines = [`Find current prices for this ${CATEGORY_LABELS[p.category] || 'product'}.`]
+  lines.push(`Product name (English): ${p.productName}`)
+  if (p.productNameJp && p.region !== 'norway') lines.push(`Product name (Japanese): ${p.productNameJp}`)
+  if (p.jan) lines.push(`JAN/barcode: ${p.jan}`)
+  lines.push(`Region: ${p.region === 'norway' ? 'Norwegian stores, prices in NOK' : 'international stores that ship to Norway'}`)
+  if (p.region === 'norway') {
+    lines.push('Run these searches, in this order:')
+    for (const q of norwaySearchQueries(p.category, { productName: p.productName, jan: p.jan })) lines.push(`- ${q}`)
+  }
+  return lines.join('\n')
+}
+
 export function buildFindPricesSystemPrompt(category: string): string {
   const norwayStores = norwayStoresFor(category).join(', ')
   return `You search the web to find current prices for a specific retail product (Final Fantasy and other Square Enix games, music, books, merchandise and other collectibles), sold either in Norwegian stores or in international online stores that ship to Norway. You have a web_search tool — you must use it at least once before answering; never answer from memory.
 
-Search strategy: if a JAN/EAN/UPC barcode is given, search by that first — it is the most reliable way to match the exact edition. Otherwise search by product name, trying both the English name and, if given, the Japanese name.
+Search strategy: if a JAN/EAN/UPC barcode is given, search by that first — it is the most reliable way to match the exact edition. Otherwise search by product name: the English name, and for region "online" also the Japanese name if one is given. For region "norway" never search by a Japanese name — Norwegian shops list products by their English or Norwegian name.
 
 For region "norway": search the price-comparison site Prisjakt (prisjakt.no) and the classifieds site Finn (finn.no) first, then Norwegian retailers — ${norwayStores}, and other Norwegian shops you find. Prices must be in NOK.
 
@@ -141,7 +171,7 @@ For every result, report the price and currency exactly as the store's own produ
 
 Only include a result if you are confident the product actually matches — same edition, same format (for example, don't match a Blu-ray edition to a request for a DVD, and don't match a different regional release unless that is genuinely what is being sold). If you are unsure whether a found listing is really the same product, leave it out rather than guessing.
 
-If a product photo is included, it shows the exact item being searched for. Use it only to confirm the edition and format you see in each search result (for example vinyl vs CD, or a limited vs standard edition) and drop any result that doesn't match what the photo shows — the web search itself must still be done by text (product name, Japanese name, or JAN), never by searching for the image.
+If a product photo is included, it shows the exact item being searched for. Use it only to confirm the edition and format you see in each search result (for example vinyl vs CD, or a limited vs standard edition) and drop any result that doesn't match what the photo shows — the web search itself must still be done by text (the names given, or JAN), never by searching for the image.
 
 After searching, respond with ONLY a JSON array (no other text, no markdown code fences, no explanation) of up to 8 matching listings, plus up to 4 listings you found but rejected, each with exactly these fields:
 - store: string, the store/site name.

@@ -6,13 +6,17 @@ const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 const FAKE_ASSET = (n: number) => `image-0000000000000000000000000000000000000${n}-100x100-png`
 
 // Mocks /api/upload-image. Records each call (and whether it carried a docId — a background
-// upload never does). `failFirst`: the first call answers 500; `delayMs`: each answer waits.
-async function mockUpload(page: Page, opts: { failFirst?: boolean; delayMs?: number } = {}) {
+// upload never does). `failFirst`: the first call answers 500; `hold`: no answer until the
+// test calls release() — deterministic "still uploading", unlike a fixed delay, which a busy
+// machine can outlast before the test even taps Save.
+async function mockUpload(page: Page, opts: { failFirst?: boolean; hold?: boolean } = {}) {
   const calls: { hasDocId: boolean; at: number }[] = []
+  let release = () => {}
+  const released = new Promise<void>((r) => { release = r })
   await page.route('**/api/upload-image', async (route) => {
     const body = route.request().postData() || ''
     calls.push({ hasDocId: /name="docId"/.test(body), at: Date.now() })
-    if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs))
+    if (opts.hold) await released
     if (opts.failFirst && calls.length === 1) {
       await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Upload failed' }) })
       return
@@ -24,7 +28,7 @@ async function mockUpload(page: Page, opts: { failFirst?: boolean; delayMs?: num
       body: JSON.stringify({ ok: true, assetId: FAKE_ASSET(n), url: `https://cdn.sanity.io/images/test/development/${n}-100x100.png` }),
     })
   })
-  return calls
+  return Object.assign(calls, { release })
 }
 
 // Mocks a JSON create/save endpoint and records each request body.
@@ -94,18 +98,22 @@ test.describe('background photo upload: /add-price', () => {
   })
 
   test('Save waits for an upload that is still running', async ({ page }) => {
-    const uploads = await mockUpload(page, { delayMs: 2000 })
+    const uploads = await mockUpload(page, { hold: true })
     const saves = await mockSave(page, '**/api/price-entry')
     await page.goto('/add-price')
     await fillAddPrice(page)
 
     await page.locator('#p-photo-gallery').setInputFiles(PHOTO)
     await expect.poll(() => uploads.length).toBe(1)
-    await page.locator('#p-save').click() // while the upload is still in flight
+    await page.locator('#p-save').click() // the upload is held, so it's still in flight
     await expect(page.locator('#p-save')).toHaveText('Uploading photo…')
+    expect(saves).toHaveLength(0) // Save is waiting, not saving without the photo
+
+    const releasedAt = Date.now()
+    uploads.release()
     await expect(page.locator('#p-msg')).toContainText('Saved')
     expect(saves[0].body.imageAssetId).toBe(FAKE_ASSET(1))
-    expect(saves[0].at).toBeGreaterThanOrEqual(uploads[0].at + 2000)
+    expect(saves[0].at).toBeGreaterThanOrEqual(releasedAt)
     expect(uploads).toHaveLength(1)
   })
 

@@ -29,12 +29,13 @@ Final Fantasy Library — a personal collection tracker (albums/games/books/merc
 - Exception: a step that changes `Base.astro`, `sw.js`, a shared module in `src/lib/`, or a shared `public/*.js` script gets the full suite before that step's commit.
 - No live requests to real stores or the real AI API unless Kim asks for it. Use mocks and saved HTML/JSON samples.
 - Report how long each test run took.
-- The suite runs in parallel (6 workers, `fullyParallel`; `PW_WORKERS=1` for a serial run) against the one shared `development` dataset, and reuses an already running dev server (`npm run dev:test`). That is only safe because every test touches nothing but its own fixtures:
+- The suite runs in parallel (4 workers, `fullyParallel`; `PW_WORKERS=1` for a serial run) against the one shared `development` dataset, and reuses an already running dev server (`npm run dev:test`). Not more than 4: at 6, Sanity's per-IP write rate limit made a different test fail on most full runs. That is only safe because every test touches nothing but its own fixtures:
   - names start with `[test] ` (`testName()`), and documents are deleted with `trackDoc()`
   - barcodes/ISBNs written to Sanity come from `uniqueJan()`, never a hard-coded code — price entries group by JAN, so a shared code makes parallel tests see each other's data
   - pages that pick a trip get it explicitly (`?trip=<id>`)
   - anything that writes shared data (e.g. the itinerary autosave to `/api/itinerary-save`) is mocked
-  - no fixed waits (`waitForTimeout`) — wait for a state, or use `page.clock` for debounces
+  - no fixed waits (`waitForTimeout`) — wait for a state, or use `page.clock` for debounces; to keep a mocked request "in flight", hold it until the test releases it, never a fixed delay
+  - find a product row by its name element (`.summary-name`), not `hasText` on the whole row — another row's "Possible duplicate of <name>" note contains that name too
   - no bare `page.locator('h1')` — Astro's dev toolbar adds its own `<h1>`s; use `getByRole('heading', { name })`
 
 ## Lessons learned (do not repeat these)

@@ -3,8 +3,17 @@ import Base from '../layouts/Base.astro'
 import PriceProductRow from '../components/PriceProductRow.astro'
 import { fetchProducts, type Product, type ProductPrice } from '../lib/price-products'
 import { PEOPLE_LIST } from '../lib/price-entry-fields'
+import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
 const products = await fetchProducts()
+
+// Prices are shown NOK first with yen alongside (lib/price-display.ts), at the same exchange
+// rate /spending uses: the trip from ?trip=<id> if given, otherwise the default trip
+// (pickDefaultTrip()). No rate on that trip -> every price in its own currency only.
+const allTrips = await fetchTripsForSpending()
+const requestedTripId = Astro.url.searchParams.get('trip')
+const rateTrip = allTrips.find((t) => t._id === requestedTripId) ?? pickDefaultTrip(allTrips)
+const rate = rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null
 
 // One section per person who has at least one matching price, plus "No buyer" last (if
 // any price has none) — a buyer value outside PEOPLE_LIST (stale/legacy data) also counts
@@ -41,7 +50,7 @@ const personSections = buildPersonSections(products)
 const matchableProducts = products.map((p) => ({ key: p.key, productName: p.productName, productNameJp: p.productNameJp, jan: p.jan }))
 ---
 <Base title="Prices">
-  <div class="prices-wrap">
+  <div class="prices-wrap" data-rate={rate ?? ''}>
     <div class="nav-row">
       <a href="/add-menu" id="prices-back" class="page-nav-link">← Back</a>
       <a href="/add-price" class="page-nav-link page-nav-link-add">➕ Add price</a>
@@ -101,7 +110,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
       <>
         <div id="product-group-view" class="group-view">
           <ul class="price-list">
-            {products.map((p) => <PriceProductRow product={p} prices={p.prices} />)}
+            {products.map((p) => <PriceProductRow product={p} prices={p.prices} rate={rate} />)}
           </ul>
           <p class="empty-filtered" hidden>No prices match these filters.</p>
         </div>
@@ -111,7 +120,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
             <section class="person-section" data-person={section.key}>
               <h2 class="person-section-title">{section.label}</h2>
               <ul class="price-list">
-                {section.items.map(({ product, prices }) => <PriceProductRow product={product} prices={prices} />)}
+                {section.items.map(({ product, prices }) => <PriceProductRow product={product} prices={prices} rate={rate} />)}
               </ul>
             </section>
           ))}
@@ -128,6 +137,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
 
   <script>
     import { findProductMatches } from '../lib/product-match'
+    import { cheapestLine } from '../lib/price-display'
 
     const STORAGE_KEY = 'ff-prices-filters'
     const DEFAULTS = { person: 'all', status: 'all', group: 'product' }
@@ -178,9 +188,8 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
       })
     }
 
-    function fmtMoney(price, currency) {
-      return `${Math.round(price).toLocaleString('en-US')} ${currency}`
-    }
+    // The same exchange rate the server rendered with (see the frontmatter).
+    const RATE = Number(document.querySelector('.prices-wrap')?.getAttribute('data-rate')) || null
 
     function applyFilters() {
       if (!productView || !personView) return
@@ -212,7 +221,7 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
 
           const items = Array.from(row.querySelectorAll('.history-item'))
           let visibleCount = 0
-          let lowestJpy = null
+          const visiblePrices = []
           items.forEach((item) => {
             // The person filter only needs to narrow individual rows in Product-grouped
             // view — in Person-grouped view the section itself already fixes the buyer,
@@ -229,9 +238,9 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
             item.hidden = !visible
             if (visible) {
               visibleCount++
-              if (item.getAttribute('data-currency') === 'JPY') {
-                const p = Number(item.getAttribute('data-price'))
-                if (!isNaN(p) && (lowestJpy === null || p < lowestJpy)) lowestJpy = p
+              const p = Number(item.getAttribute('data-price'))
+              if (!isNaN(p)) {
+                visiblePrices.push({ price: p, currency: item.getAttribute('data-currency') || '', source: item.getAttribute('data-source') || '' })
               }
             }
           })
@@ -240,16 +249,14 @@ const matchableProducts = products.map((p) => ({ key: p.key, productName: p.prod
           row.hidden = !rowVisible
           if (rowVisible) {
             anyVisibleInSection = true
-            const countBadge = row.querySelector('.count-badge')
-            if (countBadge) countBadge.textContent = `${visibleCount} price${visibleCount === 1 ? '' : 's'}`
-            const lowBadge = row.querySelector('.low-badge')
-            if (lowBadge) {
-              if (lowestJpy != null) {
-                lowBadge.hidden = false
-                lowBadge.textContent = `from ${fmtMoney(lowestJpy, 'JPY')}`
-              } else {
-                lowBadge.hidden = true
-              }
+            // The cheapest of the prices this filter leaves, and how many others there are.
+            const line = cheapestLine(visiblePrices, RATE)
+            const priceEl = row.querySelector('.summary-price')
+            const moreEl = row.querySelector('.summary-more')
+            if (priceEl) priceEl.textContent = line ? line.text : ''
+            if (moreEl) {
+              moreEl.hidden = !line || line.more === 0
+              moreEl.textContent = line ? `+${line.more}` : ''
             }
           }
         })

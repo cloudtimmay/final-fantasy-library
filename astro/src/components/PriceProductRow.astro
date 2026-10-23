@@ -1,13 +1,20 @@
 ---
 import { cdnImage } from '../lib/image-url'
+import { cheapestLine, formatPriceNokFirst } from '../lib/price-display'
 // Renders one product's <li> in the /prices list — shared between the Product-grouped
 // view and every section of the Person-grouped view, so both stay visually/structurally
 // identical. `prices` is whichever subset the caller wants listed inside this rendering
 // (all of them in Product view; only one buyer's in a Person-grouped section) — the
-// count/lowest-price badges below are computed from exactly that subset, not the
+// cheapest-price line and "+N" below are computed from exactly that subset, not the
 // product's full history, matching /prices.astro's "only the matching prices are listed"
 // rule. Filtering by person/status within what's rendered here is done client-side by
-// /prices.astro's script (toggling [hidden] and data-* attributes), not by this component.
+// /prices.astro's script (toggling [hidden] and data-* attributes, then recomputing the
+// price line with the same lib/price-display.ts functions), not by this component.
+//
+// Compact on purpose: the collapsed row is just the photo, a category icon, the name and
+// the cheapest price — NOK first, with yen alongside (`rate`: the trip's jpyToNokRate, see
+// lib/price-display.ts). The Japanese name isn't shown here (it's on add-price, edit-price
+// and edit-product) but is still part of the search text.
 export interface Props {
   product: {
     key: string
@@ -28,16 +35,17 @@ export interface Props {
     note?: string
     buyer?: string
   }[]
+  rate?: number | null
 }
 
-const { product: p, prices } = Astro.props
+const { product: p, prices, rate } = Astro.props
 
-const CATEGORY_LABELS: Record<string, string> = {
-  album: 'Album',
-  game: 'Game',
-  book: 'Book',
-  figure: 'Merchandise',
-  other: 'Other',
+const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
+  album: { icon: '🎵', label: 'Album' },
+  game: { icon: '🎮', label: 'Game' },
+  book: { icon: '📚', label: 'Book' },
+  figure: { icon: '🧸', label: 'Merchandise' },
+  other: { icon: '🏷️', label: 'Other' },
 }
 const CONDITION_LABELS: Record<string, string> = {
   new: 'New',
@@ -45,13 +53,6 @@ const CONDITION_LABELS: Record<string, string> = {
   used_complete: 'Used, complete (box/obi)',
 }
 
-function lowestJpy(list: { price: number; currency: string }[]): number | null {
-  const jpy = list.filter((x) => x.currency === 'JPY').map((x) => x.price)
-  return jpy.length ? Math.min(...jpy) : null
-}
-function formatMoney(price: number, currency: string): string {
-  return `${price.toLocaleString('en-US')} ${currency}`
-}
 function formatDate(iso: string | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -59,7 +60,8 @@ function formatDate(iso: string | undefined): string {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const low = lowestJpy(prices)
+const cat = p.category ? CATEGORY_ICONS[p.category] || { icon: '🏷️', label: p.category } : null
+const line = cheapestLine(prices, rate)
 const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toLowerCase()
 ---
 <li class="price-row" data-search={searchHay}>
@@ -71,12 +73,13 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
         <div class="thumb thumb-placeholder">🏷️</div>
       )}
       <div class="summary-info">
-        <div class="summary-name">{p.productName}</div>
-        {p.productNameJp && <div class="summary-jp">{p.productNameJp}</div>}
-        <div class="summary-sub">
-          {p.category && <span class="cat-badge">{CATEGORY_LABELS[p.category] || p.category}</span>}
-          <span class="count-badge">{prices.length} price{prices.length === 1 ? '' : 's'}</span>
-          <span class="low-badge" hidden={low == null}>from {formatMoney(low ?? 0, 'JPY')}</span>
+        <div class="summary-name">
+          {cat && <span class="cat-icon" role="img" aria-label={cat.label} title={cat.label}>{cat.icon}</span>}
+          {p.productName}
+        </div>
+        <div class="summary-price-line">
+          <span class="summary-price">{line?.text}</span>
+          <span class="summary-more" hidden={!line || line.more === 0}>+{line?.more ?? 0}</span>
         </div>
       </div>
     </summary>
@@ -89,12 +92,13 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
           data-status={price.status || ''}
           data-currency={price.currency}
           data-price={price.price}
+          data-source={price.source}
         >
           <a class="history-row" href={`/edit-price?id=${price._id}`}>
             <div class="history-main">
               <span class="history-source">{price.source}</span>
               {price.buyer && <span class="history-buyer">{price.buyer}</span>}
-              <span class="history-price">{formatMoney(price.price, price.currency)}</span>
+              <span class="history-price">{formatPriceNokFirst(price.price, price.currency, rate)}</span>
               {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
               {price.status === 'bought' && <span class="history-bought">✅</span>}
               <span class="history-date">{formatDate(price.seenAt)}</span>
@@ -114,52 +118,57 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
 
 <style>
   details {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
     overflow: hidden;
   }
   details[open] { border-color: var(--accent); }
 
+  /* The whole summary is the tap target (min 44px tall); kept as small as that allows. */
   summary {
-    display: flex; align-items: center; gap: 0.75rem;
-    padding: 0.9rem; cursor: pointer; list-style: none;
+    display: flex; align-items: center; gap: 0.6rem; min-height: 44px;
+    padding: 0.45rem 0.6rem; cursor: pointer; list-style: none;
   }
   summary::-webkit-details-marker { display: none; }
 
   .thumb {
-    width: 52px; height: 52px; object-fit: cover; border-radius: 6px;
+    width: 44px; height: 44px; object-fit: cover; border-radius: 6px;
     background: var(--bg); flex-shrink: 0;
   }
   .thumb-placeholder {
-    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+    display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
     border: 1px solid var(--border);
   }
 
   .summary-info { flex: 1; min-width: 0; }
-  .summary-name { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere; }
-  .summary-jp { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
-  .summary-sub { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
-  .cat-badge, .count-badge, .low-badge {
-    font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px;
-    font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+  .summary-name {
+    font-weight: 600; font-size: 0.95rem; line-height: 1.3;
+    overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
-  .cat-badge { background: var(--border); color: var(--text); }
-  .count-badge { background: rgba(244,162,76,0.15); color: var(--accent); }
-  .low-badge { background: rgba(46,204,113,0.15); color: #2ecc71; }
-  .low-badge[hidden] { display: none; }
+  .cat-icon { font-size: 0.85rem; margin-right: 0.3rem; }
+  .summary-price-line { display: flex; align-items: baseline; gap: 0.4rem; margin-top: 0.1rem; min-width: 0; }
+  .summary-price {
+    font-size: 0.82rem; color: var(--accent); font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .summary-more {
+    font-size: 0.72rem; font-weight: 600; color: var(--muted); white-space: nowrap; flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .summary-more[hidden] { display: none; }
 
   .history-list {
-    list-style: none; margin: 0; padding: 0 0.9rem 0.9rem;
-    display: flex; flex-direction: column; gap: 0.4rem;
+    list-style: none; margin: 0; padding: 0 0.6rem 0.6rem;
+    display: flex; flex-direction: column; gap: 0.35rem;
   }
   .history-item[hidden] { display: none; }
   .history-row {
-    display: flex; flex-direction: column; gap: 0.3rem;
-    font-size: 0.85rem; padding: 0.55rem 0.7rem;
+    display: flex; flex-direction: column; gap: 0.2rem; min-height: 44px; justify-content: center;
+    font-size: 0.85rem; padding: 0.45rem 0.65rem;
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
     text-decoration: none; color: inherit; cursor: pointer;
   }
   .history-row:hover { border-color: var(--accent); }
-  .history-main { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .history-main { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .history-source { flex: 1; min-width: 80px; color: var(--text); }
   .history-buyer {
     font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 4px;
@@ -171,10 +180,11 @@ const searchHay = `${p.productName} ${p.productNameJp || ''} ${p.jan || ''}`.toL
   .history-date { font-size: 0.78rem; color: var(--muted); white-space: nowrap; margin-left: auto; }
   .history-note { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
 
-  .product-actions { display: flex; gap: 0.5rem; margin: 0 0.9rem 0.9rem; flex-wrap: wrap; }
+  .product-actions { display: flex; gap: 0.5rem; margin: 0 0.6rem 0.6rem; flex-wrap: wrap; }
   .add-price-link, .edit-product-link {
-    flex: 1; min-width: 130px; text-align: center;
-    padding: 0.6rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 600;
+    flex: 1; min-width: 130px; text-align: center; min-height: 44px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0.5rem; border-radius: 8px; text-decoration: none; font-size: 0.9rem; font-weight: 600;
   }
   .add-price-link { background: var(--bg); color: var(--accent); border: 1px solid var(--accent); }
   .add-price-link:hover { background: rgba(244,162,76,0.1); }

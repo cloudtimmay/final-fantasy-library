@@ -117,34 +117,40 @@ test.describe('prices: filters and grouping', () => {
     await expect(page.locator('#product-group-view li.price-row', { hasText: withBuyerName })).toBeHidden()
   })
 
-  test('Status filter shows only matching prices within a product, updating the count badge', async ({
+  test('Status filter shows only matching prices within a product, updating the cheapest price and +N', async ({
     page,
     trackDoc,
     sanity,
   }) => {
     const name = testName(`Status Filter Product ${Date.now()}`)
     const jan = `49886022${Date.now().toString().slice(-5)}`
+    // Its own trip, so the exchange rate is known (not whatever the default trip is).
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Prices Rate Trip ${Date.now()}`), jpyToNokRate: 0.05 })
+    trackDoc(trip._id)
     const considering = await sanity.create({
       _type: 'priceEntry', productName: name, jan, category: 'game', sourceType: 'japanStore',
-      price: 3000, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
+      price: 2800, currency: 'JPY', condition: 'new', status: 'considering', buyer: 'Kim',
       seenAt: new Date().toISOString(),
     })
     trackDoc(considering._id)
     const bought = await sanity.create({
       _type: 'priceEntry', productName: name, jan, category: 'game', sourceType: 'japanStore',
-      price: 2800, currency: 'JPY', condition: 'new', status: 'bought', buyer: 'Kim',
+      price: 3000, currency: 'JPY', condition: 'new', status: 'bought', buyer: 'Kim',
       seenAt: new Date().toISOString(),
     })
     trackDoc(bought._id)
 
-    await page.goto('/prices')
+    await page.goto(`/prices?trip=${trip._id}`)
     const row = page.locator('#product-group-view li.price-row', { hasText: name })
-    await row.locator('summary').click()
-    await expect(row.locator('.count-badge')).toHaveText('2 prices')
+    await expect(row.locator('.summary-price')).toHaveText('≈ 140 kr (¥2 800) · Shop')
+    await expect(row.locator('.summary-more')).toHaveText('+1')
 
+    // Only the bought price is left: it becomes the cheapest, and there's no "+N".
     await page.locator('#status-filter .chip', { hasText: 'Bought' }).click()
     await expect(row).toBeVisible()
-    await expect(row.locator('.count-badge')).toHaveText('1 price')
+    await expect(row.locator('.summary-price')).toHaveText('≈ 150 kr (¥3 000) · Shop')
+    await expect(row.locator('.summary-more')).toBeHidden()
+    await row.locator('summary').click()
     await expect(row.locator('.history-item[hidden]')).toHaveCount(1)
   })
 

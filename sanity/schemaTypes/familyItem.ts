@@ -1,9 +1,11 @@
 import { defineType, defineField } from 'sanity'
 import { peopleList } from './peopleList'
 
-// Something a family member (not Kim, who gets a full collection item instead — see
-// add-item.astro) already owns, logged just well enough to avoid buying it again:
+// Something a family member already owns, logged just well enough to avoid buying it again:
 // no condition/price/shop history like priceEntry, just who has it and how to recognize it.
+// With person Kim it is one of Kim's "other things" (not Final Fantasy, e.g. Gundam figures):
+// kept out of the Final Fantasy collection lists, but still checked by every "already have
+// this" search. Kim's Final Fantasy items are full collection documents instead.
 export const familyItem = defineType({
   name: 'familyItem',
   title: 'Family Item',

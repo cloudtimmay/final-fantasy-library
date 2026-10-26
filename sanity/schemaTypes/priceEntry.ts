@@ -198,9 +198,10 @@ export const priceEntry = defineType({
     defineField({
       name: 'createdItem',
       title: 'Collection item created/updated',
-      description: 'Set automatically when the owner marks this as bought. Never cleared.',
+      description:
+        'Set automatically when the owner marks this as bought: a collection item, or a family item for the owner\'s "other things". Never cleared.',
       type: 'reference',
-      to: [{ type: 'album' }, { type: 'game' }, { type: 'book' }, { type: 'figure' }],
+      to: [{ type: 'album' }, { type: 'game' }, { type: 'book' }, { type: 'figure' }, { type: 'familyItem' }],
       weak: true,
       readOnly: true,
       fieldset: 'purchase',

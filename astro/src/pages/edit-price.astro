@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { fetchProducts, fetchShopGroups, fetchTrips, productKey } from '../lib/price-products'
-import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { PEOPLE_LIST, OWNER, defaultAddTo } from '../lib/price-entry-fields'
 import { cdnImage } from '../lib/image-url'
 
 type EntryDoc = {
@@ -28,7 +28,7 @@ type EntryDoc = {
   note?: string
   seenAt?: string
   createdFamilyPurchaseInfo?: { name?: string; person?: string } | null
-  createdItemInfo?: { title?: string } | null
+  createdItemInfo?: { _type?: string; title?: string } | null
 }
 
 const id = Astro.url.searchParams.get('id') || ''
@@ -45,7 +45,7 @@ if (id) {
       buyer, "tripId": trip._ref,
       note, seenAt,
       "createdFamilyPurchaseInfo": createdFamilyPurchase->{ name, person },
-      "createdItemInfo": createdItem->{ title }
+      "createdItemInfo": createdItem->{ _type, "title": coalesce(title, name) }
     }`,
     { id }
   )
@@ -75,6 +75,9 @@ const sourceLabel =
   entry && entry.sourceType === 'japanStore'
     ? entry.shop?.shopName || 'a shop'
     : entry?.sourceName || (entry?.sourceType === 'norway' ? 'Norway' : 'Online')
+const initialAddTo = entry?.createdItemInfo
+  ? entry.createdItemInfo._type === 'familyItem' ? 'other' : 'collection'
+  : defaultAddTo(entry?.category)
 ---
 <Base title="Edit price">
   <div class="add-wrap">
@@ -131,6 +134,16 @@ const sourceLabel =
         <p class="hint buyer-trip-hint">Buyer is required to mark as Bought. Trip is optional — can be set now even while Considering, and without one it just won't count toward any trip budget.</p>
         <div id="p-no-trip-note" class="no-trip-note" hidden></div>
         <div id="p-bought-no-trip-note" class="bought-no-trip-note" hidden>Bought without a trip. Not counted in any budget.</div>
+
+        {/* Owner purchases only: their Final Fantasy collection or their "other things". Shows
+            what an earlier Bought save already created, if anything, else the category's default. */}
+        <div class="field" id="p-addto-field" hidden>
+          <label for="p-addto">Add to</label>
+          <select id="p-addto">
+            <option value="collection" selected={initialAddTo === 'collection'}>Final Fantasy collection</option>
+            <option value="other" selected={initialAddTo === 'other'}>Other things I own</option>
+          </select>
+        </div>
 
         <div class="field" id="p-passport-field" hidden>
           <label>Paid with passport</label>
@@ -249,6 +262,7 @@ const sourceLabel =
             currency: entry.currency,
             hasOtherPrices,
             owner: OWNER,
+            addToFixed: !!entry.createdItemInfo,
             tripId: entry.tripId || '',
             createdFamilyPurchaseInfo: entry.createdFamilyPurchaseInfo || null,
             createdItemInfo: entry.createdItemInfo || null,
@@ -359,11 +373,27 @@ const sourceLabel =
       function updatePassportVisibility() {
         passportField.hidden = statusSel.value !== 'bought' || currentSource() !== 'japanStore'
       }
+      const addToField = document.querySelector('#p-addto-field')
+      const addToSel = document.querySelector('#p-addto')
+      // Already created an item (collection or other things): a later save never creates another
+      // (the server's guard), so the choice is shown as it was, not editable.
+      addToSel.disabled = !!DATA.addToFixed
+      function updateAddTo() {
+        addToField.hidden = statusSel.value !== 'bought' || buyerSel.value !== DATA.owner
+      }
+      statusSel.addEventListener('change', updateAddTo)
+      buyerSel.addEventListener('change', updateAddTo)
+      updateAddTo()
+
       statusSel.addEventListener('change', updateFrozenNote)
       statusSel.addEventListener('change', updateBoughtNoTripNote)
       statusSel.addEventListener('change', updatePassportVisibility)
       updateFrozenNote()
       updatePassportVisibility()
+
+      function createdItemLabel() {
+        return DATA.createdItemInfo && DATA.createdItemInfo._type === 'familyItem' ? 'item in your other things' : 'collection item'
+      }
 
       function updateRevertWarning() {
         const reverting = statusSel.value !== 'bought' && (DATA.createdFamilyPurchaseInfo || DATA.createdItemInfo)
@@ -373,7 +403,7 @@ const sourceLabel =
           parts.push(`family purchase "${DATA.createdFamilyPurchaseInfo.name || ''}" for ${DATA.createdFamilyPurchaseInfo.person || ''}`)
         }
         if (DATA.createdItemInfo) {
-          parts.push(`collection item "${DATA.createdItemInfo.title || ''}"`)
+          parts.push(`${createdItemLabel()} "${DATA.createdItemInfo.title || ''}"`)
         }
         revertWarning.textContent =
           `This was already marked Bought and created the ${parts.join(' and the ')}. ` +
@@ -406,7 +436,8 @@ const sourceLabel =
           if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
           // Trip is optional — only a familyPurchase (needs a trip) or a collection item
           // (owner only) actually records an amount, so only those cases need JPY/NOK.
-          const willCreateSomething = !!tripSel.value || buyerSel.value === DATA.owner
+          // An owner purchase going to "other things" creates a familyItem, which records no amount.
+          const willCreateSomething = !!tripSel.value || (buyerSel.value === DATA.owner && addToSel.value === 'collection')
           if (willCreateSomething && currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
             return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
           }
@@ -423,6 +454,7 @@ const sourceLabel =
               id: DATA.id,
               status: statusSel.value,
               buyer: buyerSel.value || undefined,
+              addTo: buyerSel.value === DATA.owner ? addToSel.value : undefined,
               tripId: tripSel.value || undefined,
               passportHolder: markingBought ? passportSel.value : undefined,
               sourceType: source,
@@ -461,7 +493,7 @@ const sourceLabel =
           leftBehind.push(`the family purchase "${DATA.createdFamilyPurchaseInfo.name || ''}" for ${DATA.createdFamilyPurchaseInfo.person || ''}`)
         }
         if (DATA.createdItemInfo) {
-          leftBehind.push(`the collection item "${DATA.createdItemInfo.title || ''}"`)
+          leftBehind.push(`the ${createdItemLabel()} "${DATA.createdItemInfo.title || ''}"`)
         }
         if (leftBehind.length) {
           confirmText += ` This will NOT delete ${leftBehind.join(' or ')} — remove that separately if needed.`

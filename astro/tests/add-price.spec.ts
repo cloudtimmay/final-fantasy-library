@@ -499,3 +499,39 @@ test.describe('add-price: "already has this" note', () => {
     expect(id).toBeTruthy()
   })
 })
+
+test.describe('add-price: "Add to" for the owner\'s purchases', () => {
+  test('follows the category (other -> Other things) until changed; "Other things I own" creates a familyItem for Kim', async ({ page, sanity, trackDoc }) => {
+    const productName = testName(`AP Add To ${Date.now()}`)
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('other')
+    await page.locator('input[name="p-source"][value="norway"]').check()
+    await page.locator('#p-source-name').fill('Outland')
+    await page.locator('#p-price').fill('350')
+    await page.locator('#p-currency').selectOption('NOK')
+
+    const field = page.locator('#p-addto-field')
+    await expect(field).toBeHidden() // Considering
+    await page.locator('#p-status').selectOption('bought')
+    await expect(field).toBeVisible()
+    await expect(page.locator('#p-addto')).toHaveValue('other')
+    await page.locator('#p-category').selectOption('figure')
+    await expect(page.locator('#p-addto')).toHaveValue('collection')
+    await page.locator('#p-buyer').selectOption('Niklas')
+    await expect(field).toBeHidden()
+    await page.locator('#p-buyer').selectOption('Kim')
+
+    await page.locator('#p-addto').selectOption('other')
+    await page.locator('#p-category').selectOption('game') // chosen by hand: stays
+    await expect(page.locator('#p-addto')).toHaveValue('other')
+
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+    const id = await findIdByField('priceEntry', 'productName', productName)
+    trackDoc(id)
+    const after = await sanity.fetch(`*[_id == $id][0]{ status, "createdItemId": createdItem._ref, "type": createdItem->_type, "person": createdItem->person }`, { id })
+    trackDoc(after.createdItemId)
+    expect(after).toMatchObject({ status: 'bought', type: 'familyItem', person: 'Kim' })
+  })
+})

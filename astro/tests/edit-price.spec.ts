@@ -1,4 +1,8 @@
-import { test, expect, testName } from './fixtures'
+import fs from 'node:fs'
+import path from 'node:path'
+import { test, expect, testName, uniqueJan } from './fixtures'
+
+const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 
 test.describe('edit-price: prefill', () => {
   test('prefills every field for an online/USD entry', async ({ page, trackDoc, sanity }) => {
@@ -475,5 +479,105 @@ test.describe('edit-price: delete', () => {
     expect(stillExists).toBe(false)
     // Not tracked for cleanup via trackDoc — the whole point of this test is that it
     // deletes its own fixture itself.
+  })
+})
+
+test.describe('edit-price: "Add to" for the owner\'s purchases', () => {
+  async function entry(sanity: any, trackDoc: (id: string) => void, fields: Record<string, unknown> = {}) {
+    const doc = await sanity.create({
+      _type: 'priceEntry', productName: testName(`Add To ${Date.now()} ${Math.random()}`), category: 'game', sourceType: 'norway', sourceName: 'Outland',
+      price: 499, currency: 'NOK', condition: 'new', status: 'considering', seenAt: new Date().toISOString(), ...fields,
+    })
+    trackDoc(doc._id)
+    return doc
+  }
+  const created = (sanity: any, id: string) =>
+    sanity.fetch(`*[_id == $id][0]{ status, "createdItemId": createdItem._ref, "createdItemType": createdItem->_type, "fpId": createdFamilyPurchase._ref }`, { id })
+
+  test('shown only for Bought with buyer Kim; defaults to the collection, or Other things for category "other"', async ({ page, sanity, trackDoc }) => {
+    const game = await entry(sanity, trackDoc)
+    await page.goto(`/edit-price?id=${game._id}`)
+    const field = page.locator('#p-addto-field')
+    await expect(field).toBeHidden()
+    await page.locator('#p-status').selectOption('bought')
+    await expect(field).toBeVisible()
+    await expect(page.locator('#p-addto')).toHaveValue('collection')
+    await page.locator('#p-buyer').selectOption('Tone')
+    await expect(field).toBeHidden()
+
+    const other = await entry(sanity, trackDoc, { category: 'other' })
+    await page.goto(`/edit-price?id=${other._id}`)
+    await page.locator('#p-status').selectOption('bought')
+    await expect(page.locator('#p-addto')).toHaveValue('other')
+  })
+
+  test('"Other things I own" creates a familyItem for Kim (not a collection item), once; the familyPurchase as today', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'add-to-test.png' })
+    uploadedAssets.push(asset._id)
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Add To Trip ${Date.now()}`), childBudgets: [{ _key: 'k1', person: 'Kim', budgetNok: 5000 }] })
+    trackDoc(trip._id)
+    const jan = uniqueJan()
+    const e = await entry(sanity, trackDoc, {
+      productNameJp: 'ガンダム', jan, category: 'figure', image: { _type: 'image', asset: { _type: 'reference', _ref: asset._id } },
+    })
+
+    await page.goto(`/edit-price?id=${e._id}`)
+    await page.locator('#p-trip').selectOption(trip._id)
+    await page.locator('#p-status').selectOption('bought')
+    await page.locator('#p-addto').selectOption('other')
+    await page.locator('#p-note').fill('Gift from a friend')
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+
+    const after = await created(sanity, e._id)
+    trackDoc(after.createdItemId)
+    trackDoc(after.fpId)
+    expect(after.createdItemType).toBe('familyItem')
+    expect(after.fpId).toBeTruthy() // the familyPurchase is still created, as today
+    const item = await sanity.fetch(`*[_id == $id][0]{ person, name, nameJp, jan, category, note, "assetId": image.asset._ref }`, { id: after.createdItemId })
+    expect(item).toEqual({ person: 'Kim', name: e.productName, nameJp: 'ガンダム', jan, category: 'figure', note: 'Gift from a friend', assetId: asset._id })
+    expect(await sanity.fetch(`count(*[_type in ["album", "game", "book", "figure"] && title == $t])`, { t: e.productName })).toBe(0)
+
+    // Saving it as Bought again creates nothing new, and the choice is shown locked.
+    await page.goto(`/edit-price?id=${e._id}`)
+    await expect(page.locator('#p-addto')).toHaveValue('other')
+    await expect(page.locator('#p-addto')).toBeDisabled()
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+    expect(await sanity.fetch(`count(*[_type == "familyItem" && name == $n])`, { n: e.productName })).toBe(1)
+  })
+
+  test('category "other" goes to Other things by default, also without a trip and in another currency', async ({ page, sanity, trackDoc }) => {
+    const e = await entry(sanity, trackDoc, { category: 'other', currency: 'USD', price: 20, sourceType: 'online', sourceName: 'HLJ' })
+    await page.goto(`/edit-price?id=${e._id}`)
+    await page.locator('#p-status').selectOption('bought')
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+    const after = await created(sanity, e._id)
+    trackDoc(after.createdItemId)
+    expect(after.createdItemType).toBe('familyItem')
+    expect(after.fpId ?? null).toBeNull()
+  })
+
+  test('"Final Fantasy collection" still creates a collection item', async ({ page, sanity, trackDoc }) => {
+    const e = await entry(sanity, trackDoc)
+    await page.goto(`/edit-price?id=${e._id}`)
+    await page.locator('#p-status').selectOption('bought')
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+    const after = await created(sanity, e._id)
+    trackDoc(after.createdItemId)
+    expect(after.createdItemType).toBe('game')
+  })
+
+  test('an unknown addTo value falls back to the category default', async ({ page, sanity, trackDoc }) => {
+    const e = await entry(sanity, trackDoc, { category: 'other' })
+    const res = await page.request.post('/api/price-entry-update', {
+      data: { id: e._id, status: 'bought', buyer: 'Kim', addTo: 'somewhere', sourceType: 'norway', sourceName: 'Outland', price: 499, currency: 'NOK', condition: 'new' },
+    })
+    expect(res.ok()).toBe(true)
+    const after = await created(sanity, e._id)
+    trackDoc(after.createdItemId)
+    expect(after.createdItemType).toBe('familyItem')
   })
 })

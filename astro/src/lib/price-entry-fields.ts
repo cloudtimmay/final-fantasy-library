@@ -30,6 +30,14 @@ export const OWNER_CHOICES: { key: string; label: string; person: string; family
   ...PEOPLE_LIST.filter((p) => p !== OWNER).map((p) => ({ key: p, label: p, person: p, familyItem: true })),
 ]
 
+// Where an owner purchase goes when it's marked Bought (/add-price, /edit-price,
+// /api/price-entry-update): a collection item, or a familyItem among the owner's "other
+// things". Category "other" defaults to other things, everything else to the collection.
+export const ADD_TO = ['collection', 'other']
+export function defaultAddTo(category: string | null | undefined): 'collection' | 'other' {
+  return category === 'other' ? 'other' : 'collection'
+}
+
 // The /family tab (and ?person= value) that lists a familyItem saved for `person`.
 export function familyKeyFor(person: string): string {
   return person === OWNER ? OWNER_OTHER : person

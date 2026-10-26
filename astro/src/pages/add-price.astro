@@ -197,6 +197,14 @@ const myCollection = (await fetchCollectionForMatching())
     <p class="hint buyer-trip-hint">Buyer is required to mark as Bought. Trip is optional — can be set now even while Considering, and without one it just won't count toward any trip budget.</p>
     <div id="p-no-trip-note" class="no-trip-note" hidden></div>
 
+    <div class="field" id="p-addto-field" hidden>
+      <label for="p-addto">Add to</label>
+      <select id="p-addto">
+        <option value="collection">Final Fantasy collection</option>
+        <option value="other">Other things I own</option>
+      </select>
+    </div>
+
     <div class="field" id="p-passport-field" hidden>
       <label>Paid with passport</label>
       <select id="p-passport" data-owner={OWNER}>
@@ -227,7 +235,7 @@ const myCollection = (await fetchCollectionForMatching())
 
   <script>
     import { findOwnersOf, findCollectionMatches } from '../lib/product-match'
-    import { OWNER } from '../lib/price-entry-fields'
+    import { OWNER, defaultAddTo } from '../lib/price-entry-fields'
     import { detailHref } from '../lib/collection-fields'
     import { currencyForIdentifiedPrice, currencyForSource, IDENTIFY_CURRENCIES } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
@@ -363,6 +371,24 @@ const myCollection = (await fetchCollectionForMatching())
     }
     statusSel.addEventListener('change', updatePassportVisibility)
     updatePassportVisibility()
+
+    // "Add to" — only for Bought with the owner as buyer: their Final Fantasy collection or
+    // their "other things". Follows the category's default (defaultAddTo: "other" -> other
+    // things) until it's changed by hand; the category can also be set by Identify or by
+    // picking an existing product, so the default is re-read on every refresh, not on change.
+    const addToField = document.querySelector('#p-addto-field')
+    const addToSel = document.querySelector('#p-addto')
+    let addToTouched = false
+    addToSel.addEventListener('change', () => { addToTouched = true })
+    function currentAddTo() { return addToTouched ? addToSel.value : defaultAddTo(categorySel.value) }
+    function updateAddTo() {
+      addToField.hidden = statusSel.value !== 'bought' || buyerSel.value !== OWNER
+      addToSel.value = currentAddTo()
+    }
+    statusSel.addEventListener('change', updateAddTo)
+    buyerSel.addEventListener('change', updateAddTo)
+    categorySel.addEventListener('change', updateAddTo)
+    updateAddTo()
 
     const LAST_TRIP_KEY = 'ff-last-trip'
     let initialTripId = ''
@@ -1110,6 +1136,8 @@ const myCollection = (await fetchCollectionForMatching())
       extraInput.value = ''
       noteInput.value = ''
       statusSel.value = 'considering'
+      addToTouched = false
+      updateAddTo()
       passportSel.value = passportSel.dataset.owner
       updatePassportVisibility()
       productSel.value = ''
@@ -1144,7 +1172,8 @@ const myCollection = (await fetchCollectionForMatching())
         if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
         // Trip is optional — only a familyPurchase (needs a trip) or a collection item
         // (owner only) actually records an amount, so only those cases need JPY/NOK.
-        const willCreateSomething = !!tripSel.value || buyerSel.value === buyerSel.dataset.owner
+        // An owner purchase going to "other things" creates a familyItem, which records no amount.
+        const willCreateSomething = !!tripSel.value || (buyerSel.value === buyerSel.dataset.owner && currentAddTo() === 'collection')
         if (willCreateSomething && currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
           return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
         }
@@ -1207,6 +1236,7 @@ const myCollection = (await fetchCollectionForMatching())
                 id: data.id,
                 status: 'bought',
                 buyer: buyerSel.value,
+                addTo: buyerSel.value === OWNER ? currentAddTo() : undefined,
                 tripId: tripSel.value,
                 passportHolder: passportSel.value,
                 sourceType: source,

@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
 import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
-import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER, PEOPLE_LIST } from '../../lib/price-entry-fields'
+import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER, PEOPLE_LIST, ADD_TO, defaultAddTo } from '../../lib/price-entry-fields'
 
 export const prerender = false
 
@@ -15,14 +15,14 @@ export const POST: APIRoute = async ({ request }) => {
 
   const existing = await sanity.fetch(
     `*[_id == $id][0]{
-      _id, _type, productName, jan, category,
+      _id, _type, productName, productNameJp, jan, category,
       "imageAssetId": image.asset._ref,
       sourceType, "shopId": shop._ref,
       "itemId": item._ref,
       "createdItemId": createdItem._ref,
       "createdFamilyPurchaseId": createdFamilyPurchase._ref,
       "createdFamilyPurchaseInfo": createdFamilyPurchase->{ name, person },
-      "createdItemInfo": createdItem->{ title }
+      "createdItemInfo": createdItem->{ _type, "title": coalesce(title, name) }
     }`,
     { id }
   )
@@ -63,6 +63,9 @@ export const POST: APIRoute = async ({ request }) => {
 
   const buyer = String(body.buyer || '').trim() || undefined
   const tripId = String(body.tripId || '').trim() || undefined
+  // An owner purchase marked Bought goes to the Final Fantasy collection or to their "other
+  // things" (a familyItem). Validated against the shared list; anything else -> the default.
+  const addTo = ADD_TO.includes(body.addTo) ? body.addTo : defaultAddTo(existing.category)
 
   // "none" is the client's sentinel for "No passport (not tax-free)" — never a real
   // person's name, so it's handled separately from the PEOPLE_LIST check below.
@@ -85,12 +88,13 @@ export const POST: APIRoute = async ({ request }) => {
   // check below is skipped; the owner's collection item is still created/updated as
   // usual. The JPY/NOK requirement only matters when an amount will actually be recorded
   // somewhere (a familyPurchase, or a collection item for the owner) — a non-owner buyer
-  // with no trip never creates anything, so an arbitrary currency is fine for them.
+  // with no trip never creates anything, and an owner purchase going to "other things" only
+  // creates a familyItem (no price on it), so an arbitrary currency is fine for those.
   let amount = 0
   if (status === 'bought') {
     if (!buyer) return json(400, { error: 'Buyer is required to mark as Bought' })
 
-    const willCreateSomething = !!tripId || buyer === OWNER
+    const willCreateSomething = !!tripId || (buyer === OWNER && addTo === 'collection')
     if (willCreateSomething && currency !== 'JPY' && currency !== 'NOK') {
       return json(400, { error: 'Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.' })
     }
@@ -180,7 +184,21 @@ export const POST: APIRoute = async ({ request }) => {
       setFields.createdFamilyPurchase = { _type: 'reference', _ref: fpId, _weak: true }
     }
 
-    if (buyer === OWNER) {
+    if (buyer === OWNER && addTo === 'other') {
+      // One of the owner's "other things": a familyItem with what identifies it, instead of a
+      // collection item — at most once, same guard as below (createdItem already set -> nothing).
+      if (!existing.createdItemId) {
+        const itemId = randomUUID()
+        const familyDoc: Record<string, any> = { _id: itemId, _type: 'familyItem', person: OWNER, name: existing.productName }
+        if (existing.productNameJp) familyDoc.nameJp = existing.productNameJp
+        if (existing.jan) familyDoc.jan = existing.jan
+        if (existing.category) familyDoc.category = existing.category
+        if (existing.imageAssetId) familyDoc.image = { _type: 'image', asset: { _type: 'reference', _ref: existing.imageAssetId } }
+        if (note) familyDoc.note = note
+        tx.create(familyDoc)
+        setFields.createdItem = { _type: 'reference', _ref: itemId, _weak: true }
+      }
+    } else if (buyer === OWNER) {
       if (existing.itemId) {
         // Already linked to a library item — flip it to owned, filling only blanks.
         const item = await sanity.fetch(
@@ -232,7 +250,8 @@ export const POST: APIRoute = async ({ request }) => {
         setFields.createdItem = { _type: 'reference', _ref: itemId, _weak: true }
       }
       // category === 'other' and no linked item: no collection item (a familyPurchase is
-      // still created above if there's a trip).
+      // still created above if there's a trip). Only reached when "collection" was chosen
+      // explicitly — category "other" defaults to other things above.
     }
     // buyer !== OWNER: collection is never touched, regardless of item/category — and
     // without a trip, nothing at all is created here, only the status/fields patch below.

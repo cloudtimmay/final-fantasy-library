@@ -162,3 +162,72 @@ test.describe('add-item: "Who owns it?"', () => {
     expect(doc?.category).toBe('figure')
   })
 })
+
+test.describe('add-item: field order, heading and Look up buttons', () => {
+  // Same order as /add-price: owner, photo + identify, names, type, barcode + look up, the
+  // collection-only fields, notes, Save.
+  const ORDER = ['#f-owner', '#f-photo-camera', '#f-identify-btn', '#f-identify-card', '#f-title', '#f-name-jp', '#f-type', '#f-barcode', '#f-dup', '#f-lookups', '#f-category', '#f-platform', '#f-series', '#f-creator', '#f-year', '#f-yen', '#f-date', '#f-notes', '#f-save']
+
+  test('the fields come in /add-price\'s order', async ({ page }) => {
+    await page.goto('/add-item')
+    const positions = await page.evaluate((selectors) => {
+      const all = Array.from(document.querySelectorAll('*'))
+      return selectors.map((s) => all.indexOf(document.querySelector(s)!))
+    }, ORDER)
+    expect(positions.every((p) => p >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  test('Kim: "Add to collection"; a family member: "Add family item", switching with the owner', async ({ page }) => {
+    await page.goto('/add-item')
+    await expect(page.getByRole('heading', { name: 'Add to collection' })).toBeVisible()
+    await expect(page.locator('#f-intro')).toContainText('identify it, or fill in the name, type and barcode')
+
+    await page.locator('#f-owner').selectOption('Tone')
+    await expect(page.getByRole('heading', { name: 'Add family item' })).toBeVisible()
+    await expect(page.locator('#f-intro')).toContainText('a family member already has')
+
+    await page.locator('#f-owner').selectOption('Kim')
+    await expect(page.getByRole('heading', { name: 'Add to collection' })).toBeVisible()
+
+    await page.goto('/add-item?owner=Niklas') // rendered that way from the start
+    await expect(page.getByRole('heading', { name: 'Add family item' })).toBeVisible()
+  })
+
+  test('the "Look up" buttons are styled like the page\'s other small buttons, not default white boxes', async ({ page }) => {
+    await page.goto('/add-item')
+    const lookup = page.locator('#f-lookups button').first()
+    await expect(lookup).toHaveText('VGMdb')
+    const style = (sel: string) =>
+      page.locator(sel).first().evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return { background: cs.backgroundColor, radius: cs.borderTopLeftRadius, color: cs.color }
+      })
+    // Same look as "✕ Remove photo" (shown once a photo is chosen).
+    await page.locator('#f-photo-gallery').setInputFiles(ALBUM_PHOTO)
+    await expect(page.locator('#f-photo-remove')).toBeVisible()
+    const reference = await style('#f-photo-remove')
+    expect(await style('#f-lookups button')).toEqual(reference)
+    expect(reference.background).not.toBe('rgb(255, 255, 255)')
+
+    // Re-built when the type changes: still styled.
+    await page.locator('#f-type').selectOption('book')
+    expect(await style('#f-lookups button')).toEqual(reference)
+  })
+
+  test('family member: "Use suggestion" fills name, Japanese name, type and barcode in their new places', async ({ page }) => {
+    await mockCheckDuplicate(page, 0)
+    await mockIdentifyCustomResult(page, { productName: 'Moogle Plush', productNameJp: 'モーグリ ぬいぐるみ', jan: '4988601111111', category: 'book' })
+    await page.goto('/add-item?owner=Tone')
+    await page.locator('#f-photo-gallery').setInputFiles(ALBUM_PHOTO)
+    await page.locator('#f-identify-btn').click()
+    await page.locator('.idf-identify-use-btn').click()
+
+    await expect(page.locator('#f-title')).toHaveValue('Moogle Plush')
+    await expect(page.locator('#f-name-jp')).toHaveValue('モーグリ ぬいぐるみ')
+    await expect(page.locator('#f-type')).toHaveValue('book')
+    await expect(page.locator('#f-barcode')).toHaveValue('4988601111111')
+    await expect(page.getByRole('heading', { name: 'Add family item' })).toBeVisible() // still a family item
+    await expect(page.locator('#f-save')).toHaveText('Save family item')
+  })
+})

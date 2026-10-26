@@ -14,11 +14,16 @@ const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
 // "← Back": a family member's items on /family; the owner's collection add goes home as
 // before. Kept in step with the owner selector by the script (same rule there).
 const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=${encodeURIComponent(owner)}`)
+// The heading and intro follow the owner (the script swaps them when "Who owns it?" changes).
+const HEADINGS = {
+  kim: { title: 'Add to collection', intro: 'Add a photo and identify it, or fill in the name, type and barcode yourself, then save.' },
+  family: { title: 'Add family item', intro: "Log something a family member already has — a photo, name and barcode are enough to recognize it later." },
+}
 ---
 <Base title="Add item">
   <div class="add-wrap">
-    <h1>Add to collection</h1>
-    <p class="hint">Pick a type, scan the barcode, look it up, add a photo, and save.</p>
+    <h1 id="f-heading">{HEADINGS[preselectedOwner === OWNER ? 'kim' : 'family'].title}</h1>
+    <p id="f-intro" class="hint">{HEADINGS[preselectedOwner === OWNER ? 'kim' : 'family'].intro}</p>
 
     <div class="field">
       <label>Who owns it?</label>
@@ -26,6 +31,47 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
         {PEOPLE_LIST.map((p: string) => <option value={p} selected={p === preselectedOwner}>{p}</option>)}
       </select>
       <span id="f-owner-hint" class="field-hint" hidden>Saved as a family item — just enough to recognize it, no price/condition history.</span>
+    </div>
+
+    <div class="field">
+      <label>Photo</label>
+      <div class="photo-buttons">
+        <label class="upload-btn">
+          📷 Take photo
+          <input id="f-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn">
+          🖼️ Choose from gallery
+          <input id="f-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+      <span id="f-photo-name" class="photo-name" hidden></span>
+      <img id="f-preview" class="photo-preview" hidden alt="Preview" />
+      <button id="f-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
+      <button id="f-identify-btn" type="button" class="identify-btn" hidden>✨ Identify</button>
+      <div id="f-extra-photo-buttons" class="extra-photo-buttons" hidden>
+        <label class="upload-btn upload-btn-small">
+          📷 Camera
+          <input id="f-extra-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="upload-btn upload-btn-small">
+          🖼️ Gallery
+          <input id="f-extra-photo-gallery" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+      <div id="f-extra-photos" class="extra-photos" hidden></div>
+      <div id="f-identify-msg" class="identify-msg" hidden></div>
+      <div id="f-identify-card" class="identify-card" hidden></div>
+    </div>
+
+    <div class="field">
+      <label id="f-title-label">Title *</label>
+      <input id="f-title" type="text" placeholder="Title" />
+    </div>
+
+    <div class="field" id="f-name-jp-field" hidden>
+      <label>Name (Japanese)</label>
+      <input id="f-name-jp" type="text" placeholder="日本語名（任意）" />
     </div>
 
     <div class="field">
@@ -86,16 +132,6 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
       <input id="f-series-new" type="text" placeholder="New series name" hidden style="margin-top:0.5rem" />
     </div>
 
-    <div class="field">
-      <label id="f-title-label">Title *</label>
-      <input id="f-title" type="text" placeholder="Title" />
-    </div>
-
-    <div class="field" id="f-name-jp-field" hidden>
-      <label>Name (Japanese)</label>
-      <input id="f-name-jp" type="text" placeholder="日本語名（任意）" />
-    </div>
-
     <div class="field" data-for="album game book">
       <label id="f-creator-label">Creator</label>
       <input id="f-creator" type="text" placeholder="Name" />
@@ -144,37 +180,6 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
     </div>
 
     <div class="field">
-      <label>Photo</label>
-      <div class="photo-buttons">
-        <label class="upload-btn">
-          📷 Take photo
-          <input id="f-photo-camera" type="file" accept="image/*" capture="environment" hidden />
-        </label>
-        <label class="upload-btn">
-          🖼️ Choose from gallery
-          <input id="f-photo-gallery" type="file" accept="image/*" hidden />
-        </label>
-      </div>
-      <span id="f-photo-name" class="photo-name" hidden></span>
-      <img id="f-preview" class="photo-preview" hidden alt="Preview" />
-      <button id="f-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
-      <button id="f-identify-btn" type="button" class="identify-btn" hidden>✨ Identify</button>
-      <div id="f-extra-photo-buttons" class="extra-photo-buttons" hidden>
-        <label class="upload-btn upload-btn-small">
-          📷 Camera
-          <input id="f-extra-photo-camera" type="file" accept="image/*" capture="environment" hidden />
-        </label>
-        <label class="upload-btn upload-btn-small">
-          🖼️ Gallery
-          <input id="f-extra-photo-gallery" type="file" accept="image/*" hidden />
-        </label>
-      </div>
-      <div id="f-extra-photos" class="extra-photos" hidden></div>
-      <div id="f-identify-msg" class="identify-msg" hidden></div>
-      <div id="f-identify-card" class="identify-card" hidden></div>
-    </div>
-
-    <div class="field">
       <label>Notes</label>
       <textarea id="f-notes" rows="2" placeholder="Anything worth noting…"></textarea>
     </div>
@@ -185,6 +190,7 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
     <a id="f-back" href={backHrefFor(preselectedOwner)} class="back-link">← Back</a>
   </div>
 
+  <script type="application/json" id="f-headings" set:html={JSON.stringify(HEADINGS)}></script>
   <script is:inline src="/resize-image.js"></script>
   <script is:inline src="/identify-flow.js"></script>
 
@@ -217,6 +223,9 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
     const ownerSelect = document.querySelector('#f-owner')
     const ownerHint = document.querySelector('#f-owner-hint')
     const backLink = document.querySelector('#f-back')
+    const headingEl = document.querySelector('#f-heading')
+    const introEl = document.querySelector('#f-intro')
+    const HEADINGS = JSON.parse(document.querySelector('#f-headings')?.textContent || '{}')
     const titleLabel = document.querySelector('#f-title-label')
     const nameJpField = document.querySelector('#f-name-jp-field')
     const nameJpInput = document.querySelector('#f-name-jp')
@@ -272,8 +281,8 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
       if (cfg.creatorLabel) creatorLabel.textContent = cfg.creatorLabel
       yearLabel.textContent = cfg.yearLabel
       lookupsEl.innerHTML = cfg.lookups.map(([src, label]) =>
-        `<button type="button" class="lk-btn" data-src="${src}">${label}</button>`).join(' ')
-      lookupsEl.querySelectorAll('.lk-btn').forEach((btn) => btn.addEventListener('click', () => doLookup(btn.dataset.src)))
+        `<button type="button" class="adi-lookup-btn" data-src="${src}">${label}</button>`).join(' ')
+      lookupsEl.querySelectorAll('.adi-lookup-btn').forEach((btn) => btn.addEventListener('click', () => doLookup(btn.dataset.src)))
       saveBtn.textContent = 'Save ' + cfg.backLabel
     }
 
@@ -292,6 +301,9 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
       if (!kim) saveBtn.textContent = 'Save family item'
       // Same rule as the frontmatter's backHrefFor().
       backLink.href = kim ? '/' : '/family?person=' + encodeURIComponent(ownerSelect.value)
+      const heading = HEADINGS[kim ? 'kim' : 'family']
+      headingEl.textContent = heading.title
+      introEl.textContent = heading.intro
     }
     ownerSelect.addEventListener('change', refreshFieldVisibility)
 
@@ -534,8 +546,6 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
     .dup-warn strong { color: #fff; }
     .lookup-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
     .lookup-label { font-size: 0.8rem; color: var(--muted); }
-    .lk-btn { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.45rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
-    .lk-btn:hover { border-color: var(--accent); }
     .photo-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .upload-btn { display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
     .upload-btn:hover { background: #241826; }
@@ -582,9 +592,16 @@ const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=
     template, not ones built at runtime via document.createElement() — so the identify
     suggestion card and extra-photo thumbnails built by the shared identify-flow.js module
     (also used by add-price.astro, which duplicates this block verbatim — Astro has no way
-    to share a global style block across pages) need their classes global instead.
+    to share a global style block across pages) need their classes global instead. The same
+    goes for this page's own "Look up" buttons (built by applyType()), prefixed "adi-": as a
+    scoped class they got no style at all and showed as the browser's default white boxes.
   -->
   <style is:global>
+    .adi-lookup-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-family: inherit;
+    }
+    .adi-lookup-btn:hover { border-color: var(--accent); }
     .idf-identify-title { font-weight: 600; font-size: 0.9rem; color: var(--accent); }
     .idf-identify-row { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; }
     .idf-identify-label { color: var(--muted); flex-shrink: 0; }

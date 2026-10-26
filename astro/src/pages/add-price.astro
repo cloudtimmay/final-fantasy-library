@@ -227,6 +227,7 @@ const myCollection = (await fetchCollectionForMatching())
 
   <script>
     import { findOwnersOf, findCollectionMatches } from '../lib/product-match'
+    import { OWNER } from '../lib/price-entry-fields'
     import { detailHref } from '../lib/collection-fields'
     import { currencyForIdentifiedPrice, currencyForSource, IDENTIFY_CURRENCIES } from '../lib/identify-result'
     import { norwayStoreSearchLinks } from '../lib/find-prices-prompt'
@@ -581,7 +582,7 @@ const myCollection = (await fetchCollectionForMatching())
     })
 
     // Non-blocking — unlike checkNameDuplicate() this never stops you from saving, it's
-    // just a heads-up that you (MY_COLLECTION) or a family member (OWNED) already has
+    // just a heads-up that you (MY_COLLECTION, or your "other things" in OWNED) or a family member (OWNED) already has
     // something matching the name/JAN currently typed in — both pre-fetched server-side,
     // see fetchCollectionForMatching()/fetchOwnedByPerson().
     const MAX_COLLECTION_NOTES = 3
@@ -604,10 +605,20 @@ const myCollection = (await fetchCollectionForMatching())
         }
         ownedNote.appendChild(row)
       })
-      matches.forEach(({ person, matchType }) => {
+      matches.forEach(({ person, matchType, item }) => {
         const row = document.createElement('div')
         row.className = 'ap-owned-note-row'
-        row.textContent = `${person} already has this`
+        if (person === OWNER) {
+          // One of your "other things" (a familyItem for the owner), linked like a collection match.
+          row.append('You already have this (other things): ')
+          const link = document.createElement(item.familyItemId ? 'a' : 'span')
+          link.className = 'ap-owned-note-link'
+          if (item.familyItemId) link.href = '/edit-family-item?id=' + encodeURIComponent(item.familyItemId)
+          link.textContent = item.name
+          row.appendChild(link)
+        } else {
+          row.textContent = `${person} already has this`
+        }
         if (matchType === 'jan') {
           const badge = document.createElement('span')
           badge.className = 'ap-owned-note-badge'

@@ -1,7 +1,7 @@
 import path from 'node:path'
-import { test, expect, testName } from './fixtures'
+import { test, expect, testName, uniqueJan } from './fixtures'
 import { mockIdentifyCustomResult } from './helpers/mock-ai'
-import { normalizeCode, codesMatch, isbn10ToIsbn13, normalizeForMatch, findCollectionMatches, isOwnedStatus } from '../src/lib/product-match'
+import { normalizeCode, codesMatch, isbn10ToIsbn13, normalizeForMatch, findCollectionMatches, findOwnersOf, isOwnedStatus } from '../src/lib/product-match'
 import { validateIdentifyResult } from '../src/lib/identify-result'
 
 const ALBUM_PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
@@ -184,5 +184,64 @@ test.describe('add-price: "You already have this in your collection"', () => {
     await page.locator('#p-name').fill(title)
     await page.clock.runFor(400)
     await expect(page.locator('#p-owned-note')).not.toContainText('You already have this')
+  })
+})
+
+test.describe('"You already have this (other things)": the owner\'s familyItems', () => {
+  test('findOwnersOf: the owner\'s familyItem matches, with its id for the link; a barcode match wins', () => {
+    const owned = [
+      { person: 'Kim', name: 'RX-78-2 Gundam', familyItemId: 'fi-name' },
+      { person: 'Kim', name: 'Other kit', jan: '4573102000000', familyItemId: 'fi-code' },
+      { person: 'Tone', name: 'RX-78-2 Gundam' },
+    ]
+    expect(findOwnersOf(owned, { productName: 'RX-78-2 Gundam', jan: '4573102000000' })).toEqual([
+      { person: 'Kim', matchType: 'jan', item: { name: 'Other kit', familyItemId: 'fi-code' } },
+      { person: 'Tone', matchType: 'name', item: { name: 'RX-78-2 Gundam' } },
+    ])
+  })
+
+  test('/add-price: shown with a link to the item, alongside the collection match', async ({ page, sanity, trackDoc }) => {
+    const { isbn10, isbn13 } = randomIsbn()
+    const book = await sanity.create({ _type: 'book', title: testName(`Owned Book ${isbn13}`), isbn: isbn13, status: 'owned' })
+    trackDoc(book._id)
+    const mine = await sanity.create({ _type: 'familyItem', person: 'Kim', name: testName(`My other copy ${isbn13}`), jan: isbn13 })
+    trackDoc(mine._id)
+
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(`Unrelated name ${Date.now()}`)
+    await page.locator('#p-jan').fill(isbn10)
+
+    const note = page.locator('#p-owned-note')
+    await expect(note).toContainText('You already have this in your collection')
+    const row = note.locator('.ap-owned-note-row', { hasText: 'You already have this (other things)' })
+    await expect(row.locator('.ap-owned-note-link')).toHaveText(mine.name)
+    await expect(row.locator('.ap-owned-note-link')).toHaveAttribute('href', `/edit-family-item?id=${mine._id}`)
+    await expect(row).toContainText('Same barcode')
+    await expect(note).not.toContainText('Kim already has this')
+  })
+
+  test('/scan: shown with a link to the item; never "Kim already has this"', async ({ page, sanity, trackDoc }) => {
+    const jan = uniqueJan()
+    const mine = await sanity.create({ _type: 'familyItem', person: 'Kim', name: testName(`Gunpla ${jan}`), jan, category: 'figure' })
+    trackDoc(mine._id)
+
+    await page.goto(`/scan?ijan=${jan}`)
+    const line = page.locator('.owner-match-line', { hasText: 'You already have this (other things)' })
+    await expect(line.locator('.owner-match-link')).toHaveText(mine.name)
+    await expect(line.locator('.owner-match-link')).toHaveAttribute('href', `/edit-family-item?id=${mine._id}`)
+    await expect(line.locator('.owner-match-badge')).toHaveText('Same barcode')
+    await expect(page.locator('.owner-match-line', { hasText: 'Kim already has this' })).toHaveCount(0)
+  })
+
+  test('the owner\'s Final Fantasy purchases still don\'t count as "other things"', async ({ page, sanity, trackDoc }) => {
+    const jan = uniqueJan()
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName: testName(`FF Buy ${jan}`), jan, category: 'game', sourceType: 'norway', price: 1, currency: 'NOK',
+      status: 'bought', buyer: 'Kim', seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+    await page.goto(`/scan?ijan=${jan}`)
+    await expect(page.locator('.identified-line')).toContainText(jan)
+    await expect(page.locator('.owner-match-line')).toHaveCount(0)
   })
 })

@@ -161,18 +161,18 @@ export async function fetchCollectionForMatching(): Promise<CollectionItem[]> {
   )
 }
 
-// Everything a family member other than the collection owner (OWNER/Kim — their ownership
-// is already covered by the collection itself, checked separately via /api/check-duplicate)
-// already has, from the three places that can record it: a familyItem logged directly, a
+// Everything a family member already has, from the three places that can record it — plus the
+// owner's (OWNER/Kim) "other things": their familyItems, the non-Final-Fantasy things they own.
+// The owner's Final Fantasy items are the collection itself (checked separately, see
+// fetchCollectionForMatching()), so for them only familyItems count here, not purchases. Sources: a familyItem logged directly, a
 // bought familyPurchase (name + barcode only — it has no separate Japanese name), or a
 // priceEntry marked "bought" for that buyer (which may or may not also have created a
 // familyPurchase — see add-price.astro's "Bought without a trip" case). Normalized into one
 // flat list so findOwnersOf() (src/lib/product-match.ts) never needs to know which of the
 // three a given record came from.
 export async function fetchOwnedByPerson(): Promise<OwnedItem[]> {
-  const familyItemsQuery: Promise<{ person: string; name: string; nameJp?: string; jan?: string }[]> = sanity.fetch(
-    `*[_type == "familyItem" && person != $owner]{ person, name, nameJp, jan }`,
-    { owner: OWNER }
+  const familyItemsQuery: Promise<{ _id: string; person: string; name: string; nameJp?: string; jan?: string }[]> = sanity.fetch(
+    `*[_type == "familyItem" && !(_id in path("drafts.**"))]{ _id, person, name, nameJp, jan }`
   )
   const familyPurchasesQuery: Promise<{ person: string; name: string; barcode?: string }[]> = sanity.fetch(
     `*[_type == "familyPurchase" && status == "bought" && person != $owner]{ person, name, barcode }`,
@@ -186,7 +186,7 @@ export async function fetchOwnedByPerson(): Promise<OwnedItem[]> {
   const [familyItems, familyPurchases, boughtEntries] = await Promise.all([familyItemsQuery, familyPurchasesQuery, boughtEntriesQuery])
 
   return [
-    ...familyItems.map((i) => ({ person: i.person, name: i.name, nameJp: i.nameJp, jan: i.jan })),
+    ...familyItems.map((i) => ({ person: i.person, name: i.name, nameJp: i.nameJp, jan: i.jan, familyItemId: i._id })),
     ...familyPurchases.map((p) => ({ person: p.person, name: p.name, jan: p.barcode })),
     ...boughtEntries.map((e) => ({ person: e.person, name: e.productName, nameJp: e.productNameJp, jan: e.jan })),
   ]

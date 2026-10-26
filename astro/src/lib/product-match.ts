@@ -153,21 +153,26 @@ export function findProductMatches<T extends MatchableProduct>(products: T[], id
 // One thing a family member already owns, already normalized across its three possible
 // Sanity sources (familyItem, a bought familyPurchase, a bought priceEntry) by whichever
 // server-side query builds this list — see fetchOwnedByPerson() in src/lib/price-products.ts.
+// `familyItemId`: set when the record is a familyItem — for the owner, one of their "other
+// things" (see fetchOwnedByPerson()), which the "already have this" notes link to.
 export type OwnedItem = {
   person: string
   name: string
   nameJp?: string
   jan?: string
+  familyItemId?: string
 }
 
+// `item`: the record that matched (the barcode match, if any), with its familyItem id if it is one.
 export type OwnershipMatch = {
   person: string
   matchType: 'jan' | 'name'
+  item: { name: string; familyItemId?: string }
 }
 
 // Same JAN-first-then-name-similarity logic as findProductMatches(), but keyed by person
-// instead of by product — "<person> already has this" only needs to know WHO, not which of
-// their (possibly several) matching records it was. At most one result per person, and a
+// instead of by product — "<person> already has this" is about WHO; `item` is just one of
+// their matching records (the owner's note links to it). At most one result per person, and a
 // JAN match always wins over a name match for that person.
 export function findOwnersOf(owned: OwnedItem[], identified: IdentifiedProduct): OwnershipMatch[] {
   const jan = (identified.jan || '').trim()
@@ -188,7 +193,9 @@ export function findOwnersOf(owned: OwnedItem[], identified: IdentifiedProduct):
         matchType = 'name'
       }
     }
-    if (matchType) byPerson.set(o.person, { person: o.person, matchType })
+    if (matchType && !(matchType === 'name' && byPerson.has(o.person))) {
+      byPerson.set(o.person, { person: o.person, matchType, item: { name: o.name, ...(o.familyItemId ? { familyItemId: o.familyItemId } : {}) } })
+    }
   }
   return [...byPerson.values()]
 }

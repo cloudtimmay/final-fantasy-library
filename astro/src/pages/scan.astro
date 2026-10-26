@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity, urlFor } from '../lib/sanity'
 import { fetchProducts, fetchOwnedByPerson, fetchCollectionForMatching } from '../lib/price-products'
 import { findProductMatches, findOwnersOf, findCollectionMatches } from '../lib/product-match'
+import { OWNER } from '../lib/price-entry-fields'
 import { detailHref } from '../lib/collection-fields'
 import { cdnImage } from '../lib/image-url'
 
@@ -143,9 +144,18 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
 
     {ownerMatches.length > 0 && (
       <div class="owner-matches">
-        {ownerMatches.map(({ person, matchType }) => (
+        {/* The owner's match is one of their "other things" (a familyItem — their Final
+            Fantasy items are the collection results below); it links to that item. */}
+        {ownerMatches.map(({ person, matchType, item }) => (
           <p class="owner-match-line">
-            <strong>{person}</strong> already has this
+            {person === OWNER ? (
+              <>
+                You already have this (other things):{' '}
+                {item.familyItemId ? <a class="owner-match-link" href={`/edit-family-item?id=${encodeURIComponent(item.familyItemId)}`}>{item.name}</a> : <span>{item.name}</span>}
+              </>
+            ) : (
+              <><strong>{person}</strong> already has this</>
+            )}
             {matchType === 'jan' && <span class="owner-match-badge">Same barcode</span>}
           </p>
         ))}
@@ -320,6 +330,7 @@ const wishlistMatch = results.find((r: any) => r.status === 'wishlist')
       display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
     }
     .owner-match-line strong { color: var(--accent); }
+    .owner-match-link { color: var(--accent); font-weight: 600; }
     .owner-match-badge {
       font-weight: 700; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 4px;
       background: rgba(244,162,76,0.15); color: var(--accent);

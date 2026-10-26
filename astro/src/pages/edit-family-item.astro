@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { OWNER, familyKeyFor } from '../lib/price-entry-fields'
 
 // Edit or delete one familyItem, opened from its row on /family. Only familyItem documents —
 // anything else (a made-up id, a price entry, a purchase) shows "not found", and
@@ -22,7 +23,9 @@ const item: {
       { id }
     )
   : null
-const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/family'
+// The /family tab the item is listed under: the person, or "Kim-other" for the owner's other things.
+const backHref = item ? `/family?person=${encodeURIComponent(familyKeyFor(item.person))}` : '/family'
+const ownerLabel = item?.person === OWNER ? `${OWNER} (other things)` : item?.person
 ---
 <Base title="Edit family item">
   <div class="add-wrap">
@@ -35,7 +38,7 @@ const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/
       </>
     ) : (
       <>
-        <p class="hint">Owned by <strong>{item.person}</strong>.</p>
+        <p class="hint">Owned by <strong>{ownerLabel}</strong>.</p>
 
         <div class="field">
           <label for="fi-name">Name *</label>
@@ -95,7 +98,7 @@ const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/
         <script
           type="application/json"
           id="edit-data"
-          set:html={JSON.stringify({ id: item._id, person: item.person, name: item.name, image: item.image || null, backHref })}
+          set:html={JSON.stringify({ id: item._id, person: item.person, whose: item.person === OWNER ? 'your other things' : `${item.person}'s items`, name: item.name, image: item.image || null, backHref })}
         />
       </>
     )}
@@ -237,7 +240,7 @@ const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/
       })
 
       deleteBtn.addEventListener('click', async () => {
-        if (!window.confirm(`Delete "${DATA.name}" from ${DATA.person}'s items? This can't be undone.`)) return
+        if (!window.confirm(`Delete "${DATA.name}" from ${DATA.whose}? This can't be undone.`)) return
         deleteBtn.disabled = true
         try {
           const result = await post({ action: 'delete' })

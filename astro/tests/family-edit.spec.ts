@@ -131,3 +131,27 @@ test.describe('/add-item "← Back"', () => {
     await expect(back(page)).toHaveAttribute('href', '/')
   })
 })
+
+test.describe('/edit-family-item: Kim\'s other things', () => {
+  test('back link, save and delete all return to the Kim (other) tab', async ({ page, sanity, trackDoc }) => {
+    const item = await familyItem(sanity, trackDoc, { person: 'Kim', name: testName(`Kim Other Edit ${Date.now()}`) })
+    await page.goto(`/edit-family-item?id=${item._id}`)
+    await expect(page.locator('.hint')).toContainText('Kim (other things)')
+    await expect(page.locator('.back-link', { hasText: '← Back' })).toHaveAttribute('href', '/family?person=Kim-other')
+
+    await page.locator('#fi-note').fill('Edited note')
+    await page.locator('#fi-save').click()
+    await expect(page).toHaveURL('/family?person=Kim-other')
+    await expect(page.locator('#fam-done')).toHaveText('Saved ✓')
+    await expect(famRow(page, item.name, 'Kim-other').locator('.fam-note')).toHaveText('Edited note')
+
+    await page.goto(`/edit-family-item?id=${item._id}`)
+    const messages: string[] = []
+    page.once('dialog', (d) => { messages.push(d.message()); d.accept() })
+    await page.locator('#fi-delete').click()
+    await expect(page).toHaveURL('/family?person=Kim-other')
+    await expect(page.locator('#fam-done')).toHaveText('Deleted')
+    expect(messages[0]).toBe(`Delete "${item.name}" from your other things? This can't be undone.`)
+    expect(await sanity.getDocument(item._id)).toBeFalsy()
+  })
+})

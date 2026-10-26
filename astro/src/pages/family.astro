@@ -1,24 +1,28 @@
 ---
 import Base from '../layouts/Base.astro'
-import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { PEOPLE_LIST, OWNER, OWNER_OTHER } from '../lib/price-entry-fields'
 import { fetchFamilyOwned } from '../lib/price-products'
 import { cdnImage } from '../lib/image-url'
 import { firstLine } from '../lib/price-display'
 
-// What each family member (everyone but the owner, whose things are the collection itself)
-// already owns — the same three sources fetchOwnedByPerson() checks for "already has this" on
+// What each family member already owns — and, under "Kim (other)" (OWNER_OTHER), the owner's
+// "other things", the non-Final-Fantasy items kept out of the collection. Each tab — the same three sources fetchOwnedByPerson() checks for "already has this" on
 // /add-price and /scan (see fetchFamilyOwned() in lib/price-products.ts). Every person's rows
 // are rendered up front and the person chips only show/hide them, so switching is instant.
 // The chosen person: ?person=, else the one remembered in this browser (see the script),
 // else the first.
-const FAMILY = PEOPLE_LIST.filter((p) => p !== OWNER)
+// One tab per family member, then the owner's other things. `key` is the tab's ?person= value.
+const TABS = [
+  ...PEOPLE_LIST.filter((p) => p !== OWNER).map((p) => ({ key: p, label: p, person: p })),
+  { key: OWNER_OTHER, label: `${OWNER} (other)`, person: OWNER },
+]
 const requested = Astro.url.searchParams.get('person') || ''
-const initialPerson = FAMILY.includes(requested) ? requested : FAMILY[0]
+const initialPerson = TABS.some((t) => t.key === requested) ? requested : TABS[0].key
 // ?done=saved|deleted: back from /edit-family-item — a short confirmation above the (freshly
 // rendered) list. The script drops it from the URL so a reload doesn't show it again.
 const DONE_MESSAGES: Record<string, string> = { saved: 'Saved ✓', deleted: 'Deleted' }
 const doneMessage = DONE_MESSAGES[Astro.url.searchParams.get('done') || ''] || ''
-const owned = await Promise.all(FAMILY.map(async (person) => ({ person, rows: await fetchFamilyOwned(person) })))
+const owned = await Promise.all(TABS.map(async (tab) => ({ ...tab, rows: await fetchFamilyOwned(tab.person) })))
 
 const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
   album: { icon: '🎵', label: 'Album' },
@@ -27,7 +31,7 @@ const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
   figure: { icon: '🧸', label: 'Merchandise' },
   other: { icon: '🏷️', label: 'Other' },
 }
-const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.id, person, productName: r.name, productNameJp: r.nameJp, jan: r.jan })))
+const matchData = owned.flatMap(({ key, rows }) => rows.map((r) => ({ key: r.id, person: key, productName: r.name, productNameJp: r.nameJp, jan: r.jan })))
 ---
 <Base title="Family items">
   <div class="family-wrap" data-initial-person={initialPerson} data-person-from-url={requested === initialPerson ? '1' : ''}>
@@ -38,10 +42,12 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
 
     <h1>Family items</h1>
     {doneMessage && <p id="fam-done" class="done-msg" role="status">{doneMessage}</p>}
-    <p class="hint">What each family member already has: items logged for them, and things bought for them.</p>
+    <p class="hint">What each family member already has: items logged for them, and things bought for them. "{OWNER} (other)" is your own things that aren't Final Fantasy.</p>
 
     <div class="chip-group" id="fam-person">
-      {FAMILY.map((p) => <button type="button" class:list={['chip', { active: p === initialPerson }]} data-value={p}>{p}</button>)}
+      {TABS.map((t) => (
+        <button type="button" class:list={['chip', { active: t.key === initialPerson }]} data-value={t.key} data-own={t.person === OWNER ? '1' : ''}>{t.label}</button>
+      ))}
     </div>
 
     <input id="fam-search" class="search-input" type="search" placeholder="Search name, Japanese name, barcode or note…" autocomplete="off" />
@@ -65,17 +71,17 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
     </div>
     <p id="fam-scan-msg" class="scan-msg" hidden></p>
 
-    {owned.map(({ person, rows }) => (
-      <section class="person-items" data-person={person} hidden={person !== initialPerson}>
+    {owned.map(({ key, label, rows }) => (
+      <section class="person-items" data-person={key} hidden={key !== initialPerson}>
         {rows.length === 0 ? (
-          <p class="empty">Nothing logged for {person} yet.</p>
+          <p class="empty">Nothing logged for {label} yet.</p>
         ) : (
           <ul class="fam-list">
             {rows.map((r) => {
               const cat = r.category ? CATEGORY_ICONS[r.category] || { icon: '🏷️', label: r.category } : null
               const note = firstLine(r.note)
               const hay = [r.name, r.nameJp, r.jan, r.note].filter(Boolean).join(' ').toLowerCase()
-              const origin = r.kind === 'familyPurchase' ? `Bought in Japan${r.tripLabel ? ` · ${r.tripLabel}` : ''}` : r.kind === 'priceEntry' ? 'Bought' : ''
+              const origin = r.kind === 'familyPurchase' || r.tripLabel ? `Bought in Japan${r.tripLabel ? ` · ${r.tripLabel}` : ''}` : r.kind === 'priceEntry' || r.bought ? 'Bought' : ''
               const inner = (
                 <>
                   {r.imageUrl ? (
@@ -212,9 +218,12 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
       matchBox.hidden = false
       matchBox.classList.toggle('has', matches.length > 0)
       matchBox.classList.toggle('none', matches.length === 0)
+      // The owner's own tab speaks to them: "You already have this".
+      const own = !!chips.find((c) => c.dataset.value === person)?.dataset.own
+      const found = matches.map((m) => `${m.product.productName} (${m.label.toLowerCase()})`).join(', ')
       matchText.textContent = matches.length
-        ? `✅ Already has this: ${matches.map((m) => `${m.product.productName} (${m.label.toLowerCase()})`).join(', ')}`
-        : `No match: ${person} doesn't have this yet.`
+        ? (own ? `✅ You already have this (other things): ${found}` : `✅ Already has this: ${found}`)
+        : (own ? "No match: you don't have this among your other things yet." : `No match: ${person} doesn't have this yet.`)
       applyView()
     }
 

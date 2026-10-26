@@ -89,7 +89,7 @@ test.describe('/family: what each family member owns', () => {
     await page.goto(`/family?person=${PERSON}`)
     await expect(page.locator('#fam-person .chip.active')).toHaveText(PERSON)
     await expect(page.locator('#fam-add')).toHaveAttribute('href', `/add-item?owner=${PERSON}`)
-    await expect(page.locator('#fam-person .chip', { hasText: 'Kim' })).toHaveCount(0) // the owner has the collection
+    await expect(page.locator('#fam-person .chip', { hasText: /^Kim$/ })).toHaveCount(0) // the owner has the collection (and "Kim (other)")
 
     await page.locator('#fam-person .chip', { hasText: OTHER }).click()
     await expect(famRow(page, mine.name, OTHER)).toBeVisible()
@@ -165,5 +165,65 @@ test.describe('/add-item?owner=', () => {
   test('an unknown owner falls back to the collection owner', async ({ page }) => {
     await page.goto('/add-item?owner=Nobody')
     await expect(page.locator('#f-owner')).toHaveValue('Kim')
+  })
+})
+
+test.describe('/family: "Kim (other)" — the owner\'s other things', () => {
+  const KIM_OTHER = 'Kim-other'
+
+  test('lists Kim\'s familyItems (not the family\'s), and a purchase that went to other things once, as its item', async ({ page, sanity, trackDoc }) => {
+    const gundam = await familyItem(sanity, trackDoc, { person: 'Kim', name: testName(`Gundam Kit ${Date.now()}`), category: 'figure', note: 'MG 1/100' })
+    const tones = await familyItem(sanity, trackDoc) // Tone's
+    const t = await trip(sanity, trackDoc)
+    // A Kim purchase that went to "other things": its priceEntry created the familyItem and a
+    // familyPurchase (with a trip).
+    const bought = await familyItem(sanity, trackDoc, { person: 'Kim', name: testName(`Zaku Kit ${Date.now()}`) })
+    const fp = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: bought.name, trip: { _type: 'reference', _ref: t._id }, status: 'bought' })
+    trackDoc(fp._id)
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName: bought.name, category: 'figure', sourceType: 'japanStore', price: 3000, currency: 'JPY', status: 'bought', buyer: 'Kim',
+      seenAt: new Date().toISOString(),
+      createdItem: { _type: 'reference', _ref: bought._id, _weak: true },
+      createdFamilyPurchase: { _type: 'reference', _ref: fp._id, _weak: true },
+    })
+    trackDoc(entry._id)
+    // A Kim purchase for the Final Fantasy collection: never listed here.
+    const ffFp = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName(`FF Purchase ${Date.now()}`), trip: { _type: 'reference', _ref: t._id }, status: 'bought' })
+    trackDoc(ffFp._id)
+
+    await page.goto(`/family?person=${KIM_OTHER}`)
+    await expect(page.locator('#fam-person .chip.active')).toHaveText('Kim (other)')
+    await expect(page.locator('#fam-add')).toHaveAttribute('href', `/add-item?owner=${KIM_OTHER}`)
+    await expect(famRow(page, gundam.name, KIM_OTHER).locator('.fam-note')).toHaveText('MG 1/100')
+    await expect(famRow(page, gundam.name, KIM_OTHER).locator('a.fam-row-link')).toHaveAttribute('href', `/edit-family-item?id=${gundam._id}`)
+    const boughtRow = famRow(page, bought.name, KIM_OTHER)
+    await expect(boughtRow).toHaveCount(1)
+    await expect(boughtRow.locator('.fam-origin')).toHaveText(`Bought in Japan · ${t.label}`)
+    await expect(boughtRow.locator('a.fam-row-link')).toHaveCount(1) // still editable: it is the familyItem
+    await expect(section(page, KIM_OTHER).locator('.fam-row').filter({ hasText: ffFp.name })).toHaveCount(0)
+    await expect(famRow(page, tones.name, KIM_OTHER)).toHaveCount(0)
+    // …and Kim's things don't show under a family member.
+    await expect(famRow(page, gundam.name, PERSON)).toHaveCount(0)
+  })
+
+  test('search, scan and "You already have this (other things)" work on the Kim (other) tab', async ({ page, sanity, trackDoc }) => {
+    const jan = uniqueJan()
+    const item = await familyItem(sanity, trackDoc, { person: 'Kim', jan, note: `Gunpla zq${Date.now()}` })
+    await fakeScanner(page, jan)
+    await page.goto(`/family?person=${KIM_OTHER}`)
+
+    await page.locator('#fam-search').fill(item.note.split(' ')[1])
+    await expect(famRow(page, item.name, KIM_OTHER)).toBeVisible()
+
+    await page.locator('#fam-scan-btn').click()
+    await expect(page.locator('#fam-match')).toContainText(`You already have this (other things): ${item.name} (same barcode)`)
+  })
+
+  test('the choice is remembered like any other tab', async ({ page }) => {
+    await page.goto(`/family?person=${PERSON}`)
+    await page.locator('#fam-person .chip', { hasText: 'Kim (other)' }).click()
+    await expect(page).toHaveURL(new RegExp(`person=${KIM_OTHER}`))
+    await page.goto('/family')
+    await expect(page.locator('#fam-person .chip.active')).toHaveText('Kim (other)')
   })
 })

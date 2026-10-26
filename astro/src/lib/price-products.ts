@@ -191,3 +191,64 @@ export async function fetchOwnedByPerson(): Promise<OwnedItem[]> {
     ...boughtEntries.map((e) => ({ person: e.person, name: e.productName, nameJp: e.productNameJp, jan: e.jan })),
   ]
 }
+
+// One thing a family member owns, as /family lists it — the same three sources (and the same
+// filters) as fetchOwnedByPerson() above, with what a row needs to show:
+// - 'familyItem': logged directly; the only kind editable on /family.
+// - 'familyPurchase': bought on a trip ("Bought in Japan" + the trip's label). It has no photo,
+//   category, Japanese name or note of its own, so those come from the price entry that
+//   created it (priceEntry.createdFamilyPurchase), if there is one.
+// - 'priceEntry': marked bought for this buyer without a trip, so no familyPurchase exists.
+//   A bought entry that did create a (still bought) familyPurchase isn't listed twice.
+export type FamilyOwnedRow = {
+  kind: 'familyItem' | 'familyPurchase' | 'priceEntry'
+  id: string
+  name: string
+  nameJp?: string
+  jan?: string
+  category?: string
+  note?: string
+  imageUrl?: string
+  tripLabel?: string
+}
+
+export async function fetchFamilyOwned(person: string): Promise<FamilyOwnedRow[]> {
+  if (!person || person === OWNER) return []
+  const notDraft = `!(_id in path("drafts.**"))`
+  const [items, purchases, entries]: [any[], any[], any[]] = await Promise.all([
+    sanity.fetch(
+      `*[_type == "familyItem" && person == $person && ${notDraft}]
+        { _id, name, nameJp, jan, category, note, "imageUrl": image.asset->url }`,
+      { person }
+    ),
+    sanity.fetch(
+      `*[_type == "familyPurchase" && status == "bought" && person == $person && ${notDraft}]{
+        _id, name, barcode, "tripLabel": trip->label,
+        "entry": *[_type == "priceEntry" && createdFamilyPurchase._ref == ^._id][0]
+          { productNameJp, category, note, "imageUrl": image.asset->url }
+      }`,
+      { person }
+    ),
+    sanity.fetch(
+      `*[_type == "priceEntry" && status == "bought" && buyer == $person && ${notDraft}]
+        { _id, productName, productNameJp, jan, category, note, "imageUrl": image.asset->url, "fpId": createdFamilyPurchase._ref }`,
+      { person }
+    ),
+  ])
+  const boughtPurchaseIds = new Set(purchases.map((p) => p._id))
+  const clean = (r: FamilyOwnedRow): FamilyOwnedRow =>
+    Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined && v !== '')) as FamilyOwnedRow
+  const rows: FamilyOwnedRow[] = [
+    ...items.map((i) => clean({ kind: 'familyItem', id: i._id, name: i.name || '', nameJp: i.nameJp, jan: i.jan, category: i.category, note: i.note, imageUrl: i.imageUrl })),
+    ...purchases.map((p) =>
+      clean({
+        kind: 'familyPurchase', id: p._id, name: p.name || '', jan: p.barcode, tripLabel: p.tripLabel,
+        nameJp: p.entry?.productNameJp, category: p.entry?.category, note: p.entry?.note, imageUrl: p.entry?.imageUrl,
+      })
+    ),
+    ...entries
+      .filter((e) => !(e.fpId && boughtPurchaseIds.has(e.fpId)))
+      .map((e) => clean({ kind: 'priceEntry', id: e._id, name: e.productName || '', nameJp: e.productNameJp, jan: e.jan, category: e.category, note: e.note, imageUrl: e.imageUrl })),
+  ]
+  return rows.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
+}

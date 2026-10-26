@@ -1,0 +1,353 @@
+---
+import Base from '../layouts/Base.astro'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { fetchFamilyOwned } from '../lib/price-products'
+import { cdnImage } from '../lib/image-url'
+import { firstLine } from '../lib/price-display'
+
+// What each family member (everyone but the owner, whose things are the collection itself)
+// already owns — the same three sources fetchOwnedByPerson() checks for "already has this" on
+// /add-price and /scan (see fetchFamilyOwned() in lib/price-products.ts). Every person's rows
+// are rendered up front and the person chips only show/hide them, so switching is instant.
+// The chosen person: ?person=, else the one remembered in this browser (see the script),
+// else the first.
+const FAMILY = PEOPLE_LIST.filter((p) => p !== OWNER)
+const requested = Astro.url.searchParams.get('person') || ''
+const initialPerson = FAMILY.includes(requested) ? requested : FAMILY[0]
+const owned = await Promise.all(FAMILY.map(async (person) => ({ person, rows: await fetchFamilyOwned(person) })))
+
+const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
+  album: { icon: '🎵', label: 'Album' },
+  game: { icon: '🎮', label: 'Game' },
+  book: { icon: '📚', label: 'Book' },
+  figure: { icon: '🧸', label: 'Merchandise' },
+  other: { icon: '🏷️', label: 'Other' },
+}
+const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.id, person, productName: r.name, productNameJp: r.nameJp, jan: r.jan })))
+---
+<Base title="Family items">
+  <div class="family-wrap" data-initial-person={initialPerson} data-person-from-url={requested === initialPerson ? '1' : ''}>
+    <div class="nav-row">
+      <a href="/add-menu" class="page-nav-link">← Back</a>
+      <a id="fam-add" href={`/add-item?owner=${encodeURIComponent(initialPerson)}`} class="page-nav-link page-nav-link-add">➕ Add</a>
+    </div>
+
+    <h1>Family items</h1>
+    <p class="hint">What each family member already has: items logged for them, and things bought for them.</p>
+
+    <div class="chip-group" id="fam-person">
+      {FAMILY.map((p) => <button type="button" class:list={['chip', { active: p === initialPerson }]} data-value={p}>{p}</button>)}
+    </div>
+
+    <input id="fam-search" class="search-input" type="search" placeholder="Search name, Japanese name, barcode or note…" autocomplete="off" />
+
+    <div class="scan-row">
+      <button id="fam-scan-btn" class="scan-btn" type="button">📷 Scan barcode</button>
+      <label class="upload-btn">
+        📷 Identify by photo
+        <input id="fam-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="upload-btn">
+        🖼️ From gallery
+        <input id="fam-photo-gallery" type="file" accept="image/*" hidden />
+      </label>
+    </div>
+    <div id="fam-scan-reader" class="scan-reader" hidden></div>
+    <p id="fam-identified-line" class="identified-line" hidden></p>
+    <div id="fam-match" class="match-result" hidden>
+      <span id="fam-match-text"></span>
+      <button id="fam-match-clear" type="button" class="match-clear">Show all</button>
+    </div>
+    <p id="fam-scan-msg" class="scan-msg" hidden></p>
+
+    {owned.map(({ person, rows }) => (
+      <section class="person-items" data-person={person} hidden={person !== initialPerson}>
+        {rows.length === 0 ? (
+          <p class="empty">Nothing logged for {person} yet.</p>
+        ) : (
+          <ul class="fam-list">
+            {rows.map((r) => {
+              const cat = r.category ? CATEGORY_ICONS[r.category] || { icon: '🏷️', label: r.category } : null
+              const note = firstLine(r.note)
+              const hay = [r.name, r.nameJp, r.jan, r.note].filter(Boolean).join(' ').toLowerCase()
+              const origin = r.kind === 'familyPurchase' ? `Bought in Japan${r.tripLabel ? ` · ${r.tripLabel}` : ''}` : r.kind === 'priceEntry' ? 'Bought' : ''
+              const inner = (
+                <>
+                  {r.imageUrl ? (
+                    <img class="thumb" src={cdnImage(r.imageUrl, 160)} data-lightbox={cdnImage(r.imageUrl, 2000)} alt={r.name} />
+                  ) : (
+                    <div class="thumb thumb-placeholder">🎁</div>
+                  )}
+                  <div class="fam-info">
+                    <div class="fam-name">
+                      {cat && <span class="cat-icon" role="img" aria-label={cat.label} title={cat.label}>{cat.icon}</span>}
+                      {r.name}
+                    </div>
+                    {origin && <div class="fam-origin">{origin}</div>}
+                    {note && <div class="fam-note">{note}</div>}
+                  </div>
+                </>
+              )
+              return (
+                <li class="fam-row" data-id={r.id} data-kind={r.kind} data-search={hay}>
+                  {/* Only a familyItem is edited here; a bought purchase is changed through its
+                      price or in Studio, so its row links nowhere. */}
+                  {r.kind === 'familyItem' ? (
+                    <a class="fam-row-inner fam-row-link" href={`/edit-family-item?id=${encodeURIComponent(r.id)}`}>{inner}</a>
+                  ) : (
+                    <div class="fam-row-inner">{inner}</div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        <p class="empty empty-filtered" hidden>Nothing matches.</p>
+      </section>
+    ))}
+  </div>
+
+  <script type="application/json" id="family-match-data" set:html={JSON.stringify(matchData)}></script>
+
+  <script is:inline src="/barcode-scanner.js"></script>
+  <script is:inline src="/resize-image.js"></script>
+
+  <script>
+    import { findProductMatches } from '../lib/product-match'
+
+    const STORAGE_KEY = 'ff-family-person'
+    const wrap = document.querySelector('.family-wrap')
+    const chips = Array.from(document.querySelectorAll('#fam-person .chip'))
+    const PEOPLE = chips.map((c) => c.dataset.value)
+    const searchInput = document.querySelector('#fam-search')
+    const addLink = document.querySelector('#fam-add')
+    const matchBox = document.querySelector('#fam-match')
+    const matchText = document.querySelector('#fam-match-text')
+    const matchClear = document.querySelector('#fam-match-clear')
+    const scanMsg = document.querySelector('#fam-scan-msg')
+    const identifiedLine = document.querySelector('#fam-identified-line')
+
+    let allItems = []
+    try { allItems = JSON.parse(document.querySelector('#family-match-data')?.textContent || '[]') } catch (e) {}
+
+    // ?person= wins; otherwise the person last chosen in this browser.
+    let person = wrap.dataset.initialPerson
+    if (!wrap.dataset.personFromUrl) {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved && PEOPLE.includes(saved)) person = saved
+      } catch (e) {}
+    }
+    // Set by a scan or photo: only these rows are shown, until "Show all", a search or another person.
+    let matchedIds = null
+
+    function applyView() {
+      chips.forEach((c) => c.classList.toggle('active', c.dataset.value === person))
+      addLink.href = '/add-item?owner=' + encodeURIComponent(person)
+      const q = searchInput.value.trim().toLowerCase()
+      document.querySelectorAll('.person-items').forEach((section) => {
+        const mine = section.dataset.person === person
+        section.hidden = !mine
+        if (!mine) return
+        const rows = Array.from(section.querySelectorAll('.fam-row'))
+        let shown = 0
+        rows.forEach((row) => {
+          const visible = matchedIds ? matchedIds.has(row.dataset.id) : q === '' || (row.dataset.search || '').includes(q)
+          row.hidden = !visible
+          if (visible) shown++
+        })
+        const emptyFiltered = section.querySelector('.empty-filtered')
+        if (emptyFiltered) emptyFiltered.hidden = rows.length === 0 || shown > 0
+      })
+    }
+
+    function clearMatch() {
+      matchedIds = null
+      matchBox.hidden = true
+      identifiedLine.hidden = true
+    }
+
+    function choosePerson(value) {
+      person = value
+      clearMatch()
+      try { localStorage.setItem(STORAGE_KEY, person) } catch (e) {}
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('person', person)
+        window.history.replaceState(null, '', url.toString())
+      } catch (e) {}
+      applyView()
+    }
+    chips.forEach((c) => c.addEventListener('click', () => choosePerson(c.dataset.value)))
+    searchInput.addEventListener('input', () => { clearMatch(); applyView() })
+    matchClear.addEventListener('click', () => { clearMatch(); applyView() })
+    applyView()
+
+    // --- Barcode scan + "Identify by photo": the same findProductMatches() as /prices and
+    // /scan (barcode first, then name similarity), against the selected person's items only.
+    function showScanMsg(text, ok) {
+      scanMsg.hidden = false
+      scanMsg.textContent = text
+      scanMsg.style.color = ok ? 'var(--muted)' : '#e74c3c'
+    }
+
+    function checkOwned(identified) {
+      scanMsg.hidden = true
+      searchInput.value = ''
+      const matches = findProductMatches(allItems.filter((i) => i.person === person), identified)
+      matchedIds = new Set(matches.map((m) => m.product.key))
+      matchBox.hidden = false
+      matchBox.classList.toggle('has', matches.length > 0)
+      matchBox.classList.toggle('none', matches.length === 0)
+      matchText.textContent = matches.length
+        ? `✅ Already has this: ${matches.map((m) => `${m.product.productName} (${m.label.toLowerCase()})`).join(', ')}`
+        : `No match: ${person} doesn't have this yet.`
+      applyView()
+    }
+
+    const scanBtn = document.querySelector('#fam-scan-btn')
+    const scanReader = document.querySelector('#fam-scan-reader')
+    if (scanBtn && window.createBarcodeScanner) {
+      const scanner = window.createBarcodeScanner('fam-scan-reader')
+      scanBtn.addEventListener('click', async () => {
+        if (scanner.isRunning()) {
+          await scanner.stop()
+          scanReader.hidden = true
+          scanBtn.textContent = '📷 Scan barcode'
+          return
+        }
+        scanReader.hidden = false
+        scanMsg.hidden = true
+        try {
+          await scanner.start((code) => {
+            scanner.stop()
+            scanReader.hidden = true
+            scanBtn.textContent = '📷 Scan barcode'
+            identifiedLine.hidden = false
+            identifiedLine.textContent = `Scanned: ${code}`
+            checkOwned({ jan: code })
+          })
+          scanBtn.textContent = '✕ Close scanner'
+        } catch (err) {
+          showScanMsg(err && err.message ? err.message : 'Could not access camera.', false)
+          scanReader.hidden = true
+        }
+      })
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = String(reader.result || '')
+          const commaIdx = result.indexOf(',')
+          resolve(commaIdx !== -1 ? result.slice(commaIdx + 1) : result)
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    }
+
+    async function identifyPhoto(file) {
+      if (!file) return
+      clearMatch()
+      applyView()
+      showScanMsg('Identifying…', true)
+      try {
+        let forApi = file
+        try {
+          if (window.resizeImage) forApi = await window.resizeImage(file, 1024, 0.8)
+        } catch (e) {}
+        const image = await fileToBase64(forApi)
+        const res = await fetch('/api/identify-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: [image] }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok) { showScanMsg((data && data.error) || 'Identification failed.', false); return }
+        const result = data && data.result ? data.result : {}
+        if (!result.productName && !result.productNameJp && !result.jan) {
+          showScanMsg('Could not identify anything useful in this photo.', false)
+          return
+        }
+        identifiedLine.hidden = false
+        identifiedLine.textContent = `Identified: ${result.productName || result.productNameJp || '(no name)'}${result.jan ? ' · JAN ' + result.jan : ''}`
+        checkOwned(result)
+      } catch (e) {
+        showScanMsg('Network error.', false)
+      }
+    }
+
+    const photoCamera = document.querySelector('#fam-photo-camera')
+    const photoGallery = document.querySelector('#fam-photo-gallery')
+    photoCamera.addEventListener('change', () => { identifyPhoto(photoCamera.files && photoCamera.files[0]); photoCamera.value = '' })
+    photoGallery.addEventListener('change', () => { identifyPhoto(photoGallery.files && photoGallery.files[0]); photoGallery.value = '' })
+  </script>
+
+  <style>
+    .family-wrap { max-width: 640px; }
+    .nav-row { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .page-nav-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; padding: 0.4rem 0; }
+    .page-nav-link:hover { color: var(--accent); }
+    .page-nav-link-add {
+      color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600;
+    }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1rem; }
+    .chip-group { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .chip {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.45rem 0.85rem; border-radius: 999px; font-size: 0.9rem; cursor: pointer; min-height: 36px;
+    }
+    .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .search-input {
+      width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem; font-family: inherit;
+    }
+    .search-input:focus { outline: none; border-color: var(--accent); }
+    .scan-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
+    .scan-btn, .upload-btn {
+      display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.55rem 0.85rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; font-family: inherit;
+    }
+    .scan-reader { margin: 0.5rem 0; }
+    .scan-reader[hidden] { display: none; }
+    .scan-msg, .identified-line { font-size: 0.85rem; color: var(--muted); margin: 0.4rem 0; }
+    .scan-msg[hidden], .identified-line[hidden] { display: none; }
+    .match-result {
+      display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0; padding: 0.6rem 0.75rem;
+      border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: 1px solid var(--border);
+    }
+    .match-result[hidden] { display: none; }
+    .match-result.has { background: rgba(46,204,113,0.1); border-color: rgba(46,204,113,0.45); color: #2ecc71; }
+    .match-result.none { background: var(--surface); color: var(--muted); }
+    #fam-match-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .match-clear {
+      flex-shrink: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.3rem 0.6rem; font-size: 0.8rem; cursor: pointer;
+    }
+    .person-items[hidden] { display: none; }
+    .fam-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+    .fam-row[hidden] { display: none; }
+    .fam-row-inner {
+      display: flex; align-items: center; gap: 0.6rem; min-height: 44px; padding: 0.45rem 0.6rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: inherit; text-decoration: none;
+    }
+    .fam-row-link:hover { border-color: var(--accent); }
+    .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--bg); flex-shrink: 0; }
+    .thumb-placeholder { display: flex; align-items: center; justify-content: center; font-size: 1.2rem; border: 1px solid var(--border); }
+    .fam-info { flex: 1; min-width: 0; }
+    .fam-name {
+      font-weight: 600; font-size: 0.95rem; line-height: 1.3;
+      overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .cat-icon { font-size: 0.85rem; margin-right: 0.3rem; }
+    .fam-origin { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 0.1rem; }
+    .fam-note {
+      font-size: 0.74rem; color: var(--muted); margin-top: 0.05rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    .empty { color: var(--muted); font-size: 0.9rem; margin-top: 1rem; }
+    .empty[hidden] { display: none; }
+  </style>
+</Base>

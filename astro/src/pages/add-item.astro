@@ -8,6 +8,9 @@ const seriesRaw = await sanity.fetch(`
   array::unique(*[_type in ["album","game","book","figure"] && defined(series)].series)
 `)
 const seriesList = (seriesRaw || []).filter(Boolean).sort()
+// ?owner=<person> (from /family's "➕ Add") preselects who owns it; anything else -> the owner.
+const ownerParam = Astro.url.searchParams.get('owner') || ''
+const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
 ---
 <Base title="Add item">
   <div class="add-wrap">
@@ -17,7 +20,7 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
     <div class="field">
       <label>Who owns it?</label>
       <select id="f-owner">
-        {PEOPLE_LIST.map((p: string) => <option value={p} selected={p === OWNER}>{p}</option>)}
+        {PEOPLE_LIST.map((p: string) => <option value={p} selected={p === preselectedOwner}>{p}</option>)}
       </select>
       <span id="f-owner-hint" class="field-hint" hidden>Saved as a family item — just enough to recognize it, no price/condition history.</span>
     </div>

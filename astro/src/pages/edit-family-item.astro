@@ -1,0 +1,295 @@
+---
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+
+// Edit or delete one familyItem, opened from its row on /family. Only familyItem documents —
+// anything else (a made-up id, a price entry, a purchase) shows "not found", and
+// /api/family-item-update refuses it too.
+const id = Astro.url.searchParams.get('id') || ''
+const item: {
+  _id: string
+  _type: string
+  person: string
+  name: string
+  nameJp?: string
+  jan?: string
+  category?: string
+  note?: string
+  image?: { assetId: string; url: string } | null
+} | null = id && !id.startsWith('drafts.')
+  ? await sanity.fetch(
+      `*[_id == $id && _type == "familyItem"][0]{ _id, _type, person, name, nameJp, jan, category, note, "image": select(defined(image.asset) => { "assetId": image.asset._ref, "url": image.asset->url }) }`,
+      { id }
+    )
+  : null
+const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/family'
+---
+<Base title="Edit family item">
+  <div class="add-wrap">
+    <h1>Edit family item</h1>
+
+    {!item ? (
+      <>
+        <p class="hint">Item not found — it may have been deleted.</p>
+        <a href="/family" class="back-link">← Back to family items</a>
+      </>
+    ) : (
+      <>
+        <p class="hint">Owned by <strong>{item.person}</strong>.</p>
+
+        <div class="field">
+          <label for="fi-name">Name *</label>
+          <input id="fi-name" type="text" value={item.name} />
+        </div>
+
+        <div class="field">
+          <label for="fi-name-jp">Japanese name</label>
+          <input id="fi-name-jp" type="text" value={item.nameJp || ''} placeholder="日本語名（任意）" />
+        </div>
+
+        <div class="field">
+          <label for="fi-jan">Barcode</label>
+          <input id="fi-jan" type="text" inputmode="numeric" value={item.jan || ''} placeholder="8, 12 or 13 digits (optional)" />
+        </div>
+
+        <div class="field">
+          <label for="fi-category">Category</label>
+          <select id="fi-category">
+            <option value="">—</option>
+            <option value="album" selected={item.category === 'album'}>Album</option>
+            <option value="game" selected={item.category === 'game'}>Game</option>
+            <option value="book" selected={item.category === 'book'}>Book</option>
+            <option value="figure" selected={item.category === 'figure'}>Merchandise</option>
+            <option value="other" selected={item.category === 'other'}>Other</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Photo</label>
+          <div class="photo-buttons">
+            <label class="upload-btn">
+              📷 Take photo
+              <input id="fi-photo-camera" type="file" accept="image/*" capture="environment" hidden />
+            </label>
+            <label class="upload-btn">
+              🖼️ Choose from gallery
+              <input id="fi-photo-gallery" type="file" accept="image/*" hidden />
+            </label>
+          </div>
+          <span id="fi-photo-name" class="photo-name" hidden></span>
+          <img id="fi-preview" class="photo-preview" hidden alt="Preview" data-lightbox="" />
+          <button id="fi-photo-remove" type="button" class="photo-remove-btn" hidden>✕ Remove photo</button>
+        </div>
+
+        <div class="field">
+          <label for="fi-note">Note</label>
+          <textarea id="fi-note" rows="3">{item.note || ''}</textarea>
+        </div>
+
+        <button id="fi-save" type="button" class="save-btn">Save changes</button>
+        <button id="fi-delete" type="button" class="delete-btn">🗑️ Delete</button>
+        <p id="fi-msg" class="save-msg" hidden></p>
+
+        <a href={backHref} class="back-link">← Back to family items</a>
+
+        <script
+          type="application/json"
+          id="edit-data"
+          set:html={JSON.stringify({ id: item._id, person: item.person, name: item.name, image: item.image || null, backHref })}
+        />
+      </>
+    )}
+  </div>
+
+  <script is:inline src="/resize-image.js"></script>
+
+  <script>
+    import { createBackgroundUpload } from '../scripts/background-upload.js'
+    import { cdnImage } from '../lib/image-url'
+
+    const dataEl = document.querySelector('#edit-data')
+    if (dataEl) {
+      const DATA = JSON.parse(dataEl.textContent || '{}')
+      const nameInput = document.querySelector('#fi-name')
+      const nameJpInput = document.querySelector('#fi-name-jp')
+      const janInput = document.querySelector('#fi-jan')
+      const categorySel = document.querySelector('#fi-category')
+      const noteInput = document.querySelector('#fi-note')
+      const photoCamera = document.querySelector('#fi-photo-camera')
+      const photoGallery = document.querySelector('#fi-photo-gallery')
+      const photoName = document.querySelector('#fi-photo-name')
+      const preview = document.querySelector('#fi-preview')
+      const photoRemoveBtn = document.querySelector('#fi-photo-remove')
+      const saveBtn = document.querySelector('#fi-save')
+      const deleteBtn = document.querySelector('#fi-delete')
+      const msg = document.querySelector('#fi-msg')
+
+      let selectedPhoto = null
+      let imageRemoved = false
+      // A new photo uploads right away; Save only references the asset (same as /edit-product).
+      const photoUpload = createBackgroundUpload()
+
+      function revokeIfBlob() {
+        if (preview.src && preview.src.indexOf('blob:') === 0) { try { URL.revokeObjectURL(preview.src) } catch (e) {} }
+      }
+
+      function updatePhotoPreview() {
+        if (selectedPhoto) {
+          preview.dataset.lightbox = ''
+          preview.hidden = false
+          photoRemoveBtn.hidden = false
+          return
+        }
+        if (!imageRemoved && DATA.image && DATA.image.url) {
+          revokeIfBlob()
+          preview.src = cdnImage(DATA.image.url, 800)
+          preview.dataset.lightbox = cdnImage(DATA.image.url, 2000)
+          preview.hidden = false
+          photoName.hidden = false
+          photoName.textContent = 'Current photo'
+          photoRemoveBtn.hidden = false
+          return
+        }
+        preview.hidden = true
+        preview.src = ''
+        photoName.hidden = true
+        photoRemoveBtn.hidden = true
+      }
+      updatePhotoPreview()
+
+      async function handlePhoto(fileInput) {
+        const file = fileInput.files && fileInput.files[0]
+        if (!file) return
+        imageRemoved = false
+        photoName.hidden = false
+        photoName.textContent = 'Processing photo…'
+        let chosen = file
+        try {
+          if (window.resizeImage) chosen = await window.resizeImage(file)
+        } catch (e) { chosen = file }
+        selectedPhoto = chosen
+        photoUpload.start(chosen)
+        revokeIfBlob()
+        preview.src = URL.createObjectURL(chosen)
+        photoName.textContent = file.name || 'photo'
+        updatePhotoPreview()
+        fileInput.value = ''
+      }
+      photoCamera.addEventListener('change', () => handlePhoto(photoCamera))
+      photoGallery.addEventListener('change', () => handlePhoto(photoGallery))
+
+      photoRemoveBtn.addEventListener('click', () => {
+        revokeIfBlob()
+        selectedPhoto = null
+        photoUpload.discard()
+        imageRemoved = true
+        photoName.textContent = ''
+        updatePhotoPreview()
+      })
+
+      function showMsg(text, ok) {
+        msg.hidden = false
+        msg.textContent = text
+        msg.style.color = ok ? '#2ecc71' : '#e74c3c'
+      }
+
+      async function post(body) {
+        const res = await fetch('/api/family-item-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: DATA.id, ...body }),
+        })
+        const data = await res.json().catch(() => null)
+        return { ok: res.ok, error: (data && data.error) || '' }
+      }
+
+      saveBtn.addEventListener('click', async () => {
+        const name = nameInput.value.trim()
+        if (!name) return showMsg('Please enter a name.', false)
+        saveBtn.disabled = true
+        saveBtn.textContent = 'Saving…'
+        try {
+          let imageAssetId
+          if (selectedPhoto) {
+            if (!photoUpload.peek()) saveBtn.textContent = 'Uploading photo…'
+            const uploaded = await photoUpload.ensure()
+            if (!uploaded) { showMsg('Photo upload failed — the item was not updated.', false); return }
+            imageAssetId = uploaded.assetId
+            saveBtn.textContent = 'Saving…'
+          }
+          const result = await post({
+            name,
+            nameJp: nameJpInput.value.trim(),
+            jan: janInput.value.trim(),
+            category: categorySel.value,
+            note: noteInput.value.trim(),
+            imageAssetId,
+            removeImage: !selectedPhoto && imageRemoved,
+          })
+          if (!result.ok) { showMsg(result.error || 'Save failed.', false); return }
+          window.location.href = DATA.backHref
+        } catch (e) {
+          showMsg('Network error.', false)
+        } finally {
+          saveBtn.disabled = false
+          saveBtn.textContent = 'Save changes'
+        }
+      })
+
+      deleteBtn.addEventListener('click', async () => {
+        if (!window.confirm(`Delete "${DATA.name}" from ${DATA.person}'s items? This can't be undone.`)) return
+        deleteBtn.disabled = true
+        try {
+          const result = await post({ action: 'delete' })
+          if (!result.ok) { showMsg(result.error || 'Delete failed.', false); return }
+          window.location.href = DATA.backHref
+        } catch (e) {
+          showMsg('Network error.', false)
+        } finally {
+          deleteBtn.disabled = false
+        }
+      })
+    }
+  </script>
+
+  <style>
+    .add-wrap { max-width: 520px; }
+    .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .field input, .field select, .field textarea {
+      width: 100%; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.7rem 0.75rem; border-radius: 8px; font-size: 1rem;
+      font-family: inherit; box-sizing: border-box;
+    }
+    .photo-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .upload-btn {
+      display: inline-block; background: var(--surface); color: var(--text);
+      border: 1px solid var(--accent); padding: 0.6rem 0.9rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.9rem;
+    }
+    .upload-btn:hover { background: #241826; }
+    .photo-name { font-size: 0.85rem; color: var(--muted); display: block; margin-top: 0.5rem; }
+    .photo-name[hidden] { display: none; }
+    .photo-preview { display: block; max-width: 200px; max-height: 200px; margin-top: 0.75rem; border-radius: 8px; border: 1px solid var(--border); }
+    .photo-preview[hidden] { display: none; }
+    .photo-remove-btn {
+      display: inline-block; margin-top: 0.5rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.85rem;
+    }
+    .photo-remove-btn[hidden] { display: none; }
+    .save-btn {
+      width: 100%; margin-top: 0.5rem; background: var(--accent); color: #fff; border: none;
+      padding: 0.9rem; border-radius: 8px; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    }
+    .save-btn:disabled, .delete-btn:disabled { opacity: 0.6; cursor: default; }
+    .delete-btn {
+      width: 100%; margin-top: 0.75rem; background: var(--surface); color: #e74c3c; border: 1px solid #e74c3c;
+      padding: 0.7rem; border-radius: 8px; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+    }
+    .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .back-link:hover { color: var(--accent); }
+  </style>
+</Base>

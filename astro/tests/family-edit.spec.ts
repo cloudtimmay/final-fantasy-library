@@ -1,5 +1,5 @@
 import { test, expect, testName } from './fixtures'
-import { PERSON, PHOTO, famRow, familyItem } from './helpers/family'
+import { PERSON, OTHER, PHOTO, famRow, familyItem } from './helpers/family'
 
 test.describe('/edit-family-item', () => {
   test('tapping a family item opens its form; saving updates it', async ({ page, sanity, trackDoc }) => {
@@ -19,6 +19,7 @@ test.describe('/edit-family-item', () => {
     await page.locator('#fi-save').click()
 
     await expect(page).toHaveURL(`/family?person=${PERSON}`)
+    await expect(page.locator('#fam-done')).toHaveText('Saved ✓')
     await expect(famRow(page, newName).locator('.fam-note')).toHaveText('New note')
     const saved = await sanity.getDocument(item._id)
     expect(saved).toMatchObject({ name: newName, jan: '4901234567894', category: 'game', note: 'New note\nmore', person: PERSON })
@@ -57,6 +58,7 @@ test.describe('/edit-family-item', () => {
     page.once('dialog', (d) => d.accept())
     await page.locator('#fi-delete').click()
     await expect(page).toHaveURL(`/family?person=${PERSON}`)
+    await expect(page.locator('#fam-done')).toHaveText('Deleted')
     await expect(famRow(page, item.name)).toHaveCount(0)
     expect(await sanity.getDocument(item._id)).toBeFalsy()
   })
@@ -73,5 +75,59 @@ test.describe('/edit-family-item', () => {
 
     await page.goto(`/edit-family-item?id=${entry._id}`)
     await expect(page.locator('.hint')).toContainText('Item not found')
+  })
+})
+
+test.describe('"← Back" and the result message for family items', () => {
+  test('the edit page\'s "← Back" goes to that item\'s person on /family', async ({ page, sanity, trackDoc }) => {
+    const item = await familyItem(sanity, trackDoc, { person: OTHER })
+    await page.goto(`/edit-family-item?id=${item._id}`)
+    const back = page.locator('.back-link', { hasText: '← Back' })
+    await expect(back).toHaveAttribute('href', `/family?person=${OTHER}`)
+    await back.click()
+    await expect(page).toHaveURL(`/family?person=${OTHER}`)
+    await expect(page.locator('#fam-person .chip.active')).toHaveText(OTHER)
+    await expect(famRow(page, item.name, OTHER)).toBeVisible()
+    await expect(page.locator('#fam-done')).toHaveCount(0) // nothing was saved
+  })
+
+  test('the "Saved ✓" message is shown once: it is dropped from the URL and gone after a reload', async ({ page }) => {
+    await page.goto(`/family?person=${PERSON}&done=saved`)
+    await expect(page.locator('#fam-done')).toHaveText('Saved ✓')
+    await expect(page).toHaveURL(`/family?person=${PERSON}`)
+    await page.reload()
+    await expect(page.locator('#fam-done')).toHaveCount(0)
+  })
+
+  test('an unknown done= value shows no message', async ({ page }) => {
+    await page.goto(`/family?person=${PERSON}&done=<b>hi</b>`)
+    await expect(page.getByRole('heading', { name: 'Family items' })).toBeVisible()
+    await expect(page.locator('#fam-done')).toHaveCount(0)
+  })
+})
+
+test.describe('/add-item "← Back"', () => {
+  const back = (page: import('@playwright/test').Page) => page.locator('#f-back')
+
+  test('?owner=<family member>: back to that person on /family', async ({ page }) => {
+    await page.goto(`/add-item?owner=${PERSON}`)
+    await expect(back(page)).toHaveAttribute('href', `/family?person=${PERSON}`)
+    await back(page).click()
+    await expect(page).toHaveURL(`/family?person=${PERSON}`)
+    await expect(page.locator('#fam-person .chip.active')).toHaveText(PERSON)
+  })
+
+  test('the "Who owns it?" selector updates it; Kim keeps today\'s link home', async ({ page }) => {
+    await page.goto('/add-item')
+    await expect(back(page)).toHaveAttribute('href', '/')
+    await page.locator('#f-owner').selectOption(OTHER)
+    await expect(back(page)).toHaveAttribute('href', `/family?person=${OTHER}`)
+    await page.locator('#f-owner').selectOption('Kim')
+    await expect(back(page)).toHaveAttribute('href', '/')
+  })
+
+  test('?owner=Kim keeps the link home', async ({ page }) => {
+    await page.goto('/add-item?owner=Kim')
+    await expect(back(page)).toHaveAttribute('href', '/')
   })
 })

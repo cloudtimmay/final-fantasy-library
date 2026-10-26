@@ -227,7 +227,7 @@ const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/
             removeImage: !selectedPhoto && imageRemoved,
           })
           if (!result.ok) { showMsg(result.error || 'Save failed.', false); return }
-          window.location.href = DATA.backHref
+          window.location.href = DATA.backHref + '&done=saved'
         } catch (e) {
           showMsg('Network error.', false)
         } finally {
@@ -242,7 +242,7 @@ const backHref = item ? `/family?person=${encodeURIComponent(item.person)}` : '/
         try {
           const result = await post({ action: 'delete' })
           if (!result.ok) { showMsg(result.error || 'Delete failed.', false); return }
-          window.location.href = DATA.backHref
+          window.location.href = DATA.backHref + '&done=deleted'
         } catch (e) {
           showMsg('Network error.', false)
         } finally {

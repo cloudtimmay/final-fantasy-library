@@ -14,6 +14,10 @@ import { firstLine } from '../lib/price-display'
 const FAMILY = PEOPLE_LIST.filter((p) => p !== OWNER)
 const requested = Astro.url.searchParams.get('person') || ''
 const initialPerson = FAMILY.includes(requested) ? requested : FAMILY[0]
+// ?done=saved|deleted: back from /edit-family-item — a short confirmation above the (freshly
+// rendered) list. The script drops it from the URL so a reload doesn't show it again.
+const DONE_MESSAGES: Record<string, string> = { saved: 'Saved ✓', deleted: 'Deleted' }
+const doneMessage = DONE_MESSAGES[Astro.url.searchParams.get('done') || ''] || ''
 const owned = await Promise.all(FAMILY.map(async (person) => ({ person, rows: await fetchFamilyOwned(person) })))
 
 const CATEGORY_ICONS: Record<string, { icon: string; label: string }> = {
@@ -33,6 +37,7 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
     </div>
 
     <h1>Family items</h1>
+    {doneMessage && <p id="fam-done" class="done-msg" role="status">{doneMessage}</p>}
     <p class="hint">What each family member already has: items logged for them, and things bought for them.</p>
 
     <div class="chip-group" id="fam-person">
@@ -126,6 +131,14 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
     const matchClear = document.querySelector('#fam-match-clear')
     const scanMsg = document.querySelector('#fam-scan-msg')
     const identifiedLine = document.querySelector('#fam-identified-line')
+
+    if (new URLSearchParams(window.location.search).has('done')) {
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('done')
+        window.history.replaceState(null, '', url.toString())
+      } catch (e) {}
+    }
 
     let allItems = []
     try { allItems = JSON.parse(document.querySelector('#family-match-data')?.textContent || '[]') } catch (e) {}
@@ -294,6 +307,10 @@ const matchData = owned.flatMap(({ person, rows }) => rows.map((r) => ({ key: r.
       color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 600;
     }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1rem; }
+    .done-msg {
+      margin: 0.25rem 0 0.75rem; padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600;
+      color: #2ecc71; background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.45);
+    }
     .chip-group { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
     .chip {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);

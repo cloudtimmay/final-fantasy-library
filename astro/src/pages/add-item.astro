@@ -11,6 +11,9 @@ const seriesList = (seriesRaw || []).filter(Boolean).sort()
 // ?owner=<person> (from /family's "➕ Add") preselects who owns it; anything else -> the owner.
 const ownerParam = Astro.url.searchParams.get('owner') || ''
 const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
+// "← Back": a family member's items on /family; the owner's collection add goes home as
+// before. Kept in step with the owner selector by the script (same rule there).
+const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=${encodeURIComponent(owner)}`)
 ---
 <Base title="Add item">
   <div class="add-wrap">
@@ -179,7 +182,7 @@ const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
     <button id="f-save" type="button" class="save-btn">Save</button>
     <p id="f-msg" class="save-msg" hidden></p>
 
-    <a href="/" class="back-link">← Back</a>
+    <a id="f-back" href={backHrefFor(preselectedOwner)} class="back-link">← Back</a>
   </div>
 
   <script is:inline src="/resize-image.js"></script>
@@ -213,6 +216,7 @@ const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
 
     const ownerSelect = document.querySelector('#f-owner')
     const ownerHint = document.querySelector('#f-owner-hint')
+    const backLink = document.querySelector('#f-back')
     const titleLabel = document.querySelector('#f-title-label')
     const nameJpField = document.querySelector('#f-name-jp-field')
     const nameJpInput = document.querySelector('#f-name-jp')
@@ -286,6 +290,8 @@ const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
       ownerHint.hidden = kim
       titleLabel.textContent = kim ? 'Title *' : 'Name *'
       if (!kim) saveBtn.textContent = 'Save family item'
+      // Same rule as the frontmatter's backHrefFor().
+      backLink.href = kim ? '/' : '/family?person=' + encodeURIComponent(ownerSelect.value)
     }
     ownerSelect.addEventListener('change', refreshFieldVisibility)
 

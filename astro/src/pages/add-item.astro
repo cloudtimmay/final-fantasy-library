@@ -1,36 +1,50 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
-import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { OWNER, OWNER_OTHER, OWNER_CHOICES } from '../lib/price-entry-fields'
 
 const today = new Date().toISOString().split('T')[0]
 const seriesRaw = await sanity.fetch(`
   array::unique(*[_type in ["album","game","book","figure"] && defined(series)].series)
 `)
 const seriesList = (seriesRaw || []).filter(Boolean).sort()
-// ?owner=<person> (from /family's "➕ Add") preselects who owns it; anything else -> the owner.
+// ?owner=<choice key> (from /family's "➕ Add"; e.g. "Tone" or "Kim-other") preselects who owns
+// it; anything else -> the owner's Final Fantasy collection.
 const ownerParam = Astro.url.searchParams.get('owner') || ''
-const preselectedOwner = PEOPLE_LIST.includes(ownerParam) ? ownerParam : OWNER
-// "← Back": a family member's items on /family; the owner's collection add goes home as
-// before. Kept in step with the owner selector by the script (same rule there).
-const backHrefFor = (owner: string) => (owner === OWNER ? '/' : `/family?person=${encodeURIComponent(owner)}`)
-// The heading and intro follow the owner (the script swaps them when "Who owns it?" changes).
-const HEADINGS = {
-  kim: { title: 'Add to collection', intro: 'Add a photo and identify it, or fill in the name, type and barcode yourself, then save.' },
-  family: { title: 'Add family item', intro: "Log something a family member already has — a photo, name and barcode are enough to recognize it later." },
+const preselectedOwner = OWNER_CHOICES.some((c) => c.key === ownerParam) ? ownerParam : OWNER
+// "← Back": that person's (or the owner's "other things") list on /family; the owner's
+// collection add goes home as before. Kept in step with the owner selector by the script.
+const backHrefFor = (key: string) => (key === OWNER ? '/' : `/family?person=${encodeURIComponent(key)}`)
+// What the page says for each kind of owner (the script swaps it when "Who owns it?" changes).
+const KINDS = {
+  collection: { title: 'Add to collection', intro: 'Add a photo and identify it, or fill in the name, type and barcode yourself, then save.', hint: '', save: '' },
+  other: {
+    title: 'Add to my other things',
+    intro: 'Something you own that isn\'t Final Fantasy — kept out of the collection, but found by every "already have this" check.',
+    hint: 'Saved as one of your other things — just enough to recognize it, no price/condition history.',
+    save: 'Save to other things',
+  },
+  family: {
+    title: 'Add family item',
+    intro: 'Log something a family member already has — a photo, name and barcode are enough to recognize it later.',
+    hint: 'Saved as a family item — just enough to recognize it, no price/condition history.',
+    save: 'Save family item',
+  },
 }
+const kindOf = (key: string) => (key === OWNER ? 'collection' : key === OWNER_OTHER ? 'other' : 'family')
+const initialKind = KINDS[kindOf(preselectedOwner)]
 ---
 <Base title="Add item">
   <div class="add-wrap">
-    <h1 id="f-heading">{HEADINGS[preselectedOwner === OWNER ? 'kim' : 'family'].title}</h1>
-    <p id="f-intro" class="hint">{HEADINGS[preselectedOwner === OWNER ? 'kim' : 'family'].intro}</p>
+    <h1 id="f-heading">{initialKind.title}</h1>
+    <p id="f-intro" class="hint">{initialKind.intro}</p>
 
     <div class="field">
       <label>Who owns it?</label>
       <select id="f-owner">
-        {PEOPLE_LIST.map((p: string) => <option value={p} selected={p === preselectedOwner}>{p}</option>)}
+        {OWNER_CHOICES.map((c) => <option value={c.key} selected={c.key === preselectedOwner}>{c.label}</option>)}
       </select>
-      <span id="f-owner-hint" class="field-hint" hidden>Saved as a family item — just enough to recognize it, no price/condition history.</span>
+      <span id="f-owner-hint" class="field-hint" hidden={!initialKind.hint}>{initialKind.hint}</span>
     </div>
 
     <div class="field">
@@ -190,7 +204,7 @@ const HEADINGS = {
     <a id="f-back" href={backHrefFor(preselectedOwner)} class="back-link">← Back</a>
   </div>
 
-  <script type="application/json" id="f-headings" set:html={JSON.stringify(HEADINGS)}></script>
+  <script type="application/json" id="f-owner-config" set:html={JSON.stringify({ owner: OWNER, ownerOther: OWNER_OTHER, kinds: KINDS })}></script>
   <script is:inline src="/resize-image.js"></script>
   <script is:inline src="/identify-flow.js"></script>
 
@@ -216,16 +230,16 @@ const HEADINGS = {
     // subtype" breakdown (figure/plushie/wearable/other) the way the figure schema does.
     const TYPE_TO_CATEGORY = { album: 'album', game: 'game', book: 'book', merch: 'figure' }
 
-    // Must match sanity/schemaTypes/peopleList.ts / src/lib/price-entry-fields.ts — see
-    // PEOPLE_LIST's own comment for why this is duplicated rather than shared.
-    const OWNER = 'Kim'
+    // OWNER / OWNER_OTHER (lib/price-entry-fields.ts) and the per-owner texts, from the server.
+    const OWNER_CONFIG = JSON.parse(document.querySelector('#f-owner-config')?.textContent || '{}')
+    const OWNER = OWNER_CONFIG.owner
+    const OWNER_OTHER = OWNER_CONFIG.ownerOther
 
     const ownerSelect = document.querySelector('#f-owner')
     const ownerHint = document.querySelector('#f-owner-hint')
     const backLink = document.querySelector('#f-back')
     const headingEl = document.querySelector('#f-heading')
     const introEl = document.querySelector('#f-intro')
-    const HEADINGS = JSON.parse(document.querySelector('#f-headings')?.textContent || '{}')
     const titleLabel = document.querySelector('#f-title-label')
     const nameJpField = document.querySelector('#f-name-jp-field')
     const nameJpInput = document.querySelector('#f-name-jp')
@@ -269,7 +283,12 @@ const HEADINGS = {
     const extraPhotosWrap = document.querySelector('#f-extra-photos')
 
     function currentType() { return typeSelect.value }
+    // "Kim" = the owner's Final Fantasy collection (a full collection item); every other
+    // choice, the owner's "other things" included, saves a plain familyItem.
     function isKim() { return ownerSelect.value === OWNER }
+    function ownerKind() { return isKim() ? 'collection' : ownerSelect.value === OWNER_OTHER ? 'other' : 'family' }
+    // The person a familyItem is saved for: "Kim-other" is the owner.
+    function familyPerson() { return ownerSelect.value === OWNER_OTHER ? OWNER : ownerSelect.value }
 
     function applyType() {
       const type = currentType()
@@ -296,14 +315,15 @@ const HEADINGS = {
       if (!kim) document.querySelectorAll('[data-for]').forEach((el) => { el.hidden = true })
       document.querySelectorAll('[data-collection-only]').forEach((el) => { el.hidden = !kim })
       nameJpField.hidden = kim
+      const kind = OWNER_CONFIG.kinds[ownerKind()]
       ownerHint.hidden = kim
+      ownerHint.textContent = kind.hint
       titleLabel.textContent = kim ? 'Title *' : 'Name *'
-      if (!kim) saveBtn.textContent = 'Save family item'
+      if (!kim) saveBtn.textContent = kind.save
       // Same rule as the frontmatter's backHrefFor().
       backLink.href = kim ? '/' : '/family?person=' + encodeURIComponent(ownerSelect.value)
-      const heading = HEADINGS[kim ? 'kim' : 'family']
-      headingEl.textContent = heading.title
-      introEl.textContent = heading.intro
+      headingEl.textContent = kind.title
+      introEl.textContent = kind.intro
     }
     ownerSelect.addEventListener('change', refreshFieldVisibility)
 
@@ -492,7 +512,7 @@ const HEADINGS = {
         const res = await fetch('/api/family-item-create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            person: ownerSelect.value,
+            person: familyPerson(),
             name: titleInput.value.trim(),
             nameJp: nameJpInput.value.trim() || undefined,
             jan: barcodeInput.value.trim() || undefined,
@@ -506,7 +526,7 @@ const HEADINGS = {
         showMsg(savedMsg(photo), !photo.failed)
         resetSharedFields()
       } catch (e) { showMsg('Network error.', false) }
-      finally { saveBtn.disabled = false; saveBtn.textContent = 'Save family item' }
+      finally { saveBtn.disabled = false; saveBtn.textContent = OWNER_CONFIG.kinds[ownerKind()].save }
     }
 
     async function save() {

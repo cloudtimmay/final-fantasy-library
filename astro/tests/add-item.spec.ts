@@ -231,3 +231,52 @@ test.describe('add-item: field order, heading and Look up buttons', () => {
     await expect(page.locator('#f-save')).toHaveText('Save family item')
   })
 })
+
+test.describe('add-item: Kim\'s Final Fantasy collection vs "other things"', () => {
+  test('the owner options: Kim – Final Fantasy collection (default), Kim – other things, then the family', async ({ page }) => {
+    await page.goto('/add-item')
+    await expect(page.locator('#f-owner option')).toHaveText(['Kim – Final Fantasy collection', 'Kim – other things', 'Tone', 'Niklas', 'Kristina', 'Richard'])
+    await expect(page.locator('#f-owner')).toHaveValue('Kim')
+    await expect(page.getByRole('heading', { name: 'Add to collection' })).toBeVisible()
+    await expect(page.locator('div.field', { has: page.locator('#f-year') })).toBeVisible()
+  })
+
+  test('"Kim – other things" saves a familyItem for Kim, with the simple fields and its own heading', async ({ page, sanity, trackDoc }) => {
+    await page.goto('/add-item')
+    await page.locator('#f-owner').selectOption('Kim-other')
+    await expect(page.getByRole('heading', { name: 'Add to my other things' })).toBeVisible()
+    await expect(page.locator('#f-owner-hint')).toContainText('one of your other things')
+    await expect(page.locator('div.field', { has: page.locator('#f-year') })).toBeHidden()
+    await expect(page.locator('#f-name-jp-field')).toBeVisible()
+    await expect(page.locator('#f-save')).toHaveText('Save to other things')
+    await expect(page.locator('#f-back')).toHaveAttribute('href', '/family?person=Kim-other')
+
+    const name = testName(`Gundam RX-78-2 ${Date.now()}`)
+    await page.locator('#f-type').selectOption('merch')
+    await page.locator('#f-title').fill(name)
+    await page.locator('#f-name-jp').fill('ガンダム')
+    await page.locator('#f-save').click()
+    await expect(page.locator('#f-msg')).toContainText('Saved')
+
+    const doc = await sanity.fetch(`*[_type == "familyItem" && name == $name][0]{ _id, person, nameJp, category }`, { name })
+    trackDoc(doc?._id)
+    expect(doc).toMatchObject({ person: 'Kim', nameJp: 'ガンダム', category: 'figure' })
+    // Not a collection item.
+    expect(await sanity.fetch(`count(*[_type in ["album", "game", "book", "figure"] && title == $name])`, { name })).toBe(0)
+  })
+
+  test('?owner=Kim-other preselects "Kim – other things"', async ({ page }) => {
+    await page.goto('/add-item?owner=Kim-other')
+    await expect(page.locator('#f-owner')).toHaveValue('Kim-other')
+    await expect(page.getByRole('heading', { name: 'Add to my other things' })).toBeVisible()
+    await expect(page.locator('#f-owner-hint')).toBeVisible()
+  })
+
+  test('a family member still gets "Add family item" and a familyItem for that person', async ({ page }) => {
+    await page.goto('/add-item?owner=Richard')
+    await expect(page.locator('#f-owner')).toHaveValue('Richard')
+    await expect(page.getByRole('heading', { name: 'Add family item' })).toBeVisible()
+    await expect(page.locator('#f-owner-hint')).toContainText('Saved as a family item')
+    await expect(page.locator('#f-save')).toHaveText('Save family item')
+  })
+})

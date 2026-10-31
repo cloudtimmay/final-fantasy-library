@@ -53,9 +53,11 @@ const TYPE_ICON: Record<string, string> = {
 
 <script is:inline>
   (function () {
-    // Local device time: correct in Norway before, and in Japan during the trip.
-    const DEPART = new Date(2026, 10, 30, 4, 30, 0)   // 30. nov 2026 04:30
-    const RETURN = new Date(2026, 11, 7, 23, 0, 0)    // 7. des 2026 23:00
+    // Norwegian time, written with its offset (+01:00 in winter) so the countdown is the same
+    // on a phone set to Japan time during the trip — new Date(y, m, d, h, mi) would read it as
+    // the device's own local time and land 8 hours early there.
+    const DEPART = new Date('2026-11-30T04:30:00+01:00') // 30. nov 2026 04:30, leaving home
+    const RETURN = new Date('2026-12-07T09:50:00+01:00') // 7. des 2026 09:50, landing at Oslo Airport
 
     const el = (id) => document.getElementById(id)
     const setNum = (id, v) => { const c = el(id); if (c) c.querySelector('.tc-num').textContent = v }

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { test, expect, testName } from './fixtures'
 import { computeTransitions, extractJpyTotal, haversineKm, buildUserPrompt } from '../src/lib/itinerary-review-helpers'
 import { weekdayName, formatDayLabel, formatDateLong, dateRange, isIsoDate, addDays } from '../src/lib/trip-dates'
 import { estimateTravelMinutes, extractNoteTravelMinutes, optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
@@ -378,5 +378,75 @@ test.describe('itinerary: day headings', () => {
     })
     await page.locator('.day-card').first().locator('.day-check-btn').click()
     await expect.poll(() => body?.dayDate).toBe('2026-12-01')
+  })
+})
+
+test.describe('itinerary: days follow the trip, "Not scheduled" keeps the rest', () => {
+  // Fixture trips get Tokyo days only — no startDate — so they never become another test's
+  // default trip; pages get them explicitly with ?trip=.
+  async function tokyoTrip(sanity: any, trackDoc: (id: string) => void, fields: Record<string, unknown>) {
+    const t = await sanity.create({ _type: 'tripSettings', label: testName(`Itinerary Trip ${Date.now()}`), ...fields })
+    trackDoc(t._id)
+    return t
+  }
+  // The plan autosaves to the one shared itineraryState document — answered here instead.
+  async function captureSaves(page: import('@playwright/test').Page) {
+    const saves: any[] = []
+    await page.route('**/api/itinerary-save', async (route) => {
+      saves.push(JSON.parse(route.request().postDataJSON().data))
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+    })
+    return saves
+  }
+
+  test('the days shown are the trip\'s days in Tokyo; the plan\'s other days go to "Not scheduled"', async ({ page, sanity, trackDoc }) => {
+    const trip = await tokyoTrip(sanity, trackDoc, { firstTokyoDay: '2026-12-02', lastTokyoDay: '2026-12-04' })
+    await captureSaves(page)
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.day-card:not(.unscheduled-card) .day-title')).toHaveText(['2. des (ons)', '3. des (tor)', '4. des (fre)'], { timeout: 20000 })
+    await expect(page.locator('.page-header .count')).toContainText('2. des (ons) – 4. des (fre)')
+    await expect(page.locator('.plan-days-hint')).toHaveCount(0)
+    const unscheduled = page.locator('.unscheduled-card')
+    await expect(unscheduled.locator('.day-title')).toHaveText('Not scheduled')
+    await expect(unscheduled.locator('.unscheduled-stop', { hasText: 'from 1. des (tir)' }).first()).toBeVisible()
+    await expect(unscheduled.locator('.unscheduled-stop', { hasText: 'from 7. des (man)' }).first()).toBeVisible()
+  })
+
+  test('1–6 December: the 7 December stops are listed and can be moved to a day, through the normal save', async ({ page, sanity, trackDoc }) => {
+    const trip = await tokyoTrip(sanity, trackDoc, { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-06' })
+    const saves = await captureSaves(page)
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    const dayCards = page.locator('.day-card:not(.unscheduled-card)')
+    await expect(dayCards).toHaveCount(6, { timeout: 20000 })
+    await expect(dayCards.last().locator('.day-title')).toHaveText('6. des (søn)')
+
+    const fromDec7 = page.locator('.unscheduled-stop', { hasText: 'from 7. des (man)' })
+    const before = await fromDec7.count()
+    expect(before).toBeGreaterThan(0)
+    const name = (await fromDec7.first().locator('.stop-name').textContent())!.trim()
+    // The stop as saved (a shop's stop stores its shopId, not always a name).
+    // @ts-ignore - extraDays is a global of the page's own inline script
+    const movedStop = await page.evaluate(() => extraDays['2026-12-07'].stops[0])
+
+    await fromDec7.first().locator('.us-move').selectOption({ label: '6. des (søn)' })
+    await expect(dayCards.last().locator('.stop-name', { hasText: name })).toBeVisible()
+    await expect(page.locator('.unscheduled-stop', { hasText: 'from 7. des (man)' })).toHaveCount(before - 1)
+
+    // Saved through the page's own debounced save, as { v: 2, days } — the 7 December entry
+    // is still there (minus the moved stop), nothing dropped.
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const saved = saves[saves.length - 1]
+    expect(saved.v).toBe(2)
+    expect(saved.days['2026-12-06'].stops.at(-1)).toEqual(movedStop)
+    expect(saved.days['2026-12-07'].stops).toHaveLength(before - 1)
+  })
+
+  test('a trip without Tokyo days shows the plan\'s own dates, with a hint', async ({ page, sanity, trackDoc }) => {
+    const trip = await tokyoTrip(sanity, trackDoc, {})
+    await captureSaves(page)
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.day-card:not(.unscheduled-card)')).toHaveCount(7, { timeout: 20000 })
+    await expect(page.locator('.plan-days-hint')).toContainText('First day in Tokyo')
+    await expect(page.locator('.unscheduled-card')).toHaveCount(0)
   })
 })

@@ -1,7 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
-import { formatDayLabel } from '../lib/trip-dates'
+import { formatDayLabel, dateRange, isIsoDate } from '../lib/trip-dates'
+import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
 const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -120,13 +121,50 @@ const PLAN = [
   },
 ]
 const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
-const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].date}` : ''
+
+// The days shown: the trip's days in Tokyo (Trip Settings → First/Last day in Tokyo) — not
+// its Start/End date, which are the travel dates (leaving home / getting home). The trip is
+// ?trip=<id>, else the same default /spending picks. Without Tokyo days set, the plan's own
+// dates are shown, with a hint to fill them in.
+let trip: { _id: string; label?: string; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string } | null = null
+try {
+  const trips = await fetchTripsForSpending()
+  const requestedTripId = Astro.url.searchParams.get('trip')
+  const picked = trips.find((t) => t._id === requestedTripId) || pickDefaultTrip(trips)
+  if (picked) {
+    trip = await sanity.fetch(
+      `*[_id == $id][0]{ _id, label, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
+      { id: picked._id }
+    )
+  }
+} catch (e) { trip = null }
+const tripDays = dateRange(trip?.firstTokyoDay, trip?.lastTokyoDay)
+const usingTripDays = tripDays.length > 0
+const days = usingTripDays ? tripDays : plan.map((d) => d.day)
+const rangeLabel = days.length ? `${formatDayLabel(days[0])} – ${formatDayLabel(days[days.length - 1])}` : ''
+
+// Labels for every date the page can show: the days, the plan's own days, and any date in the
+// saved plan (a stop on a date outside the trip is listed under "Not scheduled" — never dropped).
+// The saved plan used to be an array, one entry per PLAN day in order; now { v: 2, days: { date } }.
+function savedDates(raw: string | null): string[] {
+  try {
+    const p = raw ? JSON.parse(raw) : null
+    if (Array.isArray(p)) return plan.slice(0, p.length).map((d) => d.day)
+    if (p && p.v === 2 && p.days && typeof p.days === 'object') return Object.keys(p.days).filter((k) => isIsoDate(k))
+  } catch (e) {}
+  return []
+}
+const labels: Record<string, string> = {}
+for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)]) labels[d] = formatDayLabel(d)
 ---
 <Base title="Itinerary">
   <div class="page-header">
     <h1>Shopping-plan</h1>
     <span class="count">{rangeLabel} · base Akihabara</span>
   </div>
+  {!usingTripDays && (
+    <p class="plan-days-hint">Days from the plan's own dates. Set "First day in Tokyo" and "Last day in Tokyo" in Trip Settings{trip?.label ? ` (${trip.label})` : ''} to show the trip's days.</p>
+  )}
 
   <div class="plan-tip">
     <span>Endringer lagres automatisk og synkes mellom enhetene dine. Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
@@ -138,7 +176,7 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
 
   <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
        safely convert to a module) and so can't use `import`. This tiny module script
@@ -167,7 +205,10 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
     const STORE_KEY = 'ff-itinerary-v12'
     const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
-    const { plan, areaMin, base, shops, savedState } = JSON.parse(raw)
+    // `days`: the dates shown, in order; `labels`: "1. des (tir)" for every date the page knows
+    // (computed on the server by lib/trip-dates.ts — this script never works out a weekday).
+    const { plan, days, labels, areaMin, base, shops, savedState } = JSON.parse(raw)
+    const templateByDay = new Map(plan.map((d) => [d.day, d]))
     const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
     const daysEl = document.querySelector('#days')
     const resetBtn = document.querySelector('#reset-btn')
@@ -201,10 +242,22 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
     }
     const SHOP_OPTIONS = buildShopOptions()
 
+    // The saved plan, as { "YYYY-MM-DD": { startTime, stops } }. Saved as { v: 2, days }; an
+    // older save is an array with one entry per plan day in the plan's order (1.–7. des), so
+    // entry i is read as the plan's i-th date.
+    function normalizeSaved(p) {
+      if (Array.isArray(p)) {
+        const out = {}
+        p.forEach((d, i) => { if (d && plan[i]) out[plan[i].day] = d })
+        return out
+      }
+      if (p && p.v === 2 && p.days && typeof p.days === 'object') return p.days
+      return null
+    }
     // Prefer server-synced state; fall back to local cache.
     function loadSaved() {
-      if (savedState) { try { const p = JSON.parse(savedState); if (p) return p } catch (e) {} }
-      try { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null } catch { return null }
+      if (savedState) { try { const p = normalizeSaved(JSON.parse(savedState)); if (p) return p } catch (e) {} }
+      try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSaved(JSON.parse(s)) : null } catch { return null }
     }
 
     function setStatus(text, color) {
@@ -230,24 +283,70 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
       }, 1000)
     }
 
+    // Saves every date, the "Not scheduled" ones (extraDays) included — a stop is only ever
+    // removed by the user, never by the trip's days changing.
     function saveState() {
-      const payload = JSON.stringify(state.map((d) => ({ startTime: d.startTime, stops: d.stops })))
+      const all = {}
+      Object.values(extraDays).concat(state).forEach((d) => { if (d.day) all[d.day] = { startTime: d.startTime, stops: d.stops } })
+      const payload = JSON.stringify({ v: 2, days: all })
       try { localStorage.setItem(STORE_KEY, payload) } catch {}
       scheduleRemoteSave(payload)
     }
 
+    // One date's day: its saved version, else the plan's default for that date, else empty.
+    function dayEntry(iso, s) {
+      const t = templateByDay.get(iso)
+      return {
+        day: iso, date: labels[iso] || iso, area: t ? t.area : '', note: t ? (t.note || '') : '',
+        startTime: (s && s.startTime) || DEFAULT_START,
+        stops: (s && Array.isArray(s.stops)) ? s.stops : (t ? t.stops.slice() : []),
+      }
+    }
+    // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
+    // default) — their stops are shown under "Not scheduled" until moved to a day.
+    let extraDays = {}
     function buildState() {
-      const saved = loadSaved()
-      return plan.map((day, di) => {
-        const s = saved && saved[di]
-        return {
-          day: day.day, date: day.date, area: day.area, note: day.note || '',
-          startTime: (s && s.startTime) || DEFAULT_START,
-          stops: (s && s.stops) ? s.stops : day.stops.slice(),
-        }
+      const saved = loadSaved() || {}
+      const inRange = new Set(days)
+      extraDays = {}
+      new Set([...plan.map((d) => d.day), ...Object.keys(saved)]).forEach((iso) => {
+        if (!inRange.has(iso)) extraDays[iso] = dayEntry(iso, saved[iso])
       })
+      return days.map((iso) => dayEntry(iso, saved[iso]))
     }
     let state = buildState()
+
+    function moveUnscheduled(iso, idx, dj) {
+      const [s] = extraDays[iso].stops.splice(idx, 1)
+      if (s) state[dj].stops.push(s)
+      saveState(); render()
+    }
+
+    function renderUnscheduled() {
+      const unscheduled = Object.values(extraDays).filter((d) => d.stops.length).sort((a, b) => a.day.localeCompare(b.day))
+      if (!unscheduled.length) return
+      const card = document.createElement('div')
+      card.className = 'day-card unscheduled-card'
+      const options = state.map((d, dj) => `<option value="${dj}">${esc(d.date)}</option>`).join('')
+      card.innerHTML = `
+        <div class="day-head"><div><div class="day-title">Not scheduled</div>
+        <div class="day-area">Stops from a day that isn't in the trip any more. Nothing is deleted — move them to a day.</div></div></div>
+        <ul class="unscheduled-list"></ul>`
+      const ul = card.querySelector('.unscheduled-list')
+      unscheduled.forEach((d) => d.stops.forEach((s, si) => {
+        const li = document.createElement('li')
+        li.className = 'unscheduled-stop'
+        li.innerHTML = `
+          <span class="stop-body"><span class="stop-name">${esc(resolveStop(s).name)}</span>
+          <span class="stop-sub">from ${esc(d.date)}</span></span>
+          <select class="us-move" data-key="${esc(d.day)}" data-idx="${si}" aria-label="Move to day"><option value="">Move to day…</option>${options}</select>`
+        ul.appendChild(li)
+      }))
+      ul.querySelectorAll('.us-move').forEach((sel) => sel.addEventListener('change', () => {
+        if (sel.value !== '') moveUnscheduled(sel.dataset.key, +sel.dataset.idx, +sel.value)
+      }))
+      daysEl.appendChild(card)
+    }
 
     const pad = (n) => String(n).padStart(2, '0')
     function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
@@ -560,6 +659,7 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
         daysEl.appendChild(card)
       })
 
+      renderUnscheduled()
       state.forEach((day, di) => initMap(di, day))
       state.forEach((day, di) => renderUndoAffordance(di))
       attachEvents()
@@ -960,7 +1060,13 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
 
     resetBtn.addEventListener('click', () => {
       if (!confirm('Tilbakestille hele planen på alle enheter? Dine endringer forsvinner.')) return
-      state = plan.map((d) => ({ day: d.day, date: d.date, area: d.area, note: d.note || '', startTime: DEFAULT_START, stops: d.stops.slice() }))
+      // Back to the plan's defaults. A date that only exists in the saved plan (not in the
+      // default plan) keeps its stops under "Not scheduled" — they're not the plan's to reset.
+      state = days.map((iso) => dayEntry(iso, null))
+      const keep = {}
+      Object.keys(extraDays).forEach((iso) => { if (!templateByDay.has(iso)) keep[iso] = extraDays[iso] })
+      plan.forEach((t) => { if (!days.includes(t.day)) keep[t.day] = dayEntry(t.day, null) })
+      extraDays = keep
       saveState(); render()
     })
 
@@ -975,6 +1081,12 @@ const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].da
       display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
     }
     .plan-tip strong { color: var(--accent); }
+    .plan-days-hint { font-size: 0.82rem; color: #e0a04c; margin: -0.5rem 0 1rem; max-width: 680px; }
+    .unscheduled-card { border-style: dashed; }
+    .unscheduled-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .unscheduled-stop { display: flex; align-items: center; gap: 0.6rem; justify-content: space-between; flex-wrap: wrap; }
+    .unscheduled-stop .stop-body { display: flex; flex-direction: column; min-width: 0; }
+    .us-move { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.85rem; }
     .tip-actions { display: flex; align-items: center; gap: 0.6rem; }
     .save-status { font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
     .reset-btn {

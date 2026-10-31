@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { formatDayLabel, dateRange, isIsoDate } from '../lib/trip-dates'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
+import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from '../lib/itinerary-review-helpers'
 
 const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -154,6 +155,13 @@ function savedDates(raw: string | null): string[] {
   } catch (e) {}
   return []
 }
+// The flight home (Trip Settings): shown on its day ("✈️ Flight 23:00 from Narita (T1)") and
+// sent with that day's "Check day". Its date defaults to the last day in Tokyo.
+const flightBase = parseFlightHome({ time: trip?.flightHomeTime, airport: trip?.flightHomeAirport, terminal: trip?.flightHomeTerminal })
+const flightDate = isIsoDate(trip?.flightHomeDate) ? trip!.flightHomeDate : trip?.lastTokyoDay
+const flight = flightBase && isIsoDate(flightDate)
+  ? { ...flightBase, date: flightDate, line: flightLine(flightBase), latestEnd: formatClock(latestEndForFlight(flightBase)) }
+  : null
 const labels: Record<string, string> = {}
 for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)]) labels[d] = formatDayLabel(d)
 ---
@@ -176,7 +184,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, flight, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
 
   <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
        safely convert to a module) and so can't use `import`. This tiny module script
@@ -207,7 +215,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     // `days`: the dates shown, in order; `labels`: "1. des (tir)" for every date the page knows
     // (computed on the server by lib/trip-dates.ts — this script never works out a weekday).
-    const { plan, days, labels, areaMin, base, shops, savedState } = JSON.parse(raw)
+    const { plan, days, labels, flight, areaMin, base, shops, savedState } = JSON.parse(raw)
     const templateByDay = new Map(plan.map((d) => [d.day, d]))
     const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
     const daysEl = document.querySelector('#days')
@@ -558,6 +566,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
             <div>
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
+              ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
             </div>
             <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
           </div>
@@ -839,6 +848,8 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
             dayLabel: day.date,
             dayArea: day.area,
             dayStartTime: day.startTime,
+            // Only on the day the flight home leaves — the review checks the day against it.
+            flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal } : undefined,
             stops: stopsPayload,
           }),
         })
@@ -1110,6 +1121,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
     }
     .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
+    .day-flight { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-top: 0.3rem; }
     .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; line-height: 1.5; }
     .day-startrow { margin-bottom: 0.7rem; }
     .day-startrow label {

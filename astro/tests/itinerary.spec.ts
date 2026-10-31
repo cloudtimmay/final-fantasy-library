@@ -1,5 +1,5 @@
 import { test, expect, testName } from './fixtures'
-import { computeTransitions, extractJpyTotal, haversineKm, buildUserPrompt } from '../src/lib/itinerary-review-helpers'
+import { computeTransitions, extractJpyTotal, haversineKm, buildUserPrompt, latestEndForFlight, flightLine, parseFlightHome, flightDeadlineWarning, formatClock } from '../src/lib/itinerary-review-helpers'
 import { weekdayName, formatDayLabel, formatDateLong, dateRange, isIsoDate, addDays } from '../src/lib/trip-dates'
 import { estimateTravelMinutes, extractNoteTravelMinutes, optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
 
@@ -448,5 +448,61 @@ test.describe('itinerary: days follow the trip, "Not scheduled" keeps the rest',
     await expect(page.locator('.day-card:not(.unscheduled-card)')).toHaveCount(7, { timeout: 20000 })
     await expect(page.locator('.plan-days-hint')).toContainText('First day in Tokyo')
     await expect(page.locator('.unscheduled-card')).toHaveCount(0)
+  })
+})
+
+test.describe('itinerary: the flight home', () => {
+  const NARITA_2300 = { time: '23:00', airport: 'Narita', terminal: 'T1' }
+
+  test('23:00 from Narita: the last stop should end by 18:30 (3 h before + ~90 min); Haneda allows ~60 min', () => {
+    expect(formatClock(latestEndForFlight(NARITA_2300))).toBe('18:30')
+    expect(formatClock(latestEndForFlight({ time: '23:00', airport: 'Haneda' }))).toBe('19:00')
+    expect(flightLine(NARITA_2300)).toBe('✈️ Flight 23:00 from Narita (T1)')
+    expect(parseFlightHome({ time: '25:00', airport: 'Narita' })).toBeNull()
+    expect(parseFlightHome({ time: '23:00', airport: 'Kansai' })).toBeNull()
+  })
+
+  test('the review input gets the flight, the 3-hour rule and the latest end time', () => {
+    const prompt = buildUserPrompt('Sunday 6 December 2026', 'Nakano', '08:00', [{ name: 'Nakano Broadway', plannedTime: 600, durationMin: 120, lat: null, lng: null }], [null], [null], NARITA_2300)
+    expect(prompt).toContain('Flight home today: departs 23:00 from Narita International Airport (T1).')
+    expect(prompt).toContain('Be at the airport 3 hours before departure (check-in plus the tax-free refund check at customs)')
+    expect(prompt).toContain('about 90 minutes from central Tokyo to Narita (about 60 minutes to Haneda)')
+    expect(prompt).toContain('must end by 18:30')
+  })
+
+  test('a warning when the day ends after 18:30, none when it ends in time', () => {
+    const stop = (plannedTime: number, durationMin: number) => ({ name: 'Last shop', plannedTime, durationMin, lat: null, lng: null })
+    // 17:30 + 75 min = 18:45: too late.
+    const late = flightDeadlineWarning([stop(9 * 60, 60), stop(17 * 60 + 30, 75)], NARITA_2300)
+    expect(late).toMatchObject({ severity: 'warning', stopIndex: 1, suggestion: 'End the last stop by 18:30.' })
+    expect(late!.message).toContain('The day ends at 18:45')
+    // 17:00 + 90 min = 18:30 exactly: fine.
+    expect(flightDeadlineWarning([stop(17 * 60, 90)], NARITA_2300)).toBeNull()
+  })
+
+  test('the last day shows the flight, and its "Check day" sends it; other days don\'t', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({
+      _type: 'tripSettings', label: testName(`Flight Trip ${Date.now()}`),
+      firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-06', flightHomeTime: '23:00', flightHomeAirport: 'Narita', flightHomeTerminal: 'T1',
+    })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    const bodies: any[] = []
+    await page.route('**/api/itinerary-review', async (route) => {
+      bodies.push(route.request().postDataJSON())
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
+    })
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    const dayCards = page.locator('.day-card:not(.unscheduled-card)')
+    await expect(dayCards).toHaveCount(6, { timeout: 20000 })
+    await expect(dayCards.last().locator('.day-flight')).toHaveText('✈️ Flight 23:00 from Narita (T1) · last stop should end by ~18:30')
+    await expect(page.locator('.day-flight')).toHaveCount(1)
+
+    await dayCards.last().locator('.day-check-btn').click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0]).toMatchObject({ dayDate: '2026-12-06', flight: { time: '23:00', airport: 'Narita', terminal: 'T1' } })
+    await dayCards.first().locator('.day-check-btn').click()
+    await expect.poll(() => bodies.length).toBe(2)
+    expect(bodies[1].flight).toBeUndefined()
   })
 })

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, type ReviewStopInput } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, type ReviewStopInput } from '../../lib/itinerary-review-helpers'
 import { isIsoDate, formatDateLong } from '../../lib/trip-dates'
 
 export const prerender = false
@@ -26,6 +26,7 @@ Report CONCRETE problems only — things actually wrong with this specific plan,
 - Too many stops for the time actually available in the day.
 - No break for food over a long day.
 - Arriving at a stop long before shops in that area typically open.
+- On a day with a flight home: a plan whose last stop ends later than the latest time given.
 
 Each stop may include a "note" written by the trip's owner, in their own words. That note can contain the REAL train route, travel time and fare they already looked up — when a note gives real travel information, trust it over the straight-line distance given for that gap, since the straight-line distance does not account for the actual train route.
 
@@ -48,6 +49,8 @@ export const POST: APIRoute = async ({ request }) => {
     : typeof body.dayLabel === 'string' && body.dayLabel.trim() ? body.dayLabel.trim() : null
   const dayArea = typeof body.dayArea === 'string' && body.dayArea.trim() ? body.dayArea.trim() : null
   const dayStartTime = typeof body.dayStartTime === 'string' && body.dayStartTime.trim() ? body.dayStartTime.trim() : null
+  // Only on the day the flight home leaves (sent by /itinerary); anything malformed is ignored.
+  const flight = parseFlightHome(body.flight)
 
   if (!Array.isArray(body.stops) || body.stops.length === 0) return json(400, { error: 'Missing stops' })
   if (body.stops.length > 40) return json(400, { error: 'Too many stops' })
@@ -68,9 +71,11 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const totalFareJpy = extractJpyTotal(notesByStop)
-  const maxModelItems = totalFareJpy > 0 ? MAX_MODEL_ITEMS - 1 : MAX_MODEL_ITEMS
+  // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
+  const flightWarning = flight ? flightDeadlineWarning(stops, flight) : null
+  const maxModelItems = MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0)
 
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop)
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)
@@ -152,6 +157,8 @@ export const POST: APIRoute = async ({ request }) => {
     items.push({ severity: item.severity, stopIndex, message, suggestion })
     if (items.length >= maxModelItems) break
   }
+
+  if (flightWarning) items.unshift(flightWarning)
 
   // Computed deterministically from the notes' own fares, not left to the model's
   // arithmetic — matches the project's convention (see computeTransitions above) of

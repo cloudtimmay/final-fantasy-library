@@ -63,3 +63,27 @@ export function formatClock(minutes: number): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`
 }
+
+// The review's input text for one day — pulled out of /api/itinerary-review (which can't be
+// imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>): string {
+  const transitions = computeTransitions(stops)
+  const lines: string[] = []
+  lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
+  if (dayArea) lines.push(`Area: ${dayArea}`)
+  if (dayStartTime) lines.push(`Day starts at: ${dayStartTime}`)
+  lines.push('')
+  lines.push('Stops, in order:')
+  stops.forEach((s, i) => {
+    const t = transitions[i]
+    if (t) {
+      const distText = t.distanceKm != null ? `${t.distanceKm.toFixed(2)} km straight-line from previous stop` : 'distance from previous stop unknown (missing coordinates)'
+      lines.push(`  (gap before this stop: ${distText}, ${t.gapMin} min between previous stop ending and this one starting)`)
+    }
+    lines.push(`[${i}] ${s.name}`)
+    lines.push(`    Planned time: ${formatClock(s.plannedTime)}, duration ${s.durationMin} min`)
+    if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
+    if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
+  })
+  return lines.join('\n')
+}

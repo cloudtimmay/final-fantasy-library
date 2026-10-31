@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { computeTransitions, extractJpyTotal, formatClock, type ReviewStopInput } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, type ReviewStopInput } from '../../lib/itinerary-review-helpers'
+import { isIsoDate, formatDateLong } from '../../lib/trip-dates'
 
 export const prerender = false
 
@@ -36,33 +37,15 @@ After your review, respond with ONLY a JSON array (no other text, no markdown co
 
 If the day looks fine, respond with an empty JSON array: []`
 
-function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>): string {
-  const transitions = computeTransitions(stops)
-  const lines: string[] = []
-  lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
-  if (dayArea) lines.push(`Area: ${dayArea}`)
-  if (dayStartTime) lines.push(`Day starts at: ${dayStartTime}`)
-  lines.push('')
-  lines.push('Stops, in order:')
-  stops.forEach((s, i) => {
-    const t = transitions[i]
-    if (t) {
-      const distText = t.distanceKm != null ? `${t.distanceKm.toFixed(2)} km straight-line from previous stop` : 'distance from previous stop unknown (missing coordinates)'
-      lines.push(`  (gap before this stop: ${distText}, ${t.gapMin} min between previous stop ending and this one starting)`)
-    }
-    lines.push(`[${i}] ${s.name}`)
-    lines.push(`    Planned time: ${formatClock(s.plannedTime)}, duration ${s.durationMin} min`)
-    if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
-    if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
-  })
-  return lines.join('\n')
-}
-
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)
   if (!body) return json(400, { error: 'Bad request' })
 
-  const dayLabel = typeof body.dayLabel === 'string' && body.dayLabel.trim() ? body.dayLabel.trim() : null
+  // The day's calendar date ("YYYY-MM-DD") wins: its weekday is computed here (lib/trip-dates.ts),
+  // never taken from a label. A plain label is only the fallback for an older client.
+  const dayLabel = isIsoDate(body.dayDate)
+    ? formatDateLong(body.dayDate)
+    : typeof body.dayLabel === 'string' && body.dayLabel.trim() ? body.dayLabel.trim() : null
   const dayArea = typeof body.dayArea === 'string' && body.dayArea.trim() ? body.dayArea.trim() : null
   const dayStartTime = typeof body.dayStartTime === 'string' && body.dayStartTime.trim() ? body.dayStartTime.trim() : null
 

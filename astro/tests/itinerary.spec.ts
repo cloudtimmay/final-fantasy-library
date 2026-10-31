@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
-import { computeTransitions, extractJpyTotal, haversineKm } from '../src/lib/itinerary-review-helpers'
+import { computeTransitions, extractJpyTotal, haversineKm, buildUserPrompt } from '../src/lib/itinerary-review-helpers'
+import { weekdayName, formatDayLabel, formatDateLong, dateRange, isIsoDate, addDays } from '../src/lib/trip-dates'
 import { estimateTravelMinutes, extractNoteTravelMinutes, optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
 
 // These exercise the pure computation itself directly — the only way to deterministically
@@ -333,5 +334,49 @@ test.describe('itinerary: "Suggest route"', () => {
     const afterUndo = page.locator('.day-card').first()
     const namesAfterUndo = await afterUndo.locator('.stop-list > li.stop[data-idx] .stop-name').allTextContents()
     expect(namesAfterUndo).toEqual(['Far', 'Near'])
+  })
+})
+
+test.describe('trip dates: weekdays from calendar dates (lib/trip-dates.ts)', () => {
+  test('1 December 2026 is a Tuesday and 6 December 2026 a Sunday', () => {
+    expect(weekdayName('2026-12-01')).toBe('Tuesday')
+    expect(weekdayName('2026-12-06')).toBe('Sunday')
+    expect(formatDayLabel('2026-12-01')).toBe('1. des (tir)')
+    expect(formatDayLabel('2026-12-06')).toBe('6. des (søn)')
+    expect(formatDateLong('2026-12-01')).toBe('Tuesday 1 December 2026')
+  })
+
+  test('ranges cross month ends; invalid dates are rejected', () => {
+    expect(dateRange('2026-11-30', '2026-12-02')).toEqual(['2026-11-30', '2026-12-01', '2026-12-02'])
+    expect(dateRange('2026-12-06', '2026-12-01')).toEqual([])
+    expect(isIsoDate('2026-02-30')).toBe(false)
+    expect(isIsoDate('2026-12-1')).toBe(false)
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
+  })
+
+  test('the review input names the weekday computed from the date, not a label', () => {
+    const prompt = buildUserPrompt(formatDateLong('2026-12-06'), 'Nakano', '08:00', [{ name: 'Nakano Broadway', plannedTime: 600, durationMin: 120, lat: null, lng: null }], [null], [null])
+    expect(prompt).toContain('Day: Sunday 6 December 2026')
+  })
+})
+
+test.describe('itinerary: day headings', () => {
+  // A timezone west of UTC is where `new Date("2026-12-01")` would read back as 30 November.
+  test.use({ timezoneId: 'America/Los_Angeles' })
+
+  test('show the right weekday for each date, and the review gets the calendar date', async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary')
+    const titles = page.locator('.day-card .day-title')
+    await expect(titles.first()).toHaveText('1. des (tir)', { timeout: 20000 })
+    await expect(titles.filter({ hasText: '6. des' })).toHaveText('6. des (søn)')
+
+    let body: any = null
+    await page.route('**/api/itinerary-review', async (route) => {
+      body = route.request().postDataJSON()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
+    })
+    await page.locator('.day-card').first().locator('.day-check-btn').click()
+    await expect.poll(() => body?.dayDate).toBe('2026-12-01')
   })
 })

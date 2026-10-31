@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { formatDayLabel } from '../lib/trip-dates'
 
 const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -25,9 +26,13 @@ try {
   if (doc && typeof doc.data === 'string') savedState = doc.data
 } catch (e) { savedState = null }
 
+// The default plan, one entry per calendar day ("YYYY-MM-DD"). No weekday is ever written
+// here: labels like "1. des (tir)" are computed by lib/trip-dates.ts (formatDayLabel), the
+// same function /api/itinerary-review uses. (They used to be hand-written, and carried the
+// weekdays of December 2025 — 1 December 2026 is a Tuesday, not a Monday.)
 const PLAN = [
   {
-    date: '1. des (man)', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
+    day: '2026-12-01', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
     stops: [
       { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid', tag: 'MUST', slot: 'dagtid', lat: 35.699358, lng: 139.770702 },
       { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.700494, lng: 139.771743 },
@@ -47,7 +52,7 @@ const PLAN = [
     ],
   },
   {
-    date: '2. des (tir)', area: 'Shinjuku',
+    day: '2026-12-02', area: 'Shinjuku',
     stops: [
       { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.696102, lng: 139.709009 },
       { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.690151, lng: 139.705842 },
@@ -65,7 +70,7 @@ const PLAN = [
     ],
   },
   {
-    date: '3. des (ons)', area: 'Ikebukuro',
+    day: '2026-12-03', area: 'Ikebukuro',
     stops: [
       { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.731144, lng: 139.715459 },
       { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.728499, lng: 139.719797 },
@@ -77,7 +82,7 @@ const PLAN = [
     ],
   },
   {
-    date: '4. des (tor)', area: 'Shibuya + Harajuku',
+    day: '2026-12-04', area: 'Shibuya + Harajuku',
     stops: [
       { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.662116, lng: 139.698639 },
       { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.661834, lng: 139.698776 },
@@ -89,7 +94,7 @@ const PLAN = [
     ],
   },
   {
-    date: '5. des (fre)', area: 'Tokyo Station + Shinagawa',
+    day: '2026-12-05', area: 'Tokyo Station + Shinagawa',
     stops: [
       { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.) · start her', tag: 'kun i dag/i morgen', slot: 'dagtid', lat: 35.606832, lng: 139.734280 },
       { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.682496, lng: 139.768683 },
@@ -100,25 +105,27 @@ const PLAN = [
     ],
   },
   {
-    date: '6. des (lør)', area: 'Nakano',
+    day: '2026-12-06', area: 'Nakano',
     stops: [
       { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', slot: 'dagtid', lat: 35.709248, lng: 139.665652 },
       { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj · nær Broadway', tag: 'mat', slot: '', lat: 35.708064, lng: 139.665548 },
     ],
   },
   {
-    date: '7. des (søn)', area: 'Yokohama',
+    day: '2026-12-07', area: 'Yokohama',
     stops: [
       { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', slot: 'dagtid', lat: 35.464556, lng: 139.624649 },
       { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00 · lengre unna', tag: '', slot: 'dagtid', lat: 35.417500, lng: 139.660800 },
     ],
   },
 ]
+const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
+const rangeLabel = plan.length ? `${plan[0].date} – ${plan[plan.length - 1].date}` : ''
 ---
 <Base title="Itinerary">
   <div class="page-header">
     <h1>Shopping-plan</h1>
-    <span class="count">1.–7. des · base Akihabara</span>
+    <span class="count">{rangeLabel} · base Akihabara</span>
   </div>
 
   <div class="plan-tip">
@@ -131,7 +138,7 @@ const PLAN = [
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan: PLAN, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
 
   <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
        safely convert to a module) and so can't use `import`. This tiny module script
@@ -234,7 +241,7 @@ const PLAN = [
       return plan.map((day, di) => {
         const s = saved && saved[di]
         return {
-          date: day.date, area: day.area, note: day.note || '',
+          day: day.day, date: day.date, area: day.area, note: day.note || '',
           startTime: (s && s.startTime) || DEFAULT_START,
           stops: (s && s.stops) ? s.stops : day.stops.slice(),
         }
@@ -728,6 +735,7 @@ const PLAN = [
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            dayDate: day.day,
             dayLabel: day.date,
             dayArea: day.area,
             dayStartTime: day.startTime,
@@ -952,7 +960,7 @@ const PLAN = [
 
     resetBtn.addEventListener('click', () => {
       if (!confirm('Tilbakestille hele planen på alle enheter? Dine endringer forsvinner.')) return
-      state = plan.map((d) => ({ date: d.date, area: d.area, note: d.note || '', startTime: DEFAULT_START, stops: d.stops.slice() }))
+      state = plan.map((d) => ({ day: d.day, date: d.date, area: d.area, note: d.note || '', startTime: DEFAULT_START, stops: d.stops.slice() }))
       saveState(); render()
     })
 

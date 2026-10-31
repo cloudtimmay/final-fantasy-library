@@ -6,6 +6,7 @@ export const tripSettings = defineType({
   title: 'Trip Settings',
   type: 'document',
   icon: () => '⚙️',
+  fieldsets: [{ name: 'itinerary', title: 'Itinerary: days in Tokyo and the flight home', options: { collapsible: true } }],
   fields: [
     defineField({ name: 'label', title: 'Label', type: 'string', initialValue: 'Japan trip', description: 'Just a name for this settings document' }),
     defineField({ name: 'startDate', title: 'Start date', type: 'date' }),
@@ -19,6 +20,57 @@ export const tripSettings = defineType({
           if (!value || !doc?.startDate) return true
           return value >= doc.startDate ? true : 'End date should not be before start date'
         }).warning(),
+    }),
+    // /itinerary's days. Start/End date above are the travel dates (leaving home, getting
+    // home) and pick the current trip on /spending and /checklist, so they aren't reused.
+    defineField({
+      name: 'firstTokyoDay',
+      title: 'First day in Tokyo',
+      type: 'date',
+      fieldset: 'itinerary',
+      description: 'The first day the itinerary shows (e.g. the arrival day).',
+    }),
+    defineField({
+      name: 'lastTokyoDay',
+      title: 'Last day in Tokyo',
+      type: 'date',
+      fieldset: 'itinerary',
+      description: 'The last day the itinerary shows (e.g. the day you fly home).',
+      validation: (R) =>
+        R.custom((value, ctx) => {
+          const doc = ctx.document as { firstTokyoDay?: string } | undefined
+          if (!value || !doc?.firstTokyoDay) return true
+          return value >= doc.firstTokyoDay ? true : 'Last day should not be before the first day'
+        }).warning(),
+    }),
+    defineField({
+      name: 'flightHomeDate',
+      title: 'Flight home: date',
+      type: 'date',
+      fieldset: 'itinerary',
+      description: 'The day the flight leaves Japan. Empty = the last day in Tokyo.',
+    }),
+    defineField({
+      name: 'flightHomeTime',
+      title: 'Flight home: departure time',
+      type: 'string',
+      fieldset: 'itinerary',
+      description: 'Local Japan time, HH:MM (e.g. 23:00).',
+      validation: (R) => R.regex(/^([01]\d|2[0-3]):[0-5]\d$/, { name: 'HH:MM' }),
+    }),
+    defineField({
+      name: 'flightHomeAirport',
+      title: 'Flight home: airport',
+      type: 'string',
+      fieldset: 'itinerary',
+      options: { list: [{ title: 'Narita International Airport', value: 'Narita' }, { title: 'Haneda Airport', value: 'Haneda' }], layout: 'radio' },
+    }),
+    defineField({
+      name: 'flightHomeTerminal',
+      title: 'Flight home: terminal',
+      type: 'string',
+      fieldset: 'itinerary',
+      description: 'e.g. T1',
     }),
     defineField({ name: 'budgetNok', title: 'Budget (NOK)', type: 'number' }),
     defineField({ name: 'budgetYen', title: 'Budget (JPY)', type: 'number' }),

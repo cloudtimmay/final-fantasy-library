@@ -64,18 +64,24 @@ export function looksClosed(hoursText: string | null | undefined, plannedMinutes
 
 // ---- Travel time estimate ----
 
-// Walking speed for a relaxed shopping-trip pace (not a brisk commute) — used under
-// ~1 km, since at that distance walking is almost always faster than dealing with a train
-// (station access + wait + ride + station egress all add up for a short hop).
-const WALK_KMH = 5
-const WALK_THRESHOLD_KM = 1
+// Walking: the route is about 1.4× the straight line through Tokyo's streets, at a relaxed
+// shopping pace of 80 m/min (~4.8 km/h).
+export const WALK_ROUTE_FACTOR = 1.4
+export const WALK_M_PER_MIN = 80
 
-// Central Tokyo train estimate for 1 km or further: a fixed overhead for station
-// access/egress and waiting for a train (off-peak subway/commuter trains run roughly every
-// 3-10 min), plus a per-km figure for a train's effective door-to-door speed once stops
-// and any line change are factored in (roughly 25-35 km/h in practice -> ~2 min/km).
-export const TRAIN_OVERHEAD_MIN = 10
-export const TRAIN_MIN_PER_KM = 2
+// Train, fitted to Tokyo rail: a fixed overhead for walking to and from the stations and
+// waiting (trains every few minutes, often one change), then about 1.1 min per straight-line
+// km — commuter and rapid lines cover longer distances at 50–60 km/h. Checked against known
+// trips (straight-line distance -> estimate -> real-world):
+//   Akihabara -> Ikebukuro        6.6 km -> 27 min (about 25–30)
+//   Yokohama  -> Hiroo/Minami-Azabu 22.5 km -> 45 min (about 45–60)
+//   Shinjuku  -> Yokohama         25.9 km -> 48 min (about 35–45: the direct Shōnan-Shinjuku
+//                                                    line is faster than a straight line can know)
+// No straight-line formula fits both of the last two (the longer trip is the quicker one), so
+// this errs toward too much time rather than a missed train. A travel time entered for a leg,
+// or a shop note's, always wins over this estimate (lib/itinerary-schedule.ts).
+export const TRAIN_OVERHEAD_MIN = 20
+export const TRAIN_MIN_PER_KM = 1.1
 
 export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const R = 6371
@@ -96,12 +102,19 @@ export function extractNoteTravelMinutes(note: string | null | undefined): numbe
   return m ? Number(m[1]) : null
 }
 
+// The quicker of walking and the train estimate above, in whole minutes (at least 1);
+// null when either end has no coordinates.
+export function estimateLeg(a: RoutePoint, b: RoutePoint): { minutes: number; mode: 'walk' | 'train' } | null {
+  if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) return null
+  const km = haversineKm({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng })
+  const walk = (km * 1000 * WALK_ROUTE_FACTOR) / WALK_M_PER_MIN
+  const train = TRAIN_OVERHEAD_MIN + km * TRAIN_MIN_PER_KM
+  return walk <= train ? { minutes: Math.max(1, Math.round(walk)), mode: 'walk' } : { minutes: Math.round(train), mode: 'train' }
+}
+
 export function estimateTravelMinutes(a: RoutePoint, b: RoutePoint, preferMinutes?: number | null): number {
   if (preferMinutes != null) return preferMinutes
-  if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) return 0
-  const km = haversineKm({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng })
-  if (km < WALK_THRESHOLD_KM) return Math.max(1, Math.round((km / WALK_KMH) * 60))
-  return Math.round(TRAIN_OVERHEAD_MIN + km * TRAIN_MIN_PER_KM)
+  return estimateLeg(a, b)?.minutes ?? 0
 }
 
 // Large enough that the search always prefers zero closed-shop arrivals over any amount

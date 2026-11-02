@@ -188,12 +188,14 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
 
   <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
        safely convert to a module) and so can't use `import`. This tiny module script
-       imports the deterministic route optimizer and exposes it on window for that script
-       to call — by the time a user can click "Suggest route" the page has long finished
-       loading, so load order between the two scripts is never a concern. -->
+       imports the shared itinerary code from src/lib and exposes it on window for that
+       script; module scripts run after it, so its first render waits for the
+       "itinerary-lib-ready" event this one sends. -->
   <script>
-    import { optimizeRoute } from '../lib/route-optimizer'
-    window.__routeOptimizer = { optimizeRoute }
+    import { optimizeRoute, estimateLeg } from '../lib/route-optimizer'
+    window.__routeOptimizer = { optimizeRoute, estimateLeg }
+    // The inline script's first render waits for this (see itineraryLibReady there).
+    window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
 
   <script is:inline>
@@ -432,17 +434,19 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2
       return 2 * R * Math.asin(Math.sqrt(x))
     }
+    // Travel between two points: the shared estimate (src/lib/route-optimizer.ts estimateLeg —
+    // walking for short hops, a Tokyo-rail train estimate beyond that).
     function walkMin(a, b) {
-      if (!a || !b || a.lat == null || b.lat == null) return 0
-      const walkM = distM(a, b) * 1.4
-      if (walkM > 2500) return Math.round(walkM/1000*3) + 5
-      return Math.max(1, Math.round(walkM/80))
+      if (!a || !b) return 0
+      const leg = window.__routeOptimizer.estimateLeg(a, b)
+      return leg ? leg.minutes : 0
     }
     function walkText(a, b) {
-      if (!a || !b || a.lat == null || b.lat == null) return ''
-      const walkM = distM(a, b) * 1.4
-      if (walkM > 2500) return `🚃 ~${Math.round(walkM/1000*3)} min (ta tog)`
-      return `🚶 ~${Math.max(1, Math.round(walkM/80))} min · ${Math.round(walkM)} m`
+      if (!a || !b) return ''
+      const leg = window.__routeOptimizer.estimateLeg(a, b)
+      if (!leg) return ''
+      if (leg.mode === 'train') return `🚃 ~${leg.minutes} min (estimate)`
+      return `🚶 ~${leg.minutes} min · ${Math.round(distM(a, b) * 1.4)} m`
     }
     function travelBadge(area) {
       const key = Object.keys(areaMin).find((k) => area.includes(k))
@@ -1081,7 +1085,12 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       saveState(); render()
     })
 
-    loadLeaflet().then((ok) => { leafletOk = ok; render() })
+    // The travel estimate and schedule live in src/lib, reached through the module script above
+    // (window.__routeOptimizer); module scripts run after this one, so the first render waits.
+    const itineraryLibReady = window.__routeOptimizer
+      ? Promise.resolve()
+      : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
+    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; render() })
   </script>
 
   <style is:global>
@@ -1331,4 +1340,4 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
     }
   </style>
-</Base>
+</Base>

@@ -1,7 +1,7 @@
 import { test, expect, testName } from './fixtures'
 import { computeTransitions, extractJpyTotal, haversineKm, buildUserPrompt, latestEndForFlight, flightLine, parseFlightHome, flightDeadlineWarning, formatClock } from '../src/lib/itinerary-review-helpers'
 import { weekdayName, formatDayLabel, formatDateLong, dateRange, isIsoDate, addDays } from '../src/lib/trip-dates'
-import { estimateTravelMinutes, extractNoteTravelMinutes, optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
+import { estimateTravelMinutes, estimateLeg, extractNoteTravelMinutes, optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
 
 // These exercise the pure computation itself directly — the only way to deterministically
 // verify "the computed distances and gaps" without hitting the real Anthropic API, since
@@ -161,15 +161,30 @@ test.describe('itinerary: "Check day" AI review', () => {
 })
 
 test.describe('route-optimizer: travel time estimate', () => {
-  test('estimates walking time under ~1 km and a train estimate at or beyond it', () => {
+  test('walks short hops and takes the train beyond ~1.2 km', () => {
     const a = { lat: 35.0, lng: 139.0 }
     const near = { lat: 35.003, lng: 139.0 } // ~333 m
     const far = { lat: 35.02, lng: 139.0 } // ~2.22 km
-    const walkMin = estimateTravelMinutes(a, near)
-    expect(walkMin).toBeGreaterThanOrEqual(1)
-    expect(walkMin).toBeLessThan(10)
-    const trainMin = estimateTravelMinutes(a, far)
-    expect(trainMin).toBeGreaterThan(10) // overhead alone is 10
+    expect(estimateLeg(a, near)).toEqual({ minutes: 6, mode: 'walk' })
+    expect(estimateLeg(a, far)!.mode).toBe('train')
+    expect(estimateTravelMinutes(a, far)).toBeGreaterThan(20) // overhead alone is 20
+  })
+
+  // Real-world times for known trips; see the constants' comment in route-optimizer.ts.
+  test('Tokyo rail estimate matches known trips', () => {
+    const shinjuku = { lat: 35.689356, lng: 139.697787 } // Yellow Submarine Shinjuku
+    const yokohama = { lat: 35.464556, lng: 139.624649 } // SURUGA-YA Marui City Yokohama
+    const hiroo = { lat: 35.6507, lng: 139.7222 }
+    const akihabara = { lat: 35.6984, lng: 139.7731 }
+    const ikebukuro = { lat: 35.7295, lng: 139.7109 }
+    const min = (a: any, b: any) => estimateLeg(a, b)!.minutes
+    expect(min(akihabara, ikebukuro)).toBeGreaterThanOrEqual(25)
+    expect(min(akihabara, ikebukuro)).toBeLessThanOrEqual(30)
+    expect(min(yokohama, hiroo)).toBeGreaterThanOrEqual(45)
+    expect(min(yokohama, hiroo)).toBeLessThanOrEqual(60)
+    // About 35–45 in reality (a direct line); the estimate errs a few minutes high.
+    expect(min(shinjuku, yokohama)).toBeGreaterThanOrEqual(35)
+    expect(min(shinjuku, yokohama)).toBeLessThanOrEqual(48)
   })
 
   test('prefers an explicit minutes value (e.g. from a shop note) over the distance estimate', () => {

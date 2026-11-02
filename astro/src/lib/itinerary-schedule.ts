@@ -23,6 +23,7 @@
 //   end is later than that.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
+import { tokyoNow } from './trip-dates'
 
 // Slack before a fixed-time stop: missing it costs a reservation, a session or a flight.
 export const LEAVE_BUFFER_MIN = 10
@@ -207,4 +208,17 @@ function foldLine(line: string): string {
   }
   parts.push(cur)
   return parts.join('\r\n ')
+}
+
+// --- "Next: leave <stop> by HH:MM (in N min)" --------------------------------------------------
+// The next leave-by time today, by the clock in Tokyo (whatever timezone the phone is set to):
+// the earliest leg on today's date whose leave-by hasn't passed. null when there's none —
+// before or after the trip, or when today's last leave-by has gone.
+export type LeaveEntry = { date: string; from: string; to: string; leaveBy: number }
+export function nextLeave(entries: LeaveEntry[], now: Date = new Date()): (LeaveEntry & { inMin: number }) | null {
+  const t = tokyoNow(now)
+  const next = entries
+    .filter((e) => e.date === t.date && e.leaveBy >= t.minutes)
+    .sort((a, b) => a.leaveBy - b.leaveBy)[0]
+  return next ? { ...next, inMin: next.leaveBy - t.minutes } : null
 }

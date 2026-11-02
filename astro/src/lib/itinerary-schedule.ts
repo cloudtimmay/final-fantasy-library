@@ -15,9 +15,13 @@
 //   Akihabara), otherwise the estimate (route-optimizer.ts estimateLeg).
 // - Leaving for an anchor: leaveBy = anchor arrival − travel − LEAVE_BUFFER_MIN. Leaving for
 //   any other stop: leaveBy = this stop's end (that stop is scheduled from it, so no buffer).
-// - A non-fixed stop that can't be done before the next anchor (counting its own stay, the
-//   travel and the buffer, and the stops between it and the anchor) gets `doesntFit`, with how
-//   many minutes short — it keeps its forward time, which is past what the anchor allows.
+// - The non-fixed stops before an anchor (back to the previous anchor or the day's start) are a
+//   segment. If together they run past the anchor (the last one's end + travel + buffer is
+//   later than the anchor's arrival), the segment gets ONE overrun figure (`segments`), with the
+//   longest non-MUST visits as suggestions. Individually, only the stops that really can't make
+//   it are flagged (`doesntFit`): the first whose own end + the trip straight to the anchor +
+//   the buffer is later than the anchor's arrival, and every stop after it in the segment.
+//   Earlier stops are fine on their own — it's the stops after them that don't fit.
 // - A fixed stop followed by another anchor gets `stayUntil`: the latest it can end and still
 //   make the next anchor (through any stops in between); `leaveEarlierMin` when its planned
 //   end is later than that.
@@ -37,6 +41,7 @@ export type ScheduleStopInput = {
   arriveEarlyMin: number | null // fixed stops only: be there this many minutes before fixedTime
   manualTravelMin: number | null // travel time entered for the leg INTO this stop
   noteTravelMin: number | null // from the shop's note; only used for the leg from the base
+  must?: boolean // tagged MUST: never suggested as the visit to shorten
 }
 
 export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate'; mode: 'walk' | 'train' | null }
@@ -54,7 +59,17 @@ export type ScheduledStop = {
   doesntFit: { anchorIndex: number; anchorTime: number; shortMin: number } | null
 }
 
-export type DaySchedule = { stops: ScheduledStop[]; returnLeg: TravelLeg | null; end: number }
+// The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
+// three of the segment's longest visits not marked MUST, longest first.
+export type SegmentOverrun = {
+  anchorIndex: number
+  anchorTime: number
+  overrunMin: number
+  firstLateIndex: number
+  suggestions: { index: number; name: string; durationMin: number }[]
+}
+
+export type DaySchedule = { stops: ScheduledStop[]; segments: SegmentOverrun[]; returnLeg: TravelLeg | null; end: number }
 
 export function anchorArrival(stop: ScheduleStopInput): number | null {
   if (stop.fixedTime == null) return null
@@ -112,14 +127,41 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     o.nextIsAnchor = next.fixedTime != null
     o.leaveBy = o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
     if (o.nextIsAnchor && o.end > o.leaveBy) o.leaveEarlierMin = o.end - o.leaveBy
-    const a = nextAnchor[i]
-    if (a == null || latestEnd[i] == null) return
+    if (nextAnchor[i] == null || latestEnd[i] == null) return
     if (o.fixed) {
       o.stayUntil = latestEnd[i]
       if (o.end > latestEnd[i]!) o.leaveEarlierMin = o.end - latestEnd[i]!
-    } else if (o.end > latestEnd[i]!) {
-      o.doesntFit = { anchorIndex: a, anchorTime: stops[a].fixedTime!, shortMin: o.end - latestEnd[i]! }
     }
+  })
+
+  // Per segment: the non-fixed stops between the previous anchor (or the start) and anchor a.
+  const segments: SegmentOverrun[] = []
+  let segStart = 0
+  stops.forEach((s, a) => {
+    if (s.fixedTime == null) return
+    const members: number[] = []
+    for (let k = segStart; k < a; k++) members.push(k)
+    segStart = a + 1
+    if (!members.length) return // nothing between two anchors: "leave earlier" on the first covers it
+    const arrive = anchorArrival(s)!
+    const overrunMin = out[a - 1].end + legs[a].minutes + LEAVE_BUFFER_MIN - arrive
+    if (overrunMin <= 0) return
+    // The trip straight from stop k to the anchor (the real leg for the last one).
+    const toAnchor = (k: number) => {
+      if (k === a - 1) return legs[a].minutes
+      const est = estimateLeg(stops[k], s)
+      return est ? est.minutes : legs[a].minutes
+    }
+    const firstLateIndex = members.find((k) => out[k].end + toAnchor(k) + LEAVE_BUFFER_MIN > arrive)!
+    members.filter((k) => k >= firstLateIndex).forEach((k) => {
+      out[k].doesntFit = { anchorIndex: a, anchorTime: s.fixedTime!, shortMin: out[k].end + toAnchor(k) + LEAVE_BUFFER_MIN - arrive }
+    })
+    const suggestions = members
+      .filter((k) => !stops[k].must)
+      .sort((x, y) => stops[y].durationMin - stops[x].durationMin || x - y)
+      .slice(0, 3)
+      .map((k) => ({ index: k, name: stops[k].name, durationMin: stops[k].durationMin }))
+    segments.push({ anchorIndex: a, anchorTime: s.fixedTime!, overrunMin, firstLateIndex, suggestions })
   })
 
   const last = stops[stops.length - 1]
@@ -128,7 +170,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     return { minutes: est ? est.minutes : 0, source: 'estimate' as const, mode: est ? est.mode : null }
   })() : null
   const end = out.length ? out[out.length - 1].end + (returnLeg ? returnLeg.minutes : 0) : startTime
-  return { stops: out, returnLeg, end }
+  return { stops: out, segments, returnLeg, end }
 }
 
 // Google Maps public transit directions between two stops: coordinates when both ends have

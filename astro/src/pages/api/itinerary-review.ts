@@ -90,6 +90,7 @@ export const POST: APIRoute = async ({ request }) => {
       arriveEarlyMin: fixedTime != null ? minutesField(raw?.arriveEarlyMin, 240) : null,
       manualTravelMin: minutesField(raw?.manualTravelMin, 600),
       noteTravelMin: extractNoteTravelMinutes(notesByStop[i]),
+      must: raw?.must === true,
     }
   })
   const base = point(body.base)
@@ -98,14 +99,14 @@ export const POST: APIRoute = async ({ request }) => {
   const schedule: ReviewScheduleStop[] | null = daySchedule
     ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
     : null
-  const timetableItems = schedule ? scheduleReviewItems(stops.map((s) => s.name), schedule) : []
+  const timetableItems = schedule ? scheduleReviewItems(stops.map((s) => s.name), schedule, daySchedule!.segments) : []
 
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
   const flightWarning = flight ? flightDeadlineWarning(stops, flight) : null
   const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length)
 
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule)
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [])
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)

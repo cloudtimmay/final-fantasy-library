@@ -300,15 +300,18 @@ test.describe('itinerary: "Check day" gets the timetable', () => {
     expect(prompt).toContain('FIXED TIME 19:00 (anchor); must arrive 30 min early, by 18:30')
     expect(prompt).toMatch(/\[2\] Square Enix Pop Up Cafe Yokohama[\s\S]*Leave by: \d\d:\d\d \(next stop has a fixed time; includes a 10-min buffer\)/)
     expect(prompt).toMatch(/Can stay until: \d\d:\d\d/)
-    expect(prompt).toMatch(/PROBLEM: doesn't fit before the fixed-time stop \[2\] at 16:30 \(\d+ min short\)/)
+    expect(prompt).toMatch(/PROBLEM: can't reach the fixed-time stop \[2\] at 16:30 in time after this \(\d+ min short\)/)
   })
 
   test('the endpoint\'s own findings: doesn\'t fit, and a tight connection to a fixed stop', () => {
     const { schedule } = realDay()
     const names = [YELLOW_SUB, SURUGA, CAFE, TEMPLE].map((s) => s.name)
-    const items = scheduleReviewItems(names, schedule)
-    expect(items.find((i) => i.stopIndex === 1)).toMatchObject({ severity: 'warning' })
-    expect(items.find((i) => i.stopIndex === 1)!.message).toMatch(/^SURUGA-YA Marui City Yokohama doesn't fit before Square Enix Pop Up Cafe Yokohama at 16:30: \d+ min short\.$/)
+    const { day } = realDay()
+    const items = scheduleReviewItems(names, schedule, day.segments)
+    // One item for the segment before the cafe — not one per stop.
+    const segmentItems = items.filter((i) => i.message.startsWith('The stops before'))
+    expect(segmentItems).toHaveLength(1)
+    expect(segmentItems[0].message).toMatch(/^The stops before Square Enix Pop Up Cafe Yokohama at 16:30 need \d+ min more than available — from Yellow Submarine Shinjuku on, you won't make it in time\.$/)
 
     // A cafe visit ending 5 min before it must leave for the Temple: tight.
     const tight = scheduleDay([{ ...CAFE, durationMin: 60 }, TEMPLE], t('16:00'), BASE)
@@ -346,5 +349,91 @@ test.describe('itinerary: "Check day" gets the timetable', () => {
     await expect.poll(() => body).toBeTruthy()
     expect(body.base).toEqual({ lat: 35.697999, lng: 139.77083 })
     expect(body.stops.map((s: any) => [s.fixedTime, s.arriveEarlyMin, s.manualTravelMin])).toEqual([[null, null, 0], ['16:30', null, null], ['19:00', 30, null]])
+  })
+})
+
+test.describe('itinerary: "doesn\'t fit" per segment, not per stop', () => {
+  // Every stop at the same place (1-min walks), so only the times matter; travel entered per leg.
+  const P = { lat: 35.6978, lng: 139.7704 }
+  const s2 = (name: string, durationMin: number, extra: Partial<ScheduleStopInput> = {}) => stop(name, P.lat, P.lng, { durationMin, manualTravelMin: 10, ...extra })
+
+  // The real day: from 10:02 to a 20:00 dinner at the Final Fantasy Eorzea Cafe, 15 min over.
+  const dayStops = () => [
+    s2('Super Potato', 120, { manualTravelMin: 2, must: true }), // 10:02–12:02
+    s2('Animate', 60), //                                          12:12–13:12
+    s2('Retro Game Camp', 90), //                                  13:22–14:52
+    s2('Liberty Akihabara 5', 45), //                              15:02–15:47
+    s2('Yodobashi Camera Akiba', 30), //                           15:57–16:27
+    s2('BicCamera AKIBA', 180), //                                 16:37–19:37
+    s2('BOOKOFF Akihabara Ekimae', 3), //                          19:47–19:50
+    s2('Final Fantasy Eorzea Cafe', 90, { fixedTime: t('20:00'), manualTravelMin: 15 }), // 19:50 + 15 + 10 = 20:15
+  ]
+
+  test('the real day: one 15-min overrun for the segment; only the late stop flagged; suggestions skip MUST', () => {
+    const day = scheduleDay(dayStops(), t('10:00'), P)
+    expect(day.stops[0].start).toBe(t('10:02'))
+    expect(day.segments).toEqual([{
+      anchorIndex: 7, anchorTime: t('20:00'), overrunMin: 15, firstLateIndex: 6,
+      suggestions: [
+        { index: 5, name: 'BicCamera AKIBA', durationMin: 180 },
+        { index: 2, name: 'Retro Game Camp', durationMin: 90 },
+        { index: 1, name: 'Animate', durationMin: 60 },
+      ], // Super Potato (120, MUST) is not suggested
+    }])
+    expect(day.stops.slice(0, 6).every((x) => x.doesntFit === null)).toBe(true) // no warning hours earlier
+    expect(day.stops[6].doesntFit).toEqual({ anchorIndex: 7, anchorTime: t('20:00'), shortMin: 15 })
+    expect(day.stops[5].leaveBy).toBe(day.stops[5].end) // "Leave by" unchanged
+  })
+
+  test('a segment that fits: no messages', () => {
+    const stops = dayStops()
+    stops[5] = { ...stops[5], durationMin: 150 } // 30 min shorter
+    const day = scheduleDay(stops, t('10:00'), P)
+    expect(day.segments).toEqual([])
+    expect(day.stops.every((x) => x.doesntFit === null)).toBe(true)
+  })
+
+  test('two anchors on one day: each segment gets its own overrun', () => {
+    const stops = [
+      s2('A', 60, { manualTravelMin: 0 }), //                  10:00–11:00
+      s2('B', 100), //                                          11:10–12:50
+      s2('Lunch', 60, { fixedTime: t('13:00'), manualTravelMin: 5 }), // 12:50 + 5 + 10 = 13:05 -> 5 over
+      s2('C', 60), //                                           14:10–15:10
+      s2('D', 120), //                                          15:20–17:20
+      s2('Show', 60, { fixedTime: t('17:30'), manualTravelMin: 20 }), // 17:20 + 20 + 10 = 17:50 -> 20 over
+    ]
+    const day = scheduleDay(stops, t('10:00'), P)
+    expect(day.segments.map((g) => [g.anchorIndex, g.overrunMin, g.firstLateIndex])).toEqual([[2, 5, 1], [5, 20, 4]])
+    expect(day.stops.map((x) => x.doesntFit?.anchorIndex ?? null)).toEqual([null, 2, null, null, 5, null])
+    expect(scheduleReviewItems(stops.map((x) => x.name), day.stops.map((sched, i) => ({ fixedTime: stops[i].fixedTime, arriveEarlyMin: null, sched })), day.segments)
+      .filter((i) => i.message.startsWith('The stops before')).map((i) => i.message.match(/need (\d+) min/)![1])).toEqual(['5', '20'])
+  })
+
+  test('the page: one segment message above the cafe, no warning on the early stops', async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((stops) => {
+      // @ts-ignore - globals of the page's own inline script
+      state[0].startTime = '10:00'
+      // @ts-ignore
+      state[0].stops = stops
+      // @ts-ignore
+      render()
+    }, dayStops().map((x, i) => ({
+      name: x.name, hours: '', tag: x.must ? 'MUST' : '', slot: '', lat: x.lat, lng: x.lng, dur: x.durationMin,
+      travelMin: x.manualTravelMin, travelFrom: i === 0 ? '__base__' : dayStops()[i - 1].name,
+      ...(x.fixedTime != null ? { fixedTime: '20:00' } : {}),
+    })))
+    const card = page.locator('.day-card').first()
+    const segment = card.locator('.itn-segment')
+    await expect(segment).toHaveCount(1)
+    await expect(segment).toContainText('⚠️ The stops before Final Fantasy Eorzea Cafe 20:00 need 15 min more than available. Shorten a visit or remove a stop.')
+    await expect(segment.locator('.itn-segment-tips')).toHaveText('Longest visits: BicCamera AKIBA (180 min), Retro Game Camp (90 min), Animate (60 min)')
+    // The segment message sits just above the travel line into the cafe.
+    await expect(card.locator('.itn-segment + li.walk-row .itn-travel[data-idx="7"]')).toHaveCount(1)
+    await expect(card.locator('li.stop .itn-warn')).toHaveCount(1)
+    const late = card.locator('li.stop[data-idx]').filter({ has: page.locator('.stop-name', { hasText: 'BOOKOFF Akihabara Ekimae' }) })
+    await expect(late.locator('.itn-warn')).toHaveText("⚠️ Doesn't fit before Final Fantasy Eorzea Cafe 20:00 (15 min short)")
   })
 })

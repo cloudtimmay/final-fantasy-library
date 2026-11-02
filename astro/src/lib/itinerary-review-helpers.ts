@@ -2,7 +2,7 @@
 // (api/itinerary-review.ts). Kept separate from that endpoint file (rather than exported
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
-import { LEAVE_BUFFER_MIN, type ScheduledStop } from './itinerary-schedule'
+import { LEAVE_BUFFER_MIN, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
   name: string
@@ -124,20 +124,25 @@ export type ReviewScheduleStop = {
 const LEG_SOURCE: Record<string, string> = { manual: 'entered by the trip owner', note: "from the shop's note", estimate: 'estimate' }
 
 // Deterministic findings from the timetable — added by the endpoint itself, not left to the
-// model: a stop that doesn't fit before the next fixed-time stop, one that ends after its
-// leave-by time, and a tight connection (under TIGHT_CONNECTION_MIN spare, on top of the
-// LEAVE_BUFFER_MIN already counted) to a fixed-time stop.
+// model: once per segment of stops that runs past a fixed-time stop (not once per stop — it's
+// one overrun), a fixed stop that ends after its leave-by time, and a tight connection (under
+// TIGHT_CONNECTION_MIN spare, on top of the LEAVE_BUFFER_MIN already counted) to a fixed-time stop.
 export const TIGHT_CONNECTION_MIN = 10
-export function scheduleReviewItems(names: string[], schedule: ReviewScheduleStop[]) {
+export function scheduleReviewItems(names: string[], schedule: ReviewScheduleStop[], segments: SegmentOverrun[] = []) {
   const items: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
+  segments.forEach((g) => {
+    items.push({
+      severity: 'warning', stopIndex: g.firstLateIndex,
+      message: `The stops before ${names[g.anchorIndex]} at ${formatClock(g.anchorTime)} need ${g.overrunMin} min more than available — from ${names[g.firstLateIndex]} on, you won't make it in time.`,
+      suggestion: g.suggestions.length
+        ? `Shorten a visit or remove a stop. Longest visits: ${g.suggestions.map((x) => `${x.name} (${x.durationMin} min)`).join(', ')}.`
+        : 'Shorten a visit or remove a stop.',
+    })
+  })
   schedule.forEach(({ sched: x }, i) => {
     const next = names[i + 1]
     if (x.doesntFit) {
-      items.push({
-        severity: 'warning', stopIndex: i,
-        message: `${names[i]} doesn't fit before ${names[x.doesntFit.anchorIndex]} at ${formatClock(x.doesntFit.anchorTime)}: ${x.doesntFit.shortMin} min short.`,
-        suggestion: 'Shorten or drop it, or move it after that stop.',
-      })
+      return // covered by its segment's item above
     } else if (x.leaveEarlierMin && next) {
       items.push({
         severity: 'warning', stopIndex: i,
@@ -157,7 +162,7 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
 
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be
 // imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
-export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null): string {
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = []): string {
   const transitions = computeTransitions(stops)
   const lines: string[] = []
   lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
@@ -176,6 +181,8 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       const distText = t.distanceKm != null ? `${t.distanceKm.toFixed(2)} km straight-line from previous stop` : 'distance from previous stop unknown (missing coordinates)'
       lines.push(`  (gap before this stop: ${distText}, ${t.gapMin} min between previous stop ending and this one starting)`)
     }
+    const seg = segments.find((g) => g.anchorIndex === i)
+    if (seg) lines.push(`  (PROBLEM for the stops before this fixed-time stop: together they need ${seg.overrunMin} min more than available; the first that can't make it is [${seg.firstLateIndex}])`)
     lines.push(`[${i}] ${s.name}`)
     lines.push(`    Planned time: ${formatClock(s.plannedTime)}, duration ${s.durationMin} min`)
     const sc = schedule?.[i]
@@ -187,7 +194,7 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       }
       if (sc.sched.leaveBy != null) lines.push(`    Leave by: ${formatClock(sc.sched.leaveBy)}${sc.sched.nextIsAnchor ? ` (next stop has a fixed time; includes a ${LEAVE_BUFFER_MIN}-min buffer)` : ''}`)
       if (sc.sched.stayUntil != null) lines.push(`    Can stay until: ${formatClock(sc.sched.stayUntil)}`)
-      if (sc.sched.doesntFit) lines.push(`    PROBLEM: doesn't fit before the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} (${sc.sched.doesntFit.shortMin} min short)`)
+      if (sc.sched.doesntFit) lines.push(`    PROBLEM: can't reach the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} in time after this (${sc.sched.doesntFit.shortMin} min short)`)
       else if (sc.sched.leaveEarlierMin) lines.push(`    PROBLEM: ends ${sc.sched.leaveEarlierMin} min after its leave-by time`)
     }
     if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)

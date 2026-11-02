@@ -485,6 +485,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
           arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
           manualTravelMin: manualTravelFor(day, si),
           noteTravelMin: lib.extractNoteTravelMinutes(stopNote(s)),
+          must: s.tag === 'MUST',
         }
       })
       const sched = lib.scheduleDay(inputs, start, base)
@@ -548,6 +549,18 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       const ics = lib.leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: lib.transitRouteUrl(from, to) })
       const file = `leave-${day.day}-${fmt(leaveBy).replace(':', '')}.ics`
       return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}">⏰ Reminder</a>`
+    }
+
+    // Once per segment that runs over, just above the travel line into its anchor: how much
+    // too long the stops before it are, and the longest visits that could give.
+    function segmentHtml(day, sched, anchorIdx) {
+      const seg = sched.segments.find((g) => g.anchorIndex === anchorIdx)
+      if (!seg) return ''
+      const anchorName = resolveStop(day.stops[anchorIdx]).name
+      const tips = seg.suggestions.length
+        ? `<span class="itn-segment-tips">Longest visits: ${seg.suggestions.map((g) => `${esc(g.name)} (${g.durationMin} min)`).join(', ')}</span>`
+        : ''
+      return `<li class="itn-segment">⚠️ The stops before ${esc(anchorName)} ${fmt(seg.anchorTime)} need ${seg.overrunMin} min more than available. Shorten a visit or remove a stop.${tips}</li>`
     }
 
     // Under a stop: when to leave it, and any timing problem.
@@ -754,7 +767,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
           `
           ul.appendChild(panel)
 
-          if (day.stops[si + 1]) ul.insertAdjacentHTML('beforeend', travelRowHtml(di, si + 1, day, sched))
+          if (day.stops[si + 1]) ul.insertAdjacentHTML('beforeend', segmentHtml(day, sched, si + 1) + travelRowHtml(di, si + 1, day, sched))
         })
 
         const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1]) : null
@@ -930,6 +943,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
           fixedTime: s.fixedTime || null,
           arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
           manualTravelMin: manualTravelFor(day, si),
+          must: s.tag === 'MUST',
         }
       })
 
@@ -1381,6 +1395,11 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     .itn-reminder { margin-left: 0.4rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; }
     .itn-stay { font-size: 0.75rem; color: #2ecc71; }
     .itn-warn { font-size: 0.75rem; color: #e74c3c; font-weight: 600; }
+    .itn-segment {
+      list-style: none; margin: 0.3rem 0; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+      color: #e74c3c; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.4);
+    }
+    .itn-segment-tips { display: block; margin-top: 0.2rem; font-weight: 400; color: var(--text); }
     .mc-time-row label { flex: 1; }
     .mc-dur { width: 64px; }
     .mc-coord-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }

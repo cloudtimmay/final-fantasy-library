@@ -2,6 +2,7 @@ import { test, expect, testName } from './fixtures'
 import { scheduleDay, LEAVE_BUFFER_MIN, transitRouteUrl, leaveReminderIcs, nextLeave, type ScheduleStopInput } from '../src/lib/itinerary-schedule'
 import { tokyoInstant, tokyoNow } from '../src/lib/trip-dates'
 import { estimateLeg } from '../src/lib/route-optimizer'
+import { buildUserPrompt, scheduleReviewItems, TIGHT_CONNECTION_MIN } from '../src/lib/itinerary-review-helpers'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
 const BASE = { lat: 35.697999, lng: 139.770830 } // Akihabara
@@ -275,5 +276,75 @@ test.describe('itinerary: "Next: leave … by …" during the trip', () => {
       await page.clock.runFor(61_000) // to just past 17:01
       await expect(banner).toHaveText(`Next: leave Square Enix Pop Up Cafe Yokohama by ${hhmm} (in ${leaveBy - 17 * 60 - 1} min)`)
     })
+  })
+})
+
+test.describe('itinerary: "Check day" gets the timetable', () => {
+  const realDay = () => {
+    const inputs = [YELLOW_SUB, SURUGA, CAFE, TEMPLE]
+    const day = scheduleDay(inputs, t('15:06'), BASE)
+    return { inputs, day, schedule: day.stops.map((sched, i) => ({ fixedTime: inputs[i].fixedTime, arriveEarlyMin: inputs[i].arriveEarlyMin, sched })) }
+  }
+
+  test('the review input has each leg\'s travel time, the anchors, arrive-early and leave-by times', () => {
+    const { inputs, day, schedule } = realDay()
+    const prompt = buildUserPrompt(
+      'Saturday 5 December 2026', 'Yokohama', '15:06',
+      inputs.map((s, i) => ({ name: s.name, plannedTime: day.stops[i].start, durationMin: s.durationMin, lat: s.lat, lng: s.lng })),
+      inputs.map(() => null), inputs.map(() => null), null, schedule
+    )
+    const shinjukuToYokohama = estimateLeg(YELLOW_SUB, SURUGA)!.minutes
+    expect(prompt).toContain(`Travel here: ${shinjukuToYokohama} min (estimate, by train)`)
+    expect(prompt).toContain('Travel here: 0 min (entered by the trip owner)')
+    expect(prompt).toContain('FIXED TIME 16:30 (anchor)')
+    expect(prompt).toContain('FIXED TIME 19:00 (anchor); must arrive 30 min early, by 18:30')
+    expect(prompt).toMatch(/\[2\] Square Enix Pop Up Cafe Yokohama[\s\S]*Leave by: \d\d:\d\d \(next stop has a fixed time; includes a 10-min buffer\)/)
+    expect(prompt).toMatch(/Can stay until: \d\d:\d\d/)
+    expect(prompt).toMatch(/PROBLEM: doesn't fit before the fixed-time stop \[2\] at 16:30 \(\d+ min short\)/)
+  })
+
+  test('the endpoint\'s own findings: doesn\'t fit, and a tight connection to a fixed stop', () => {
+    const { schedule } = realDay()
+    const names = [YELLOW_SUB, SURUGA, CAFE, TEMPLE].map((s) => s.name)
+    const items = scheduleReviewItems(names, schedule)
+    expect(items.find((i) => i.stopIndex === 1)).toMatchObject({ severity: 'warning' })
+    expect(items.find((i) => i.stopIndex === 1)!.message).toMatch(/^SURUGA-YA Marui City Yokohama doesn't fit before Square Enix Pop Up Cafe Yokohama at 16:30: \d+ min short\.$/)
+
+    // A cafe visit ending 5 min before it must leave for the Temple: tight.
+    const tight = scheduleDay([{ ...CAFE, durationMin: 60 }, TEMPLE], t('16:00'), BASE)
+    const cafe = tight.stops[0]
+    const spare = cafe.leaveBy! - cafe.end
+    const tightItems = scheduleReviewItems([CAFE.name, TEMPLE.name], tight.stops.map((sched, i) => ({ fixedTime: [CAFE, TEMPLE][i].fixedTime, arriveEarlyMin: [CAFE, TEMPLE][i].arriveEarlyMin, sched })))
+    if (spare >= 0 && spare < TIGHT_CONNECTION_MIN) expect(tightItems[0].message).toContain('Tight connection')
+    const longer = scheduleDay([{ ...CAFE, durationMin: 60 + spare - 3 }, TEMPLE], t('16:00'), BASE)
+    const longerItems = scheduleReviewItems([CAFE.name, TEMPLE.name], longer.stops.map((sched, i) => ({ fixedTime: [CAFE, TEMPLE][i].fixedTime, arriveEarlyMin: [CAFE, TEMPLE][i].arriveEarlyMin, sched })))
+    expect(longerItems).toEqual([expect.objectContaining({ severity: 'tip', stopIndex: 0, message: expect.stringContaining('Tight connection: only 3 min spare') })])
+  })
+
+  test('"Check day" sends what the review needs to recompute the timetable', async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    let body: any = null
+    await page.route('**/api/itinerary-review', async (route) => {
+      body = route.request().postDataJSON()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
+    })
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate(() => {
+      // @ts-ignore - globals of the page's own inline script
+      state[0].startTime = '15:06'
+      // @ts-ignore
+      state[0].stops = [
+        { name: 'Yellow Submarine Shinjuku', hours: '', tag: '', slot: '', lat: 35.689356, lng: 139.697787, dur: 45, travelMin: 0, travelFrom: '__base__' },
+        { name: 'Square Enix Pop Up Cafe Yokohama', hours: '', tag: '', slot: '', lat: 35.4658, lng: 139.6223, dur: 60, fixedTime: '16:30' },
+        { name: 'Tokyo Temple', hours: '', tag: '', slot: '', lat: 35.6526, lng: 139.7279, dur: 120, fixedTime: '19:00', arriveEarly: 30 },
+      ]
+      // @ts-ignore
+      render()
+    })
+    await page.locator('.day-card').first().locator('.day-check-btn').click()
+    await expect.poll(() => body).toBeTruthy()
+    expect(body.base).toEqual({ lat: 35.697999, lng: 139.77083 })
+    expect(body.stops.map((s: any) => [s.fixedTime, s.arriveEarlyMin, s.manualTravelMin])).toEqual([[null, null, 0], ['16:30', null, null], ['19:00', 30, null]])
   })
 })

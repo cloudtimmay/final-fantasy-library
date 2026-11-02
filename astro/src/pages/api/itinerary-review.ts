@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, type ReviewStopInput } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
+import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong } from '../../lib/trip-dates'
 
 export const prerender = false
@@ -27,6 +29,7 @@ Report CONCRETE problems only — things actually wrong with this specific plan,
 - No break for food over a long day.
 - Arriving at a stop long before shops in that area typically open.
 - On a day with a flight home: a plan whose last stop ends later than the latest time given.
+- Stops marked FIXED TIME are anchors (a reservation, a session): a tight connection into one is worth flagging. The timetable's travel times, leave-by times and PROBLEM lines are already computed — rely on them, don't recompute them.
 
 Each stop may include a "note" written by the trip's owner, in their own words. That note can contain the REAL train route, travel time and fare they already looked up — when a note gives real travel information, trust it over the straight-line distance given for that gap, since the straight-line distance does not account for the actual train route.
 
@@ -70,12 +73,39 @@ export const POST: APIRoute = async ({ request }) => {
     openingHoursByStop.push(typeof raw?.openingHours === 'string' && raw.openingHours.trim() ? raw.openingHours.trim().slice(0, 200) : null)
   }
 
+  // The timetable, recomputed here from the raw stops with the same lib/itinerary-schedule.ts
+  // /itinerary uses (fixed times, arrive-early, a travel time entered for a leg, the shop note,
+  // otherwise the estimate) — nothing computed by the client is trusted.
+  const hhmm = (v: unknown) => {
+    const m = typeof v === 'string' ? /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v.trim()) : null
+    return m ? +m[1] * 60 + +m[2] : null
+  }
+  const minutesField = (v: unknown, max: number) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : null)
+  const point = (v: any) => (typeof v?.lat === 'number' && isFinite(v.lat) && typeof v?.lng === 'number' && isFinite(v.lng) ? { lat: v.lat, lng: v.lng } : null)
+  const scheduleInputs: ScheduleStopInput[] = body.stops.map((raw: any, i: number) => {
+    const fixedTime = hhmm(raw?.fixedTime)
+    return {
+      name: stops[i].name, lat: stops[i].lat, lng: stops[i].lng, durationMin: stops[i].durationMin,
+      fixedTime,
+      arriveEarlyMin: fixedTime != null ? minutesField(raw?.arriveEarlyMin, 240) : null,
+      manualTravelMin: minutesField(raw?.manualTravelMin, 600),
+      noteTravelMin: extractNoteTravelMinutes(notesByStop[i]),
+    }
+  })
+  const base = point(body.base)
+  const startMin = hhmm(dayStartTime) ?? stops[0].plannedTime
+  const daySchedule = base ? scheduleDay(scheduleInputs, startMin, base) : null
+  const schedule: ReviewScheduleStop[] | null = daySchedule
+    ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
+    : null
+  const timetableItems = schedule ? scheduleReviewItems(stops.map((s) => s.name), schedule) : []
+
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
   const flightWarning = flight ? flightDeadlineWarning(stops, flight) : null
-  const maxModelItems = MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0)
+  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length)
 
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight)
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)
@@ -159,6 +189,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (flightWarning) items.unshift(flightWarning)
+  items.unshift(...timetableItems)
 
   // Computed deterministically from the notes' own fares, not left to the model's
   // arithmetic — matches the project's convention (see computeTransitions above) of

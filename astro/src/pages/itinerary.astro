@@ -926,6 +926,10 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
           lng: r.lng,
           openingHours: s.hours || null,
           note: stopNote(s),
+          // The review recomputes the timetable from these (src/lib/itinerary-schedule.ts).
+          fixedTime: s.fixedTime || null,
+          arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
+          manualTravelMin: manualTravelFor(day, si),
         }
       })
 
@@ -944,6 +948,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
             dayLabel: day.date,
             dayArea: day.area,
             dayStartTime: day.startTime,
+            base: { lat: base.lat, lng: base.lng },
             // Only on the day the flight home leaves — the review checks the day against it.
             flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal } : undefined,
             stops: stopsPayload,

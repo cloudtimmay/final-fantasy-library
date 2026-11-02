@@ -1,7 +1,8 @@
-// Pure, dependency-free helpers for the "Check day" itinerary review feature
+// Pure helpers (no I/O) for the "Check day" itinerary review feature
 // (api/itinerary-review.ts). Kept separate from that endpoint file (rather than exported
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
+import { LEAVE_BUFFER_MIN, type ScheduledStop } from './itinerary-schedule'
 
 export type ReviewStopInput = {
   name: string
@@ -111,9 +112,52 @@ export function flightLine(flight: FlightHome): string {
   return `✈️ Flight ${flight.time} from ${flight.airport}${flight.terminal ? ` (${flight.terminal})` : ''}`
 }
 
+// The day's timetable as the review sees it: one entry per stop, from lib/itinerary-schedule.ts
+// (the same scheduleDay /itinerary shows). Computed by /api/itinerary-review itself from the
+// raw stops, so the model gets travel, anchors and leave-by times it doesn't have to work out.
+export type ReviewScheduleStop = {
+  fixedTime: number | null
+  arriveEarlyMin: number | null
+  sched: ScheduledStop
+}
+
+const LEG_SOURCE: Record<string, string> = { manual: 'entered by the trip owner', note: "from the shop's note", estimate: 'estimate' }
+
+// Deterministic findings from the timetable — added by the endpoint itself, not left to the
+// model: a stop that doesn't fit before the next fixed-time stop, one that ends after its
+// leave-by time, and a tight connection (under TIGHT_CONNECTION_MIN spare, on top of the
+// LEAVE_BUFFER_MIN already counted) to a fixed-time stop.
+export const TIGHT_CONNECTION_MIN = 10
+export function scheduleReviewItems(names: string[], schedule: ReviewScheduleStop[]) {
+  const items: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
+  schedule.forEach(({ sched: x }, i) => {
+    const next = names[i + 1]
+    if (x.doesntFit) {
+      items.push({
+        severity: 'warning', stopIndex: i,
+        message: `${names[i]} doesn't fit before ${names[x.doesntFit.anchorIndex]} at ${formatClock(x.doesntFit.anchorTime)}: ${x.doesntFit.shortMin} min short.`,
+        suggestion: 'Shorten or drop it, or move it after that stop.',
+      })
+    } else if (x.leaveEarlierMin && next) {
+      items.push({
+        severity: 'warning', stopIndex: i,
+        message: `Leave ${names[i]} ${x.leaveEarlierMin} min earlier to reach ${next} in time (leave by ${formatClock(x.leaveBy!)}).`,
+        suggestion: null,
+      })
+    } else if (x.nextIsAnchor && x.leaveBy != null && x.leaveBy - x.end < TIGHT_CONNECTION_MIN && next) {
+      items.push({
+        severity: 'tip', stopIndex: i,
+        message: `Tight connection: only ${x.leaveBy - x.end} min spare after ${names[i]} before you must leave for ${next} (leave by ${formatClock(x.leaveBy)}).`,
+        suggestion: null,
+      })
+    }
+  })
+  return items
+}
+
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be
 // imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
-export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null): string {
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null): string {
   const transitions = computeTransitions(stops)
   const lines: string[] = []
   lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
@@ -134,6 +178,18 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
     }
     lines.push(`[${i}] ${s.name}`)
     lines.push(`    Planned time: ${formatClock(s.plannedTime)}, duration ${s.durationMin} min`)
+    const sc = schedule?.[i]
+    if (sc) {
+      const leg = sc.sched.travelIn
+      lines.push(`    Travel here: ${leg.minutes} min (${LEG_SOURCE[leg.source]}${leg.mode ? `, ${leg.mode === 'train' ? 'by train' : 'on foot'}` : ''})`)
+      if (sc.fixedTime != null) {
+        lines.push(`    FIXED TIME ${formatClock(sc.fixedTime)} (anchor)${sc.arriveEarlyMin ? `; must arrive ${sc.arriveEarlyMin} min early, by ${formatClock(sc.sched.arrival)}` : ''}`)
+      }
+      if (sc.sched.leaveBy != null) lines.push(`    Leave by: ${formatClock(sc.sched.leaveBy)}${sc.sched.nextIsAnchor ? ` (next stop has a fixed time; includes a ${LEAVE_BUFFER_MIN}-min buffer)` : ''}`)
+      if (sc.sched.stayUntil != null) lines.push(`    Can stay until: ${formatClock(sc.sched.stayUntil)}`)
+      if (sc.sched.doesntFit) lines.push(`    PROBLEM: doesn't fit before the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} (${sc.sched.doesntFit.shortMin} min short)`)
+      else if (sc.sched.leaveEarlierMin) lines.push(`    PROBLEM: ends ${sc.sched.leaveEarlierMin} min after its leave-by time`)
+    }
     if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
     if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
   })

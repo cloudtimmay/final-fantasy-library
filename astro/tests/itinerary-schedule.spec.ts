@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
-import { scheduleDay, LEAVE_BUFFER_MIN, transitRouteUrl, type ScheduleStopInput } from '../src/lib/itinerary-schedule'
+import { scheduleDay, LEAVE_BUFFER_MIN, transitRouteUrl, leaveReminderIcs, type ScheduleStopInput } from '../src/lib/itinerary-schedule'
+import { tokyoInstant, tokyoNow } from '../src/lib/trip-dates'
 import { estimateLeg } from '../src/lib/route-optimizer'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
@@ -132,7 +133,7 @@ test.describe('itinerary page: anchors, leave-by and travel per leg', () => {
     await expect(card.locator('.itn-travel', { hasText: `🚃 ~${shinjukuToYokohama} min (estimate)` })).toBeVisible()
     await expect(stopRow('SURUGA-YA').locator('.itn-warn')).toHaveText(/^⚠️ Doesn't fit before Square Enix Pop Up Cafe Yokohama 16:30 \(\d+ min short\)$/)
     await expect(stopRow('Square Enix Pop Up Cafe').locator('.itn-stay')).toHaveText(`You can stay until ${hhmm(18 * 60 + 30 - cafeToTemple - 10)}`)
-    await expect(stopRow('Square Enix Pop Up Cafe').locator('.itn-leave')).toHaveText(`Leave by ${hhmm(18 * 60 + 30 - cafeToTemple - 10)}`)
+    await expect(stopRow('Square Enix Pop Up Cafe').locator('.itn-leave')).toContainText(`Leave by ${hhmm(18 * 60 + 30 - cafeToTemple - 10)}`)
     await expect(stopRow('Tokyo Temple').locator('.stop-time')).toHaveText('19:00 📌(arrive 18:30)')
     await expect(stopRow('Yellow Submarine').locator('.stop-time')).toHaveText('15:06')
   })
@@ -173,5 +174,62 @@ test.describe('itinerary page: anchors, leave-by and travel per leg', () => {
     await panel.locator('.mc-early').fill('15')
     await panel.locator('.mc-early').dispatchEvent('change')
     await expect(stopRow('Square Enix Pop Up Cafe').locator('.stop-time')).toHaveText('16:30 📌(arrive 16:15)')
+  })
+})
+
+test.describe('itinerary: "⏰ Reminder" (.ics) in Japan time', () => {
+  test('Tokyo time converts the same whatever the timezone: 17:35 on 6 Dec in Tokyo is 08:35 UTC', () => {
+    expect(tokyoInstant('2026-12-06', 17 * 60 + 35).toISOString()).toBe('2026-12-06T08:35:00.000Z')
+    expect(tokyoNow(new Date('2026-12-05T20:10:00Z'))).toEqual({ date: '2026-12-06', minutes: 5 * 60 + 10 })
+  })
+
+  test('the event: "Leave <stop> for <next stop>" at the leave-by time in Asia/Tokyo, alarm at that time, route link', () => {
+    const route = 'https://www.google.com/maps/dir/?api=1&origin=35.4658%2C139.6223&destination=35.6526%2C139.7279&travelmode=transit'
+    const ics = leaveReminderIcs({ date: '2026-12-06', leaveBy: 17 * 60 + 35, from: 'Square Enix Pop Up Cafe, Yokohama', to: 'Tokyo Temple', routeUrl: route, now: new Date('2026-11-02T10:00:00Z') })
+    const unfolded = ics.replace(/\r\n /g, '')
+    expect(ics.endsWith('\r\n')).toBe(true)
+    expect(ics.split('\r\n').every((l) => new TextEncoder().encode(l).length <= 75)).toBe(true) // folded
+    expect(unfolded).toContain('BEGIN:VTIMEZONE\r\nTZID:Asia/Tokyo')
+    expect(unfolded).toContain('TZOFFSETTO:+0900')
+    expect(unfolded).toContain('DTSTART;TZID=Asia/Tokyo:20261206T173500')
+    expect(unfolded).toContain('SUMMARY:Leave Square Enix Pop Up Cafe\\, Yokohama for Tokyo Temple') // comma escaped
+    expect(unfolded).toContain(`DESCRIPTION:Route: ${route}`)
+    expect(unfolded).toContain('BEGIN:VALARM\r\nACTION:DISPLAY')
+    expect(unfolded).toContain('TRIGGER:PT0M')
+    expect(unfolded).toContain('DTSTAMP:20261102T100000Z')
+  })
+})
+
+test.describe('itinerary page: reminder link on a phone set to Norwegian time', () => {
+  test.use({ timezoneId: 'Europe/Oslo' })
+
+  test('the cafe\'s reminder is at its leave-by time in Asia/Tokyo', async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    const date = await page.evaluate(() => {
+      // @ts-ignore - globals of the page's own inline script
+      state[0].stops = [
+        { name: 'Square Enix Pop Up Cafe Yokohama', hours: '', tag: '', slot: '', lat: 35.4658, lng: 139.6223, dur: 60, fixedTime: '16:30' },
+        { name: 'Tokyo Temple', hours: '', tag: '', slot: '', lat: 35.6526, lng: 139.7279, dur: 120, fixedTime: '19:00', arriveEarly: 30 },
+      ]
+      // @ts-ignore
+      render()
+      // @ts-ignore
+      return state[0].day
+    })
+    const cafeToTemple = estimateLeg({ lat: 35.4658, lng: 139.6223 }, { lat: 35.6526, lng: 139.7279 })!.minutes
+    const leaveBy = 18 * 60 + 30 - cafeToTemple - 10
+    const hhmm = String(Math.floor(leaveBy / 60)).padStart(2, '0') + String(leaveBy % 60).padStart(2, '0')
+
+    const link = page.locator('.day-card').first().locator('.itn-reminder')
+    await expect(link).toHaveText('⏰ Reminder')
+    await expect(link).toHaveAttribute('download', `leave-${date}-${hhmm}.ics`)
+    const href = (await link.getAttribute('href'))!
+    expect(href.startsWith('data:text/calendar;charset=utf-8,')).toBe(true)
+    const ics = decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
+    expect(ics).toContain(`DTSTART;TZID=Asia/Tokyo:${date.replace(/-/g, '')}T${hhmm}00`)
+    expect(ics).toContain('SUMMARY:Leave Square Enix Pop Up Cafe Yokohama for Tokyo Temple')
+    expect(ics).toContain('travelmode=transit')
   })
 })

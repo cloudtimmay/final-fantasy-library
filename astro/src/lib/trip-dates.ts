@@ -72,3 +72,23 @@ export function formatDayLabel(iso: string): string {
   const p = parseIsoDate(iso)!
   return `${p.d}. ${MONTHS_NO_SHORT[p.m - 1]} (${WEEKDAYS_NO_SHORT[weekdayIndex(iso)]})`
 }
+
+// --- Japan time ----------------------------------------------------------------------------
+// The itinerary's times are Tokyo wall-clock times on a calendar date. Japan has no daylight
+// saving, so Asia/Tokyo is always UTC+9 — these convert without any timezone database and give
+// the same answer whatever timezone the phone is set to.
+export const TRIP_TIMEZONE = 'Asia/Tokyo'
+const TOKYO_OFFSET_MIN = 9 * 60
+
+// The moment a Tokyo time happens: ("2026-12-06", 17*60+37) -> 2026-12-06T08:37:00Z.
+export function tokyoInstant(iso: string, minutes: number): Date {
+  const p = parseIsoDate(iso)
+  if (!p) throw new Error(`Not a calendar date: ${iso}`)
+  return new Date(Date.UTC(p.y, p.m - 1, p.d, 0, minutes) - TOKYO_OFFSET_MIN * 60000)
+}
+
+// The date and time it is in Tokyo at `now` (minutes after midnight).
+export function tokyoNow(now: Date = new Date()): { date: string; minutes: number } {
+  const t = new Date(now.getTime() + TOKYO_OFFSET_MIN * 60000)
+  return { date: toIso(t), minutes: t.getUTCHours() * 60 + t.getUTCMinutes() }
+}

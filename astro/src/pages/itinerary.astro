@@ -193,8 +193,8 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
        "itinerary-lib-ready" event this one sends. -->
   <script>
     import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
-    import { scheduleDay, transitRouteUrl, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
-    window.__routeOptimizer = { optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, LEAVE_BUFFER_MIN }
+    import { scheduleDay, transitRouteUrl, leaveReminderIcs, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
+    window.__routeOptimizer = { optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, LEAVE_BUFFER_MIN }
     // The inline script's first render waits for this (see itineraryLibReady there).
     window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
@@ -512,6 +512,17 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
         </li>`
     }
 
+    // "⏰ Reminder": an .ics calendar event at the leave-by time (src/lib/itinerary-schedule.ts
+    // leaveReminderIcs, Asia/Tokyo), as a data: link the phone's calendar opens.
+    function reminderLinkHtml(day, si, leaveBy) {
+      if (!day.day || !day.stops[si + 1]) return ''
+      const lib = window.__routeOptimizer
+      const from = resolveStop(day.stops[si]), to = resolveStop(day.stops[si + 1])
+      const ics = lib.leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: lib.transitRouteUrl(from, to) })
+      const file = `leave-${day.day}-${fmt(leaveBy).replace(':', '')}.ics`
+      return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}">⏰ Reminder</a>`
+    }
+
     // Under a stop: when to leave it, and any timing problem.
     function scheduleLinesHtml(day, sched, si) {
       const x = sched.stops[si]
@@ -523,7 +534,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
         lines.push(`<span class="itn-warn">⚠️ Leave ${x.leaveEarlierMin} min earlier</span>`)
       }
       if (x.stayUntil != null) lines.push(`<span class="itn-stay">You can stay until ${fmt(x.stayUntil)}</span>`)
-      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}</span>`)
+      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}${reminderLinkHtml(day, si, x.leaveBy)}</span>`)
       return lines.length ? `<span class="itn-lines">${lines.join('')}</span>` : ''
     }
 
@@ -1329,6 +1340,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     .itn-arrive { display: block; font-size: 0.7rem; color: var(--muted); }
     .itn-lines { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; }
     .itn-leave { font-size: 0.75rem; color: var(--accent); font-weight: 600; }
+    .itn-reminder { margin-left: 0.4rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; }
     .itn-stay { font-size: 0.75rem; color: #2ecc71; }
     .itn-warn { font-size: 0.75rem; color: #e74c3c; font-weight: 600; }
     .mc-time-row label { flex: 1; }

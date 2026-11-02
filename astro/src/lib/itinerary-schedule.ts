@@ -136,3 +136,75 @@ export function transitRouteUrl(from: { name: string; lat: number | null; lng: n
   const place = (p: { name: string; lat: number | null; lng: number | null }) => (p.lat != null && p.lng != null ? `${p.lat},${p.lng}` : p.name)
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(place(from))}&destination=${encodeURIComponent(place(to))}&travelmode=transit`
 }
+
+// --- "⏰ Reminder": a calendar event at a stop's leave-by time ---------------------------------
+// An .ics file (RFC 5545) the phone's calendar opens: titled "Leave <stop> for <next stop>",
+// starting at the leave-by time in Asia/Tokyo (with its own VTIMEZONE, so a calendar set to
+// Norwegian time still shows it at the right moment), an alarm at the event time, and the
+// route link in the description.
+export function leaveReminderIcs(o: { date: string; leaveBy: number; from: string; to: string; routeUrl: string; now?: Date }): string {
+  const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.date)
+  if (!p) throw new Error(`Not a calendar date: ${o.date}`)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const local = `${p[1]}${p[2]}${p[3]}T${pad(Math.floor(o.leaveBy / 60))}${pad(o.leaveBy % 60)}00`
+  const stamp = (o.now || new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+  const title = `Leave ${o.from} for ${o.to}`
+  const uid = `leave-${local}-${slug(o.from)}-${slug(o.to)}@final-fantasy-library`
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Final Fantasy Library//Itinerary//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Tokyo',
+    'BEGIN:STANDARD',
+    'DTSTART:19700101T000000',
+    'TZOFFSETFROM:+0900',
+    'TZOFFSETTO:+0900',
+    'TZNAME:JST',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=Asia/Tokyo:${local}`,
+    'DURATION:PT15M',
+    `SUMMARY:${icsText(title)}`,
+    `DESCRIPTION:${icsText(`Route: ${o.routeUrl}`)}`,
+    `URL:${o.routeUrl}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${icsText(title)}`,
+    'TRIGGER:PT0M',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ]
+  return lines.map(foldLine).join('\r\n') + '\r\n'
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'stop'
+}
+
+// Text values escape backslash, semicolon, comma and newlines.
+function icsText(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+}
+
+// Lines longer than 75 octets are folded: CRLF + a space, never splitting a character.
+function foldLine(line: string): string {
+  const enc = new TextEncoder()
+  const parts: string[] = []
+  let cur = ''
+  let bytes = 0
+  for (const ch of line) {
+    const n = enc.encode(ch).length
+    if (bytes + n > (parts.length ? 74 : 75)) { parts.push(cur); cur = ''; bytes = 0 }
+    cur += ch
+    bytes += n
+  }
+  parts.push(cur)
+  return parts.join('\r\n ')
+}

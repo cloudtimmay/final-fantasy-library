@@ -1,6 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
+import { cdnImage } from '../lib/image-url'
+import { foundItems, foundThumbs, foundPricesQuery, foundPurchasesQuery, type FoundPriceDoc, type FoundPurchaseDoc } from '../lib/shop-found'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
@@ -12,6 +14,21 @@ const notes = await sanity.fetch(`
 const trips = await sanity.fetch(
   `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
 )
+
+// Under each shop: up to 4 thumbnails of what was found there (lib/shop-found.ts — one per
+// product, newest first) and "+N" for the rest, linking to the shop page's "Found here".
+const [foundPrices, foundPurchases]: [FoundPriceDoc[], FoundPurchaseDoc[]] = await Promise.all([
+  sanity.fetch(foundPricesQuery('defined(shop._ref)')),
+  sanity.fetch(foundPurchasesQuery('defined(store._ref)')),
+])
+const byShop = new Map<string, { prices: FoundPriceDoc[]; purchases: FoundPurchaseDoc[] }>()
+const entry = (id: string) => byShop.get(id) || (byShop.set(id, { prices: [], purchases: [] }), byShop.get(id)!)
+for (const p of foundPrices || []) if (p.shopId) entry(p.shopId).prices.push(p)
+for (const p of foundPurchases || []) if (p.shopId) entry(p.shopId).purchases.push(p)
+const foundThumbsFor = (id: string) => {
+  const e = byShop.get(id)
+  return e ? foundThumbs(foundItems(e.prices, e.purchases)) : { thumbs: [], more: 0 }
+}
 
 const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
 
@@ -84,6 +101,7 @@ function isUrl(s: string): boolean {
         ? `https://maps.google.com/maps?q=${encodeURIComponent(searchQuery)}&z=16&output=embed`
         : ''
 
+      const found = foundThumbsFor(n._id)
       const tripAttr = (n.tripIds || []).join(' ')
       // Everything searchable, lowercased, in one attribute.
       const haystack = [n.shopName, n.note, n.area, n.openingHours, addressIsUrl ? '' : n.address]
@@ -102,6 +120,14 @@ function isUrl(s: string): boolean {
           {n.openingHours && <div class="note-hours">🕐 {n.openingHours}</div>}
           {n.note && <div class="note-body">{n.note}</div>}
           {n.address && !addressIsUrl && <div class="note-address">{n.address}</div>}
+          {found.thumbs.length > 0 && (
+            <a class="note-found" href={`/edit-store?id=${n._id}#found-here`} aria-label={`Found here: ${found.thumbs.length + found.more} item${found.thumbs.length + found.more === 1 ? '' : 's'}`}>
+              {found.thumbs.map((t) => t.imageUrl
+                ? <img class="note-found-img" src={cdnImage(t.imageUrl, 96)} alt={t.name} title={t.name} width="44" height="44" loading="lazy" />
+                : <span class="note-found-img note-found-none" title={t.name}>📦</span>)}
+              {found.more > 0 && <span class="note-found-more">+{found.more}</span>}
+            </a>
+          )}
 
           {embedSrc && (
             <div class="note-map">
@@ -129,6 +155,11 @@ function isUrl(s: string): boolean {
   <p id="notes-empty" class="notes-empty" hidden>No places match these filters.</p>
 
   <style>
+    .note-found { display: flex; align-items: center; gap: 0.35rem; margin: 0.5rem 0; text-decoration: none; color: var(--muted); }
+    .note-found-img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
+    .note-found-none { display: flex; align-items: center; justify-content: center; font-size: 1.1rem; box-sizing: border-box; }
+    .note-found-more { font-size: 0.85rem; font-weight: 600; padding: 0 0.3rem; }
+    .note-found:hover .note-found-more { color: var(--accent); }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.25rem; }
     .hint a { color: var(--accent); }
 

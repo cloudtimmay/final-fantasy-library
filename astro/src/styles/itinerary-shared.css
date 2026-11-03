@@ -65,3 +65,6 @@
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
 }
+
+/* "⏰ Reminder" after "Leave by HH:MM" (itinerary-ui.ts reminderLinkHtml), on the list and the timeline. */
+.itn-reminder { margin-left: 0.4rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; }

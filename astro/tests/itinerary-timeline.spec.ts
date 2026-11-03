@@ -807,3 +807,41 @@ test.describe('/itinerary-timeline: the "🧪 Test time" control', () => {
     await expect(page.locator('.itl-here, .itl-leave')).toHaveCount(0)
   })
 })
+
+test.describe('/itinerary-timeline: "⏰ Reminder"', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const icsOf = (href: string) => decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
+  const withoutStamp = (ics: string) => ics.replace(/DTSTAMP:\d{8}T\d{6}Z/, 'DTSTAMP:x')
+
+  test('on each block with a leave-by time and in its sheet: the same .ics as the list\'s', async ({ page, sanity, trackDoc }) => {
+    const { trip } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    const links = page.locator('.itl-block .itn-reminder')
+    // Every stop but the last has somewhere to go next.
+    await expect(links).toHaveCount(3)
+    const ys = block(page, 'Yellow Submarine')
+    await expect(ys.locator('.itl-leaveby')).toHaveText(/^Leave by \d{2}:\d{2} ⏰ Reminder$/)
+    const timeline = await links.evaluateAll((as) => as.map((a) => ({ href: a.getAttribute('href')!, download: a.getAttribute('download')! })))
+    // The link opens the calendar, not the edit sheet.
+    await ys.locator('.itn-reminder').dispatchEvent('click')
+    await expect(page.locator('#itl-detail')).toBeHidden()
+    await ys.click()
+    const sheetLink = page.locator('#itl-detail-lines .itn-reminder')
+    await expect(sheetLink).toHaveAttribute('download', timeline[0].download)
+    expect(withoutStamp(icsOf((await sheetLink.getAttribute('href'))!))).toBe(withoutStamp(icsOf(timeline[0].href)))
+
+    // The list, same trip and stops.
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((stops) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = stops; state[0].startTime = '15:06'; render()
+    }, YOKOHAMA_DAY)
+    const list = await page.locator('.day-card').first().locator('.itn-reminder')
+      .evaluateAll((as) => as.map((a) => ({ href: a.getAttribute('href')!, download: a.getAttribute('download')! })))
+    expect(list.map((l) => l.download)).toEqual(timeline.map((l) => l.download))
+    expect(list.map((l) => withoutStamp(icsOf(l.href)))).toEqual(timeline.map((l) => withoutStamp(icsOf(l.href))))
+    const cafe = icsOf(timeline[2].href)
+    expect(cafe).toMatch(/DTSTART;TZID=Asia\/Tokyo:20261205T\d{6}/)
+    expect(cafe).toMatch(/SUMMARY:Leave Square Enix Pop Up Cafe Yokohama \d{2}:\d{2} JST → Tokyo Temple/)
+  })
+})

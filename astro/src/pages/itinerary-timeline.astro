@@ -142,6 +142,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
+      reminderLinkHtml,
     } from '../lib/itinerary-ui'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
@@ -311,11 +312,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const here = now.here ? `<button type="button" class="itl-here" aria-label="I'm here now" title="I'm here now">📍${narrow ? '' : ' I\'m here now'}</button>` : ''
         const leave = now.leave ? `<button type="button" class="itl-leave" aria-label="Leaving now" title="Leaving now">✅${narrow ? '' : ' Leaving now'}</button>` : ''
         const actions = here || leave ? `<span class="itl-actions">${here}${leave}</span>` : ''
+        // "Leave by HH:MM" with the list's "⏰ Reminder" (.ics) link (itinerary-ui.ts reminderLinkHtml),
+        // just "⏰" where blocks share the width — so a tap on the block mostly misses it.
+        const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
-        // buttons above, then the opening hours, then any warnings.
+        // buttons above, the leave-by line, the opening hours, then any warnings.
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
           ${actions}
+          ${leaveBy}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
           ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
         grid.appendChild(el)
@@ -510,16 +515,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const { sched, inputs } = computeDayTimes(day, base, shopById)
       const x = sched.stops[idx]
       const s = day.stops[idx]
-      const lines: string[] = []
+      const lines: (string | { html: string })[] = [] // text, escaped below — or ready HTML
       lines.push(x.fixed ? `📌 ${formatClock(x.start)}–${formatClock(x.end)}${x.arrival !== x.start ? ` · arrive by ${formatClock(x.arrival)}` : ''}` : `${formatClock(x.start)}–${formatClock(x.end)} (${inputs[idx].durationMin} min)`)
       if (s.hours) lines.push(`Opening hours: ${s.hours}`)
-      if (x.leaveBy != null) lines.push(`Leave by ${formatClock(x.leaveBy)}`)
+      // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
+      if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.leaveBy, shopById)}` })
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
       if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
       ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
-      ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${esc(l)}</li>`).join('')
+      ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
       const now = nowButtons(day, x)
       ed('here').hidden = !now.here
       ed('leave').hidden = !now.leave
@@ -592,7 +598,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     dayEl.addEventListener('click', (e) => {
       const target = e.target as HTMLElement
       const block = target.closest('.itl-block') as HTMLElement | null
-      if (!block) return
+      if (!block || target.closest('.itn-reminder')) return
       const idx = Number(block.dataset.index)
       if (target.closest('.itl-here')) { markNow('here', currentDayPlan(), idx); return }
       if (target.closest('.itl-leave')) { markNow('leave', currentDayPlan(), idx); return }
@@ -758,6 +764,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-sep { color: var(--muted); white-space: pre; flex-shrink: 0; }
     .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
     .itl-hours { font-size: 0.7rem; color: var(--muted); }
+    /* The link at the right edge, so a tap in the middle of a short block still opens its sheet. */
+    .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+    .itl-leaveby .itn-reminder { margin-left: auto; padding: 0.05rem 0.35rem; }
     .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
     .itl-travel {
       position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;

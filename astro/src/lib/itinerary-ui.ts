@@ -4,7 +4,8 @@
 // by src/styles/itinerary-shared.css). Changing the plan is always left to the page, through the
 // callbacks — so each page saves through its own state/saveState/render, as before.
 
-import { transitRouteUrl, type TravelLeg } from './itinerary-schedule'
+import { transitRouteUrl, leaveReminderIcs, type TravelLeg } from './itinerary-schedule'
+import { formatClock } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 
 declare global {
@@ -308,4 +309,17 @@ export async function fetchStopCoordsFromShop(stop: PlanStop, cb: CoordCallbacks
   } catch (e) {
     cb.msg('Nettverksfeil ved henting.', '#e74c3c')
   }
+}
+
+// --- "⏰ Reminder" -----------------------------------------------------------------------------
+// An .ics calendar event for leaving stop `si` for the next one at its leave-by time
+// (itinerary-schedule.ts leaveReminderIcs: Asia/Tokyo, the JST title), as a data: link the phone's
+// calendar opens — with a space before it, for after "Leave by HH:MM". '' on the day's last stop
+// (nowhere to go next) or a day without a date. `iconOnly`: just "⏰" (the timeline's narrow blocks).
+export function reminderLinkHtml(day: PlanDay, si: number, leaveBy: number, shopById: Map<string, PlanShop>, iconOnly = false): string {
+  if (!day.day || !day.stops[si + 1]) return ''
+  const from = resolveStop(day.stops[si], shopById), to = resolveStop(day.stops[si + 1], shopById)
+  const ics = leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to) })
+  const file = `leave-${day.day}-${formatClock(leaveBy).replace(':', '')}.ics`
+  return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}"${iconOnly ? ' aria-label="Reminder" title="Reminder"' : ''}>⏰${iconOnly ? '' : ' Reminder'}</a>`
 }

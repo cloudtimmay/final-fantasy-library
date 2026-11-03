@@ -257,16 +257,9 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     }
     tickEveryMinute()
 
-    // "⏰ Reminder": an .ics calendar event at the leave-by time (src/lib/itinerary-schedule.ts
-    // leaveReminderIcs, Asia/Tokyo), as a data: link the phone's calendar opens.
-    function reminderLinkHtml(day, si, leaveBy) {
-      if (!day.day || !day.stops[si + 1]) return ''
-      const lib = window.__routeOptimizer
-      const from = resolveStop(day.stops[si]), to = resolveStop(day.stops[si + 1])
-      const ics = lib.leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: lib.transitRouteUrl(from, to) })
-      const file = `leave-${day.day}-${fmt(leaveBy).replace(':', '')}.ics`
-      return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}">⏰ Reminder</a>`
-    }
+    // "⏰ Reminder": an .ics calendar event at the leave-by time (src/lib/itinerary-ui.ts
+    // reminderLinkHtml — the same link as on the timeline).
+    function reminderLinkHtml(day, si, leaveBy) { return LIB().reminderLinkHtml(day, si, leaveBy, shopById) }
 
     // Once per segment that runs over, just above the travel line into its anchor: how much
     // too long the stops before it are, and the longest visits that could give.
@@ -833,7 +826,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.45); color: #2ecc71;
     }
     .itn-next[hidden] { display: none; }
-    .itn-reminder { margin-left: 0.4rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; }
     .itn-stay { font-size: 0.75rem; color: #2ecc71; }
     .itn-warn { font-size: 0.75rem; color: #e74c3c; font-weight: 600; }
     .itn-segment {

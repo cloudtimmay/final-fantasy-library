@@ -4,11 +4,15 @@
 
 import type { DaySchedule } from './itinerary-schedule'
 
-export const PX_PER_MIN = 1.2 // 15 hours ≈ 1080 px
+// Zoom: pixels per minute. The default, 3 px/min, makes an hour 180 px — a 30-min visit (90 px)
+// fits its name, time and opening hours on a phone. "−"/"+" step through the levels.
+export const ZOOM_LEVELS = [1.5, 2.25, 3, 4, 5.5]
+export const DEFAULT_ZOOM_INDEX = 2
+export const DEFAULT_PX_PER_MIN = ZOOM_LEVELS[DEFAULT_ZOOM_INDEX]
 export const AXIS_START_MIN = 8 * 60
 export const AXIS_END_MIN = 23 * 60
-// A block is never thinner than this, so a 5-min visit is still readable and tappable.
-export const MIN_BLOCK_PX = 26
+// A block is never thinner than this: always room for its first line (name · time), and tappable.
+export const MIN_BLOCK_PX = 30
 
 export type TimelineRange = { start: number; end: number }
 
@@ -23,8 +27,8 @@ export function timelineRange(sched: DaySchedule): TimelineRange {
   return { start: Math.floor(start / 60) * 60, end: Math.ceil(end / 60) * 60 }
 }
 
-export function offsetFor(minutes: number, range: TimelineRange): number {
-  return Math.round((minutes - range.start) * PX_PER_MIN)
+export function offsetFor(minutes: number, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): number {
+  return Math.round((minutes - range.start) * px)
 }
 
 export type TimelineItem =
@@ -33,22 +37,22 @@ export type TimelineItem =
 
 // One "stop" item per visit (top at its start, height ∝ its duration) and one "travel" item for
 // each trip that takes time, ending when you arrive (for a fixed-time stop, at its arrive-by).
-export function timelineItems(sched: DaySchedule, range: TimelineRange): TimelineItem[] {
+export function timelineItems(sched: DaySchedule, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): TimelineItem[] {
   const items: TimelineItem[] = []
   sched.stops.forEach((x, i) => {
     if (x.travelIn.minutes > 0) {
-      const top = offsetFor(x.arrival - x.travelIn.minutes, range)
-      items.push({ kind: 'travel', index: i, top, height: Math.max(4, offsetFor(x.arrival, range) - top), minutes: x.travelIn.minutes, mode: x.travelIn.mode })
+      const top = offsetFor(x.arrival - x.travelIn.minutes, range, px)
+      items.push({ kind: 'travel', index: i, top, height: Math.max(4, offsetFor(x.arrival, range, px) - top), minutes: x.travelIn.minutes, mode: x.travelIn.mode })
     }
-    const top = offsetFor(x.start, range)
-    items.push({ kind: 'stop', index: i, top, height: Math.max(MIN_BLOCK_PX, offsetFor(x.end, range) - top), start: x.start, end: x.end, arrival: x.arrival })
+    const top = offsetFor(x.start, range, px)
+    items.push({ kind: 'stop', index: i, top, height: Math.max(MIN_BLOCK_PX, offsetFor(x.end, range, px) - top), start: x.start, end: x.end, arrival: x.arrival })
   })
   return items
 }
 
 // A tap at `offsetPx` from the top of the axis -> the time there, rounded to 15 minutes.
-export function minutesAtOffset(offsetPx: number, range: TimelineRange): number {
-  const raw = range.start + offsetPx / PX_PER_MIN
+export function minutesAtOffset(offsetPx: number, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): number {
+  const raw = range.start + offsetPx / px
   return Math.min(range.end, Math.max(range.start, Math.round(raw / 15) * 15))
 }
 

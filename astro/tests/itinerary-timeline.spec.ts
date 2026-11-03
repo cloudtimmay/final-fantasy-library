@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
-import { timelineRange, timelineItems, minutesAtOffset, insertIndexForTime, PX_PER_MIN, MIN_BLOCK_PX } from '../src/lib/itinerary-timeline'
+import { timelineRange, timelineItems, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
 import { scheduleDay } from '../src/lib/itinerary-schedule'
 import { estimateLeg } from '../src/lib/route-optimizer'
 
@@ -228,5 +228,48 @@ test.describe('/itinerary-timeline: block details and the links', () => {
     await expect(back).toHaveText('← List view')
     await back.click()
     await expect(page).toHaveURL(`/itinerary?trip=${trip._id}`)
+  })
+})
+
+// Where an element sits on the screen.
+const box = async (l: import('@playwright/test').Locator) => (await l.boundingBox())!
+
+test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => {
+  test('at the default zoom an hour is 2.5× the old height, and a 30-min block shows its name', async ({ page, sanity, trackDoc }) => {
+    expect(PX_PER_MIN * 60).toBe(180) // was 72 px (1.2 px/min)
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Liberty Akihabara 5 (retro games, 4 floors)', hours: '11:00–20:30 · cash only on floors 3–4', tag: '', slot: '', lat: 35.701461, lng: 139.771787, dur: 30, travelMin: 0, travelFrom: '__base__' },
+    ], {}, '11:00')
+    const block = page.locator('.itl-block').first()
+    const name = block.locator('.itl-name')
+    await expect(name).toBeVisible()
+    const b = await box(block), n = await box(name)
+    expect(b.height).toBe(Math.round(30 * PX_PER_MIN))
+    // The name is on the block's first line, inside it, and gets real width (not squeezed away).
+    expect(n.y).toBeGreaterThanOrEqual(b.y)
+    expect(n.y + n.height).toBeLessThanOrEqual(b.y + b.height)
+    expect(n.width).toBeGreaterThan(60)
+    const hours = await box(block.locator('.itl-hours'))
+    expect(hours.y).toBeGreaterThanOrEqual(n.y + n.height - 1) // opening hours below the name, not over it
+  })
+
+  test('"−"/"+" change the hour height, and the zoom is remembered', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    const hourGap = async () => {
+      const tops = await page.locator('.itl-hour').evaluateAll((els) => els.slice(0, 2).map((e) => (e as HTMLElement).offsetTop))
+      return tops[1] - tops[0]
+    }
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[2]))
+    await page.locator('#itl-zoom-in').click()
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[3]))
+    await page.locator('#itl-zoom-out').click()
+    await page.locator('#itl-zoom-out').click()
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[1]))
+
+    await page.reload()
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[1]))
+    await page.locator('#itl-zoom-out').click()
+    await expect(page.locator('#itl-zoom-out')).toBeDisabled() // the smallest step
   })
 })

@@ -26,7 +26,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ))}
     </div>
 
-    <p class="itl-hint">Tap an empty spot to add a stop there.</p>
+    <div class="itl-toolbar">
+      <p class="itl-hint">Tap an empty spot to add a stop there.</p>
+      <div class="itl-zoom" role="group" aria-label="Zoom">
+        <button id="itl-zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="itl-zoom-in" type="button" aria-label="Zoom in">+</button>
+      </div>
+    </div>
 
     <form id="itl-add" class="itl-add" hidden>
       <p class="itl-add-title">Add a stop around <strong id="itl-add-time"></strong></p>
@@ -62,7 +68,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
       shopOptionGroups, shopStopFrom, customStopFrom, type PlanDay, type PlanShop,
     } from '../lib/itinerary-plan'
-    import { timelineRange, timelineItems, offsetFor, minutesAtOffset, insertIndexForTime, PX_PER_MIN } from '../lib/itinerary-timeline'
+    import { timelineRange, timelineItems, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { tokyoNow } from '../lib/trip-dates'
 
@@ -83,6 +89,24 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     let state: PlanDay[] = built.state
     const extraDays = built.extraDays
     let currentDay: string = wrap.dataset.initialDay || days[0]
+
+    // Zoom (pixels per minute), remembered in this browser — storage can be unavailable (private
+    // mode, blocked), so every access is guarded and the default is used then.
+    const ZOOM_KEY = 'ff-timeline-zoom'
+    let zoomIndex = DEFAULT_ZOOM_INDEX
+    try {
+      const saved = Number(localStorage.getItem(ZOOM_KEY))
+      if (Number.isInteger(saved) && saved >= 0 && saved < ZOOM_LEVELS.length && localStorage.getItem(ZOOM_KEY) !== null) zoomIndex = saved
+    } catch (e) {}
+    const zoomOut = document.querySelector('#itl-zoom-out') as HTMLButtonElement
+    const zoomIn = document.querySelector('#itl-zoom-in') as HTMLButtonElement
+    function setZoom(i: number) {
+      zoomIndex = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i))
+      try { localStorage.setItem(ZOOM_KEY, String(zoomIndex)) } catch (e) {}
+      render()
+    }
+    zoomOut.addEventListener('click', () => setZoom(zoomIndex - 1))
+    zoomIn.addEventListener('click', () => setZoom(zoomIndex + 1))
 
     // Saving: the same as /itinerary — the whole plan in its { v: 2, days } form
     // (serializePlan), in this browser and, a second later, to /api/itinerary-save.
@@ -110,21 +134,25 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!day) return
       const { sched, inputs } = computeDayTimes(day, base, shopById)
       const range = timelineRange(sched)
+      const px = ZOOM_LEVELS[zoomIndex]
+      zoomOut.disabled = zoomIndex === 0
+      zoomIn.disabled = zoomIndex === ZOOM_LEVELS.length - 1
       const grid = document.createElement('div')
       grid.className = 'itl-grid'
-      grid.style.height = `${offsetFor(range.end, range)}px`
+      grid.style.height = `${offsetFor(range.end, range, px)}px`
       grid.dataset.start = String(range.start)
+      grid.dataset.px = String(px)
       grid.dataset.end = String(range.end)
 
       for (let m = range.start; m <= range.end; m += 60) {
         const hour = document.createElement('div')
         hour.className = 'itl-hour'
-        hour.style.top = `${offsetFor(m, range)}px`
+        hour.style.top = `${offsetFor(m, range, px)}px`
         hour.textContent = formatClock(m)
         grid.appendChild(hour)
       }
 
-      timelineItems(sched, range).forEach((item) => {
+      timelineItems(sched, range, px).forEach((item) => {
         const el = document.createElement('div')
         el.style.top = `${item.top}px`
         el.style.height = `${item.height}px`
@@ -147,9 +175,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           const time = x.fixed
             ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
             : `${formatClock(x.start)}–${formatClock(x.end)}`
+          // First line "name · time" (the name only ever shortens with an ellipsis), then the
+          // opening hours, then any warnings.
           el.innerHTML = `
-            <span class="itl-time">${esc(time)}</span>
-            <span class="itl-name">${esc(r.name)}</span>
+            <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
             ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
             ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
         }
@@ -161,7 +190,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const latest = latestEndForFlight(flight)
         const line = document.createElement('div')
         line.className = 'itl-flight'
-        line.style.top = `${offsetFor(latest, range)}px`
+        line.style.top = `${offsetFor(latest, range, px)}px`
         line.textContent = `✈️ Leave for ${flight.airport} by ${formatClock(latest)} (${flight.line.replace('✈️ ', '')})`
         grid.appendChild(line)
       }
@@ -182,7 +211,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!line || !grid) return
       const t = tokyoNow()
       const start = Number(grid.dataset.start)
-      const top = (t.minutes - start) * PX_PER_MIN
+      const top = (t.minutes - start) * Number(grid.dataset.px)
       const show = t.date === currentDay && top >= 0 && top <= grid.offsetHeight
       line.hidden = !show
       if (show) { line.style.top = `${Math.round(top)}px`; line.dataset.minutes = String(t.minutes) }
@@ -245,7 +274,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
       if (!grid || (target !== grid && !target.classList.contains('itl-hour'))) return
       const range = { start: Number(grid.dataset.start), end: Number(grid.dataset.end) }
-      addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range)
+      addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range, Number(grid.dataset.px))
       addTime.textContent = formatClock(addMinutes)
       addShop.value = ''; addCustom.hidden = true; addName.value = ''; addHours.value = ''; addDur.value = '45'
       addForm.hidden = false
@@ -311,7 +340,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
     }
     .itl-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-    .itl-hint { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
+    .itl-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0 0 0.6rem; }
+    .itl-hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
+    .itl-zoom { display: flex; gap: 0.3rem; flex-shrink: 0; }
+    .itl-zoom button {
+      min-width: 40px; min-height: 36px; font-size: 1.1rem; font-weight: 700; cursor: pointer;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .itl-zoom button:disabled { opacity: 0.4; cursor: default; }
     .itl-grid { position: relative; margin-left: 3rem; border-left: 1px solid var(--border); cursor: copy; }
     .itl-hour {
       position: absolute; left: -3rem; width: calc(100% + 3rem); border-top: 1px dashed rgba(255,255,255,0.08);
@@ -325,8 +361,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-block.itl-fixed { border-left-color: #6b9fd4; background: rgba(107,159,212,0.1); }
     .itl-block.itl-warn-fit, .itl-block.itl-warn-leave { border-left-color: #e74c3c; }
     .itl-block.itl-warn-closed { border-left-color: #e0a04c; }
-    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); }
-    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .itl-first { display: flex; align-items: baseline; min-width: 0; line-height: 1.3; }
+    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 3em; flex: 0 1 auto; }
+    .itl-sep { color: var(--muted); white-space: pre; flex-shrink: 0; }
+    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
     .itl-hours { font-size: 0.7rem; color: var(--muted); }
     .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
     .itl-travel {

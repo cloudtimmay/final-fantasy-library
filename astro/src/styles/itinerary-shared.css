@@ -68,3 +68,9 @@
 
 /* "⏰ Reminder" after "Leave by HH:MM" (itinerary-ui.ts reminderLinkHtml), on the list and the timeline. */
 .itn-reminder { margin-left: 0.4rem; font-weight: 600; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; }
+
+/* The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml): a strip that scrolls sideways. */
+.shop-photo-strip { display: flex; gap: 0.4rem; overflow-x: auto; padding: 0.2rem 0 0.4rem; }
+.shop-photo { margin: 0; flex: 0 0 auto; width: 84px; }
+.shop-photo img { display: block; width: 84px; height: 84px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); cursor: zoom-in; }
+.shop-photo figcaption { font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

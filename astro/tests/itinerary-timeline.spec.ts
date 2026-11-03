@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
 import { timelineRange, timelineItems, layoutTimeline, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
@@ -843,5 +845,69 @@ test.describe('/itinerary-timeline: "⏰ Reminder"', () => {
     const cafe = icsOf(timeline[2].href)
     expect(cafe).toMatch(/DTSTART;TZID=Asia\/Tokyo:20261205T\d{6}/)
     expect(cafe).toMatch(/SUMMARY:Leave Square Enix Pop Up Cafe Yokohama \d{2}:\d{2} JST → Tokyo Temple/)
+  })
+})
+
+test.describe('itinerary: the linked shop\'s photos', () => {
+  const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
+  async function shopWithPhotos(sanity: any, trackDoc: (id: string) => void, uploadedAssets: string[]) {
+    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'itinerary-strip-test.png' })
+    uploadedAssets.push(asset._id)
+    const photo = (key: string, caption?: string) => ({ _key: key, _type: 'image', asset: { _type: 'reference', _ref: asset._id }, ...(caption ? { caption } : {}) })
+    const shop = await sanity.create({
+      _type: 'shopNote', shopName: testName(`Strip Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77,
+      photos: [photo('s1', 'Floor guide'), photo('s2', '4F retro games'), photo('s3')],
+    })
+    trackDoc(shop._id)
+    return shop
+  }
+  const stops = (shopId: string) => [
+    { name: 'Strip Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId, travelMin: 0, travelFrom: '__base__' },
+    { name: 'No Shop Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60 },
+  ]
+
+  test('the timeline\'s edit sheet: a strip of small photos with captions; a tap opens the lightbox', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
+    await openTimeline(page, sanity, trackDoc, stops(shop._id), {}, '10:00')
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: shop.shopName }) }).click()
+    const strip = page.locator('#itl-ed-photos')
+    await expect(strip).toBeVisible()
+    await expect(strip.locator('.shop-photo img')).toHaveCount(3)
+    await expect(strip.locator('figcaption')).toHaveText(['Floor guide', '4F retro games'])
+    await expect(strip.locator('img').first()).toHaveAttribute('src', /^https:\/\/cdn\.sanity\.io\/images\/.+w=160&fit=max&auto=format$/)
+    await expect(strip.locator('img').nth(2)).toHaveAttribute('alt', `${shop.shopName} photo`)
+    await strip.locator('img').nth(1).click()
+    await expect(page.locator('dialog.lb-dialog')).toBeVisible()
+    await expect(page.locator('.lb-img')).toHaveAttribute('src', /w=2000/)
+    await page.locator('.lb-close').click()
+    await expect(page.locator('#itl-detail')).toBeVisible() // the sheet stays open
+
+    await page.locator('#itl-detail-close').click()
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'No Shop Stop' }) }).click()
+    await expect(page.locator('#itl-detail')).toBeVisible()
+    await expect(strip).toBeHidden()
+  })
+
+  test('the list\'s ⋯ panel shows the same strip', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((s) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = s; render()
+    }, stops(shop._id))
+    const card = page.locator('.day-card').first()
+    await card.locator('.more-btn').first().click()
+    const panel = card.locator('.mc-panel.open')
+    await expect(panel.locator('.shop-photo-strip figcaption')).toHaveText(['Floor guide', '4F retro games'])
+    await panel.locator('.shop-photo img').first().click()
+    await expect(page.locator('dialog.lb-dialog')).toBeVisible()
+    await page.locator('.lb-close').click()
+    await expect(panel).toBeVisible() // still open
+    // A stop without a shop: no strip.
+    await card.locator('.more-btn').nth(1).click()
+    await expect(card.locator('.mc-panel.open')).toHaveCount(2)
+    await expect(card.locator('.mc-panel.open').nth(1).locator('.shop-photo-strip')).toHaveCount(0)
   })
 })

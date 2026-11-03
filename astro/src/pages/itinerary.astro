@@ -418,7 +418,9 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
           ul.appendChild(li)
           const panel = document.createElement('li')
           panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si
+          // The linked shop's photos first (src/lib/itinerary-ui.ts shopPhotoStripHtml).
           panel.innerHTML = `
+            ${s.shopId ? LIB().shopPhotoStripHtml(shopById.get(s.shopId)) : ''}
             ${noCoord ? `
               <div class="mc-coord-row">
                 <label>📍 Koordinater <input type="text" class="mc-coord" placeholder="lat, lng (fra Google Maps)" /></label>

@@ -7,6 +7,7 @@
 import { transitRouteUrl, leaveReminderIcs, type TravelLeg } from './itinerary-schedule'
 import { formatClock } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
+import { cdnImage } from './image-url'
 
 declare global {
   interface Window { L?: any }
@@ -322,4 +323,17 @@ export function reminderLinkHtml(day: PlanDay, si: number, leaveBy: number, shop
   const ics = leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to) })
   const file = `leave-${day.day}-${formatClock(leaveBy).replace(':', '')}.ics`
   return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}"${iconOnly ? ' aria-label="Reminder" title="Reminder"' : ''}>⏰${iconOnly ? '' : ' Reminder'}</a>`
+}
+
+// --- The linked shop's photos -----------------------------------------------------------------
+// shopNote.photos (floor guides, shelves …) with their captions as a small strip — in the
+// timeline's edit sheet and the list's ⋯ panel; a tap opens the lightbox (public/lightbox.js).
+// Small CDN images; '' when the shop has none (or there's no shop).
+export function shopPhotoStripHtml(shop: PlanShop | null | undefined): string {
+  const photos = (shop?.photos || []).filter((p) => p && p.url)
+  if (!photos.length) return ''
+  const name = shop!.shopName || 'Shop'
+  return `<div class="shop-photo-strip" aria-label="Shop photos">${photos.map((p) =>
+    `<figure class="shop-photo"><img src="${esc(cdnImage(p.url, 160))}" data-lightbox="${esc(cdnImage(p.url, 2000))}" alt="${esc(p.caption || `${name} photo`)}" loading="lazy" />${
+      p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div>`
 }

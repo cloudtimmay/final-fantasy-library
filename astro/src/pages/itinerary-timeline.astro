@@ -97,6 +97,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
       </div>
       <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
+      <!-- The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml). -->
+      <div id="itl-ed-photos" hidden></div>
       <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
         <button id="itl-ed-here" type="button">📍 I'm here now</button>
         <button id="itl-ed-leave" type="button">✅ Leaving now</button>
@@ -142,7 +144,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
-      reminderLinkHtml,
+      reminderLinkHtml, shopPhotoStripHtml,
     } from '../lib/itinerary-ui'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
@@ -525,6 +527,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
       if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
       ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
+      const strip = shopPhotoStripHtml(s.shopId ? shopById.get(s.shopId) : null)
+      const photosEl = document.querySelector('#itl-ed-photos') as HTMLElement
+      photosEl.innerHTML = strip
+      photosEl.hidden = !strip
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
       const now = nowButtons(day, x)
       ed('here').hidden = !now.here

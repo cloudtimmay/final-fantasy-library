@@ -68,7 +68,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
       shopOptionGroups, shopStopFrom, customStopFrom, type PlanDay, type PlanShop,
     } from '../lib/itinerary-plan'
-    import { timelineRange, timelineItems, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX } from '../lib/itinerary-timeline'
+    import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { tokyoNow } from '../lib/trip-dates'
 
@@ -152,36 +152,49 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         grid.appendChild(hour)
       }
 
-      timelineItems(sched, range, px).forEach((item) => {
+      // Travel in its own lane on the right (lib/itinerary-timeline.ts layoutTimeline): a striped
+      // band with the label inside, or a small chip when the leg is too short for it.
+      const layout = layoutTimeline(sched, range, px)
+      layout.travel.forEach((tr) => {
+        const el = document.createElement('div')
+        el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '')
+        el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
+        el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
+        el.dataset.index = String(tr.index)
+        el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
+        grid.appendChild(el)
+      })
+
+      // Stops: side by side in columns where they overlap (layoutTimeline).
+      layout.stops.forEach((item) => {
         const el = document.createElement('div')
         el.style.top = `${item.top}px`
         el.style.height = `${item.height}px`
+        el.style.left = `calc(var(--itl-gap) + var(--itl-cols-w) * ${item.col} / ${item.cols})`
+        el.style.width = `calc(var(--itl-cols-w) / ${item.cols} - var(--itl-gap))`
         el.dataset.index = String(item.index)
-        if (item.kind === 'travel') {
-          el.className = 'itl-travel'
-          el.textContent = `${item.mode === 'walk' ? '🚶' : '🚆'} ${item.minutes} min`
-        } else {
-          const x = sched.stops[item.index]
-          const s = day.stops[item.index]
-          const r = resolveStop(s, shopById)
-          const closed = looksClosed(s.hours, x.start)
-          const warnings: string[] = []
-          if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
-          else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
-          if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
-          el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
-          el.dataset.start = String(item.start)
-          el.dataset.dur = String(inputs[item.index].durationMin)
-          const time = x.fixed
-            ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
-            : `${formatClock(x.start)}–${formatClock(x.end)}`
-          // First line "name · time" (the name only ever shortens with an ellipsis), then the
-          // opening hours, then any warnings.
-          el.innerHTML = `
-            <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
-            ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
-            ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
-        }
+        el.dataset.col = String(item.col)
+        el.dataset.cols = String(item.cols)
+        const x = sched.stops[item.index]
+        const s = day.stops[item.index]
+        const r = resolveStop(s, shopById)
+        const closed = looksClosed(s.hours, x.start)
+        const warnings: string[] = []
+        if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
+        else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+        if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+        el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
+        el.dataset.start = String(item.start)
+        el.dataset.dur = String(inputs[item.index].durationMin)
+        const time = x.fixed
+          ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
+          : `${formatClock(x.start)}–${formatClock(x.end)}`
+        // First line "name · time" (the name only ever shortens with an ellipsis), then the
+        // opening hours, then any warnings.
+        el.innerHTML = `
+          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
+          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
         grid.appendChild(el)
       })
 
@@ -348,13 +361,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
     }
     .itl-zoom button:disabled { opacity: 0.4; cursor: default; }
-    .itl-grid { position: relative; margin-left: 3rem; border-left: 1px solid var(--border); cursor: copy; }
+    /* Blocks share the width left of the travel lane (--itl-lane) in columns (--itl-cols-w). */
+    .itl-grid {
+      --itl-lane: 4.4rem; --itl-gap: 0.3rem; --itl-cols-w: calc(100% - var(--itl-lane) - var(--itl-gap));
+      position: relative; margin-left: 3rem; border-left: 1px solid var(--border); cursor: copy;
+    }
     .itl-hour {
       position: absolute; left: -3rem; width: calc(100% + 3rem); border-top: 1px dashed rgba(255,255,255,0.08);
       font-size: 0.7rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; pointer-events: none;
     }
     .itl-block {
-      position: absolute; left: 0.4rem; right: 0.2rem; box-sizing: border-box; overflow: hidden; cursor: pointer;
+      position: absolute; box-sizing: border-box; overflow: hidden; cursor: pointer; z-index: 1;
       background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
       border-radius: 6px; padding: 0.2rem 0.45rem; display: flex; flex-direction: column; gap: 0.05rem; font-size: 0.78rem;
     }
@@ -368,10 +385,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-hours { font-size: 0.7rem; color: var(--muted); }
     .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
     .itl-travel {
-      position: absolute; left: 1.2rem; right: 1rem; box-sizing: border-box; display: flex; align-items: center;
-      font-size: 0.68rem; color: var(--muted); padding-left: 0.4rem; overflow: hidden; pointer-events: none;
-      background: repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
+      position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;
+      display: flex; align-items: center; justify-content: center; white-space: nowrap;
+      font-size: 0.68rem; color: var(--muted); overflow: hidden; pointer-events: none; border-radius: 4px;
+      background: repeating-linear-gradient(135deg, rgba(255,255,255,0.07) 0 6px, transparent 6px 12px);
       border-left: 2px dotted var(--border);
+    }
+    .itl-travel.itl-travel-chip {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 999px; line-height: 1;
     }
     .itl-flight { position: absolute; left: 0; right: 0; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
     .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }

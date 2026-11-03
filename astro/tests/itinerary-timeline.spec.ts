@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
-import { timelineRange, timelineItems, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
+import { timelineRange, timelineItems, layoutTimeline, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
 import { scheduleDay } from '../src/lib/itinerary-schedule'
 import { estimateLeg } from '../src/lib/route-optimizer'
 
@@ -271,5 +271,58 @@ test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => 
     expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[1]))
     await page.locator('#itl-zoom-out').click()
     await expect(page.locator('#itl-zoom-out')).toBeDisabled() // the smallest step
+  })
+})
+
+test.describe('/itinerary-timeline on a phone: travel chips and overlapping stops', () => {
+  const intersects = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
+    a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5
+
+  test('a short walk is a chip that overlaps no block; a long trip stays a striped band', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    // SURUGA-YA -> the cafe is a few minutes on foot: too short for its label inside the leg.
+    const chip = page.locator('.itl-travel.itl-travel-chip')
+    await expect(chip.first()).toHaveText(/^🚶 \d+ min$/)
+    const blocks = await page.locator('.itl-block').all()
+    for (const c of await chip.all()) {
+      const cb = await box(c)
+      for (const b of blocks) expect(intersects(cb, await box(b))).toBe(false)
+    }
+    // Shinjuku -> Yokohama keeps the band, its label inside its own height.
+    const band = page.locator('.itl-travel:not(.itl-travel-chip)', { hasText: '🚆' })
+    const bb = await box(band.first())
+    expect(bb.height).toBeGreaterThanOrEqual(20)
+    for (const b of blocks) expect(intersects(bb, await box(b))).toBe(false)
+  })
+
+  test('a stop 19:33–20:18 and the fixed Eorzea Cafe at 20:00 get separate columns that don\'t intersect', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', slot: '', lat: 35.697734, lng: 139.773475, dur: 45, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Final Fantasy Eorzea Cafe', hours: '', tag: 'mat', slot: '', lat: 35.697776, lng: 139.770364, dur: 90, fixedTime: '20:00' },
+    ], {}, '19:33')
+    const bookoff = page.locator('.itl-block[data-index="0"]')
+    const cafe = page.locator('.itl-block[data-index="1"]')
+    await expect(bookoff.locator('.itl-time')).toHaveText('19:33–20:18')
+    await expect(cafe.locator('.itl-time')).toHaveText('📌 20:00')
+    await expect(bookoff).toHaveAttribute('data-cols', '2')
+    await expect(cafe).toHaveAttribute('data-cols', '2')
+    expect(await bookoff.getAttribute('data-col')).not.toBe(await cafe.getAttribute('data-col'))
+    expect(intersects(await box(bookoff), await box(cafe))).toBe(false)
+    // Both readable, and the warning styling kept.
+    await expect(bookoff.locator('.itl-name')).toBeVisible()
+    await expect(cafe.locator('.itl-name')).toBeVisible()
+    await expect(bookoff).toHaveClass(/itl-warn-fit/)
+    await expect(bookoff.locator('.itl-badge')).toContainText("Doesn't fit before 20:00")
+  })
+
+  test('layoutTimeline: overlapping blocks share columns; separate ones keep the full width', () => {
+    const stops = [
+      { name: 'A', lat: 35.7, lng: 139.77, durationMin: 45, fixedTime: null, arriveEarlyMin: null, manualTravelMin: 0, noteTravelMin: null },
+      { name: 'Cafe', lat: 35.7, lng: 139.77, durationMin: 90, fixedTime: t('20:00'), arriveEarlyMin: null, manualTravelMin: 5, noteTravelMin: null },
+      { name: 'Late', lat: 35.7, lng: 139.77, durationMin: 30, fixedTime: null, arriveEarlyMin: null, manualTravelMin: 5, noteTravelMin: null },
+    ]
+    const sched = scheduleDay(stops, t('19:33'), BASE)
+    const { stops: placed } = layoutTimeline(sched, timelineRange(sched))
+    expect(placed.map((p) => [p.col, p.cols])).toEqual([[0, 2], [1, 2], [0, 1]])
   })
 })

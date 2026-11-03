@@ -193,3 +193,40 @@ test.describe('/itinerary-timeline: tap an empty spot to add a stop', () => {
     expect(Object.keys(stop)).toEqual(['name', 'hours', 'tag', 'slot', 'shopId', 'lat', 'lng', 'dur'])
   })
 })
+
+test.describe('/itinerary-timeline: block details and the links', () => {
+  test('tapping a block shows its details and "Edit in list" opens /itinerary with that stop in view', async ({ page, sanity, trackDoc }) => {
+    const { trip } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Square Enix Pop Up Cafe' }) }).click()
+    const detail = page.locator('#itl-detail')
+    await expect(detail).toBeVisible()
+    await expect(page.locator('#itl-add')).toBeHidden() // a block tap isn't an "add here" tap
+    await expect(page.locator('#itl-detail-name')).toHaveText('Square Enix Pop Up Cafe Yokohama')
+    await expect(page.locator('#itl-detail-lines li').first()).toHaveText('📌 16:30–17:30')
+    await expect(page.locator('#itl-detail-lines')).toContainText('You can stay until')
+    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary?trip=${trip._id}&day=2026-12-05&stop=2`)
+
+    // The list opens with that day's stop highlighted (its own saved plan, so check by position).
+    await page.locator('.itl-block').first().click()
+    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary?trip=${trip._id}&day=2026-12-05&stop=0`)
+    await page.locator('#itl-detail-edit').click()
+    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}&day=2026-12-05&stop=0`)
+    await expect(page.locator('.stop.itn-focus[data-day="0"][data-idx="0"]')).toBeVisible({ timeout: 20000 })
+  })
+
+  test('"🗓️ Timeline (beta)" on /itinerary and "← List view" on the timeline, keeping the trip', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Timeline Links ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    const toTimeline = page.locator('#itn-timeline-link')
+    await expect(toTimeline).toHaveText('🗓️ Timeline (beta)')
+    await toTimeline.click()
+    await expect(page).toHaveURL(`/itinerary-timeline?trip=${trip._id}`)
+    await expect(page.getByRole('heading', { name: /Timeline/ })).toBeVisible()
+    const back = page.locator('#itl-list-link')
+    await expect(back).toHaveText('← List view')
+    await back.click()
+    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}`)
+  })
+})

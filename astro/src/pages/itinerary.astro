@@ -5,11 +5,14 @@ import { loadItineraryPageData } from '../lib/itinerary-page-data'
 // The default plan, the trip and its days, the flight home, the shops and the saved plan —
 // shared with /itinerary-timeline (src/lib/itinerary-page-data.ts).
 const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels } = await loadItineraryPageData(Astro.url)
+const tripParam = Astro.url.searchParams.get('trip')
+const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 ---
 <Base title="Itinerary">
   <div class="page-header">
     <h1>Shopping-plan</h1>
     <span class="count">{rangeLabel} · base Akihabara</span>
+    <a id="itn-timeline-link" class="itn-timeline-link" href={`/itinerary-timeline${tripQuery}`}>🗓️ Timeline (beta)</a>
   </div>
   {!usingTripDays && (
     <p class="plan-days-hint">Days from the plan's own dates. Set "First day in Tokyo" and "Last day in Tokyo" in Trip Settings{trip?.label ? ` (${trip.label})` : ''} to show the trip's days.</p>
@@ -959,7 +962,19 @@ const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, 
     const itineraryLibReady = window.__routeOptimizer
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
-    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render() })
+    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render(); focusFromUrl() })
+
+    // ?day=<date>&stop=<n> (the timeline's "Edit in list"): that stop in view, highlighted.
+    function focusFromUrl() {
+      const params = new URLSearchParams(window.location.search)
+      const di = state.findIndex((d) => d.day === params.get('day'))
+      const idx = params.get('stop')
+      if (di < 0 || idx == null) return
+      const li = daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${+idx}"]`)
+      if (!li) return
+      li.classList.add('itn-focus')
+      li.scrollIntoView({ block: 'center' })
+    }
   </script>
 
   <style is:global>
@@ -970,6 +985,8 @@ const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, 
       display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
     }
     .plan-tip strong { color: var(--accent); }
+    .itn-timeline-link { margin-left: auto; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--accent); border-radius: 8px; padding: 0.3rem 0.6rem; }
+    .stop.itn-focus { outline: 2px solid #2ecc71; outline-offset: 2px; border-radius: 6px; }
     .plan-days-hint { font-size: 0.82rem; color: #e0a04c; margin: -0.5rem 0 1rem; max-width: 680px; }
     .unscheduled-card { border-style: dashed; }
     .unscheduled-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

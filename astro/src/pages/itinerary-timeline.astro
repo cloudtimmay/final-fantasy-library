@@ -43,6 +43,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       </div>
     </form>
 
+    <div id="itl-detail" class="itl-detail" hidden>
+      <div class="itl-detail-head">
+        <strong id="itl-detail-name"></strong>
+        <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
+      <a id="itl-detail-edit" class="itl-detail-edit" href="/itinerary">Edit in list →</a>
+    </div>
+
     <div id="itl-day" class="itl-day"></div>
   </div>
 
@@ -183,6 +192,38 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     tickEveryMinute()
 
+    // --- Tap a block: its details, and "Edit in list" (read-only here) -------------------------
+    const detail = document.querySelector('#itl-detail') as HTMLElement
+    document.querySelector('#itl-detail-close')!.addEventListener('click', () => { detail.hidden = true })
+    function showDetails(idx: number) {
+      const day = state.find((d) => d.day === currentDay)
+      if (!day || !day.stops[idx]) return
+      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const x = sched.stops[idx]
+      const s = day.stops[idx]
+      const lines: string[] = []
+      lines.push(x.fixed ? `📌 ${formatClock(x.start)}–${formatClock(x.end)}${x.arrival !== x.start ? ` · arrive by ${formatClock(x.arrival)}` : ''}` : `${formatClock(x.start)}–${formatClock(x.end)} (${inputs[idx].durationMin} min)`)
+      if (s.hours) lines.push(`Opening hours: ${s.hours}`)
+      if (x.leaveBy != null) lines.push(`Leave by ${formatClock(x.leaveBy)}`)
+      if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
+      if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
+      else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+      if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+      ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
+      ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${esc(l)}</li>`).join('')
+      // /itinerary opens with this day and stop in view (?day=&stop=).
+      const params = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '')
+      params.set('day', currentDay)
+      params.set('stop', String(idx))
+      ;(document.querySelector('#itl-detail-edit') as HTMLAnchorElement).href = `/itinerary?${params.toString()}`
+      detail.hidden = false
+      detail.scrollIntoView({ block: 'nearest' })
+    }
+    dayEl.addEventListener('click', (e) => {
+      const block = (e.target as HTMLElement).closest('.itl-block') as HTMLElement | null
+      if (block) showDetails(Number(block.dataset.index))
+    })
+
     // --- Tap an empty spot: add a stop there ---------------------------------------------------
     const addForm = document.querySelector('#itl-add') as HTMLFormElement
     const addTime = document.querySelector('#itl-add-time') as HTMLElement
@@ -317,5 +358,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-add-actions button { flex: 1; padding: 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
     #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
     .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
+    .itl-detail { margin: 0 0 0.8rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .itl-detail[hidden] { display: none; }
+    .itl-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+    .itl-detail-edit { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
   </style>
 </Base>

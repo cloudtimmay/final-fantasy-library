@@ -1,169 +1,10 @@
 ---
 import Base from '../layouts/Base.astro'
-import { sanity } from '../lib/sanity'
-import { formatDayLabel, dateRange, isIsoDate } from '../lib/trip-dates'
-import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
-import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from '../lib/itinerary-review-helpers'
+import { loadItineraryPageData } from '../lib/itinerary-page-data'
 
-const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
-
-const AREA_MIN_FROM_AKIB: Record<string, number> = {
-  'Akihabara': 0, 'Shinjuku': 15, 'Ikebukuro': 15, 'Shibuya': 20,
-  'Harajuku': 22, 'Tokyo Station': 5, 'Nakano': 25, 'Yokohama': 45, 'Shinagawa': 12,
-}
-
-let shops: any[] = []
-try {
-  shops = await sanity.fetch(`
-    *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
-      _id, shopName, area, placeType, openingHours, latitude, longitude, note
-    } | order(area asc, shopName asc)
-  `)
-} catch (e) { shops = [] }
-
-// Saved plan (synced across devices). Null the first time.
-let savedState: string | null = null
-try {
-  const doc = await sanity.fetch(`*[_id == "itineraryState"][0]{ data }`)
-  if (doc && typeof doc.data === 'string') savedState = doc.data
-} catch (e) { savedState = null }
-
-// The default plan, one entry per calendar day ("YYYY-MM-DD"). No weekday is ever written
-// here: labels like "1. des (tir)" are computed by lib/trip-dates.ts (formatDayLabel), the
-// same function /api/itinerary-review uses. (They used to be hand-written, and carried the
-// weekdays of December 2025 — 1 December 2026 is a Tuesday, not a Monday.)
-const PLAN = [
-  {
-    day: '2026-12-01', area: 'Akihabara', note: 'Ankomstdag — full Akihabara-dag. Ta kveldsbutikkene nederst hvis du orker, ellers flytt dem (⋯) til en annen kveld.',
-    stops: [
-      { name: 'Super Potato', hours: '11:00–20:00 · bruk god tid', tag: 'MUST', slot: 'dagtid', lat: 35.699358, lng: 139.770702 },
-      { name: 'Animate', hours: '10:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.700494, lng: 139.771743 },
-      { name: '🍜 Tsujita Akihabara', hours: 'Lunsj · tsukemen', tag: 'mat', slot: '', lat: 35.699031, lng: 139.770140 },
-      { name: 'AKIHABARA KOTOBUKIYA', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.699229, lng: 139.770461 },
-      { name: 'Liberty Akihabara 5', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.701461, lng: 139.771787 },
-      { name: 'Liberty Hobby Shop', hours: '11:00–20:30', tag: '', slot: 'dagtid', lat: 35.702324, lng: 139.771887 },
-      { name: 'Retro Game Camp', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.701199, lng: 139.771271 },
-      { name: 'Yellow Submarine RPG Shop', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.702083, lng: 139.771894 },
-      { name: 'Kamikaze Style', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.702057, lng: 139.769845 },
-      { name: '3COINS', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.698373, lng: 139.772696 },
-      { name: '🍣 Final Fantasy Eorzea Cafe', hours: 'Middag · FF-tema', tag: 'mat', slot: '', lat: 35.697776, lng: 139.770364 },
-      { name: 'Yodobashi Camera Akiba', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.698917, lng: 139.774798 },
-      { name: 'BicCamera AKIBA', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.699830, lng: 139.771788 },
-      { name: 'BOOKOFF Akihabara Ekimae', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.697734, lng: 139.773475 },
-      { name: 'Tokyo Hobby Center', hours: '11:00–22:00', tag: '', slot: 'kveld', lat: 35.703070, lng: 139.772150 },
-    ],
-  },
-  {
-    day: '2026-12-02', area: 'Shinjuku',
-    stops: [
-      { name: 'ARTNIA (Square Enix)', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.696102, lng: 139.709009 },
-      { name: 'SURUGA-YA Marui Annex', hours: '11:00–21:00', tag: 'MUST', slot: 'dagtid', lat: 35.690151, lng: 139.705842 },
-      { name: '🍜 Ramen Hayashida', hours: 'Lunsj · kontant', tag: 'mat', slot: '', lat: 35.690729, lng: 139.703751 },
-      { name: 'ONE PIECE Base Shop', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.690903, lng: 139.704070 },
-      { name: 'Bic Camera Shinjuku West', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.692513, lng: 139.698556 },
-      { name: 'Hard Off Marui Men', hours: '11:00–20:00', tag: '', slot: 'dagtid', lat: 35.692699, lng: 139.706307 },
-      { name: 'Yellow Submarine Shinjuku', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.689356, lng: 139.697787 },
-      { name: '🍣 Sushi Hatsume (omakase)', hours: 'Middag · bestill bord', tag: 'mat', slot: '', lat: 35.694050, lng: 139.698016 },
-      { name: 'Yodobashi Shinjuku', hours: '09:30–22:00', tag: '', slot: 'kveld', lat: 35.689883, lng: 139.697953 },
-      { name: 'BOOKOFF Shinjuku West', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.689568, lng: 139.698385 },
-      { name: 'DAISO', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.691304, lng: 139.702974 },
-      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', slot: 'kveld', lat: 35.689910, lng: 139.702255 },
-      { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', slot: 'kveld', lat: 35.712735, lng: 139.703455 },
-    ],
-  },
-  {
-    day: '2026-12-03', area: 'Ikebukuro',
-    stops: [
-      { name: 'animate Flagship Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.731144, lng: 139.715459 },
-      { name: 'Gashapon Main Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.728499, lng: 139.719797 },
-      { name: 'Donguri (Ghibli)', hours: '10:00–20:00', tag: '', slot: 'dagtid', lat: 35.728862, lng: 139.719377 },
-      { name: '🍜 Gyumon (wagyu ramen)', hours: 'Lunsj · 4.8★', tag: 'mat', slot: '', lat: 35.733522, lng: 139.709866 },
-      { name: 'Ikebukuro PARCO', hours: '11:00–21:00', tag: '', slot: 'dagtid', lat: 35.730857, lng: 139.712384 },
-      { name: 'Mandarake Nayuta', hours: '12:00–20:00', tag: '', slot: 'dagtid', lat: 35.731606, lng: 139.712377 },
-      { name: 'BOOKOFF Sunshine 60', hours: '10:00–22:00', tag: '', slot: 'kveld', lat: 35.729680, lng: 139.715769 },
-    ],
-  },
-  {
-    day: '2026-12-04', area: 'Shibuya + Harajuku',
-    stops: [
-      { name: 'Nintendo Tokyo (PARCO)', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.662116, lng: 139.698639 },
-      { name: 'Jump Shop Shibuya Parco', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.661834, lng: 139.698776 },
-      { name: 'Square Enix Garden', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.657255, lng: 139.701621 },
-      { name: '🍣 Uobei (transportbånd-sushi)', hours: 'Lunsj · rett ved PARCO', tag: 'mat', slot: '', lat: 35.659435, lng: 139.697921 },
-      { name: 'ONE PIECE Straw Hat Store', hours: '10:00–21:00', tag: '', slot: 'dagtid', lat: 35.659766, lng: 139.700826 },
-      { name: 'ONE PIECE Mugiwara Harajuku', hours: '11:00–21:00', tag: 'Harajuku', slot: 'dagtid', lat: 35.668369, lng: 139.704914 },
-      { name: 'MEGA Don Quijote', hours: 'Døgnåpent', tag: '', slot: 'kveld', lat: 35.660387, lng: 139.697817 },
-    ],
-  },
-  {
-    day: '2026-12-05', area: 'Tokyo Station + Shinagawa',
-    stops: [
-      { name: 'Ōimachi Station Market', hours: '09:00–14:30 (kun 5.–6.) · start her', tag: 'kun i dag/i morgen', slot: 'dagtid', lat: 35.606832, lng: 139.734280 },
-      { name: 'Pokémon Store Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.682496, lng: 139.768683 },
-      { name: 'Tomica Shop Character St.', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681627, lng: 139.768495 },
-      { name: 'Harry Potter Mahou Dokoro', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681347, lng: 139.768360 },
-      { name: '🍜 Soranoiro Nippon (ramen)', hours: 'Lunsj · Ramen Street', tag: 'mat', slot: '', lat: 35.680810, lng: 139.769230 },
-      { name: 'Ghibli Donguri Tokyo Station', hours: '10:00–20:30', tag: '', slot: 'dagtid', lat: 35.681858, lng: 139.768669 },
-    ],
-  },
-  {
-    day: '2026-12-06', area: 'Nakano',
-    stops: [
-      { name: 'Nakano Broadway', hours: '10:00–20:00 · sett av god tid', tag: 'sett av tid', slot: 'dagtid', lat: 35.709248, lng: 139.665652 },
-      { name: '🍜 Yang Guo Fu Mala Tang', hours: 'Lunsj · nær Broadway', tag: 'mat', slot: '', lat: 35.708064, lng: 139.665548 },
-    ],
-  },
-  {
-    day: '2026-12-07', area: 'Yokohama',
-    stops: [
-      { name: 'SURUGA-YA Marui City Yokohama', hours: '10:30–20:30', tag: '', slot: 'dagtid', lat: 35.464556, lng: 139.624649 },
-      { name: 'BOOKOFF AEON Honmoku', hours: '09:00–21:00 · lengre unna', tag: '', slot: 'dagtid', lat: 35.417500, lng: 139.660800 },
-    ],
-  },
-]
-const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
-
-// The days shown: the trip's days in Tokyo (Trip Settings → First/Last day in Tokyo) — not
-// its Start/End date, which are the travel dates (leaving home / getting home). The trip is
-// ?trip=<id>, else the same default /spending picks. Without Tokyo days set, the plan's own
-// dates are shown, with a hint to fill them in.
-let trip: { _id: string; label?: string; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string } | null = null
-try {
-  const trips = await fetchTripsForSpending()
-  const requestedTripId = Astro.url.searchParams.get('trip')
-  const picked = trips.find((t) => t._id === requestedTripId) || pickDefaultTrip(trips)
-  if (picked) {
-    trip = await sanity.fetch(
-      `*[_id == $id][0]{ _id, label, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
-      { id: picked._id }
-    )
-  }
-} catch (e) { trip = null }
-const tripDays = dateRange(trip?.firstTokyoDay, trip?.lastTokyoDay)
-const usingTripDays = tripDays.length > 0
-const days = usingTripDays ? tripDays : plan.map((d) => d.day)
-const rangeLabel = days.length ? `${formatDayLabel(days[0])} – ${formatDayLabel(days[days.length - 1])}` : ''
-
-// Labels for every date the page can show: the days, the plan's own days, and any date in the
-// saved plan (a stop on a date outside the trip is listed under "Not scheduled" — never dropped).
-// The saved plan used to be an array, one entry per PLAN day in order; now { v: 2, days: { date } }.
-function savedDates(raw: string | null): string[] {
-  try {
-    const p = raw ? JSON.parse(raw) : null
-    if (Array.isArray(p)) return plan.slice(0, p.length).map((d) => d.day)
-    if (p && p.v === 2 && p.days && typeof p.days === 'object') return Object.keys(p.days).filter((k) => isIsoDate(k))
-  } catch (e) {}
-  return []
-}
-// The flight home (Trip Settings): shown on its day ("✈️ Flight 23:00 from Narita (T1)") and
-// sent with that day's "Check day". Its date defaults to the last day in Tokyo.
-const flightBase = parseFlightHome({ time: trip?.flightHomeTime, airport: trip?.flightHomeAirport, terminal: trip?.flightHomeTerminal })
-const flightDate = isIsoDate(trip?.flightHomeDate) ? trip!.flightHomeDate : trip?.lastTokyoDay
-const flight = flightBase && isIsoDate(flightDate)
-  ? { ...flightBase, date: flightDate, line: flightLine(flightBase), latestEnd: formatClock(latestEndForFlight(flightBase)) }
-  : null
-const labels: Record<string, string> = {}
-for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)]) labels[d] = formatDayLabel(d)
+// The default plan, the trip and its days, the flight home, the shops and the saved plan —
+// shared with /itinerary-timeline (src/lib/itinerary-page-data.ts).
+const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels } = await loadItineraryPageData(Astro.url)
 ---
 <Base title="Itinerary">
   <div class="page-header">
@@ -196,7 +37,8 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
   <script>
     import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
     import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
-    window.__routeOptimizer = { optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
+    import * as itineraryPlan from '../lib/itinerary-plan'
+    window.__routeOptimizer = { ...itineraryPlan, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
     // The inline script's first render waits for this (see itineraryLibReady there).
     window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
@@ -258,15 +100,9 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     // The saved plan, as { "YYYY-MM-DD": { startTime, stops } }. Saved as { v: 2, days }; an
     // older save is an array with one entry per plan day in the plan's order (1.–7. des), so
     // entry i is read as the plan's i-th date.
-    function normalizeSaved(p) {
-      if (Array.isArray(p)) {
-        const out = {}
-        p.forEach((d, i) => { if (d && plan[i]) out[plan[i].day] = d })
-        return out
-      }
-      if (p && p.v === 2 && p.days && typeof p.days === 'object') return p.days
-      return null
-    }
+    // The plan's load/save rules live in src/lib/itinerary-plan.ts (shared with /itinerary-timeline).
+    const LIB = () => window.__routeOptimizer
+    function normalizeSaved(p) { return LIB().normalizeSavedPlan(p, plan) }
     // Prefer server-synced state; fall back to local cache.
     function loadSaved() {
       if (savedState) { try { const p = normalizeSaved(JSON.parse(savedState)); if (p) return p } catch (e) {} }
@@ -299,35 +135,23 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     // Saves every date, the "Not scheduled" ones (extraDays) included — a stop is only ever
     // removed by the user, never by the trip's days changing.
     function saveState() {
-      const all = {}
-      Object.values(extraDays).concat(state).forEach((d) => { if (d.day) all[d.day] = { startTime: d.startTime, stops: d.stops } })
-      const payload = JSON.stringify({ v: 2, days: all })
+      const payload = LIB().serializePlan(state, extraDays)
       try { localStorage.setItem(STORE_KEY, payload) } catch {}
       scheduleRemoteSave(payload)
     }
 
     // One date's day: its saved version, else the plan's default for that date, else empty.
-    function dayEntry(iso, s) {
-      const t = templateByDay.get(iso)
-      return {
-        day: iso, date: labels[iso] || iso, area: t ? t.area : '', note: t ? (t.note || '') : '',
-        startTime: (s && s.startTime) || DEFAULT_START,
-        stops: (s && Array.isArray(s.stops)) ? s.stops : (t ? t.stops.slice() : []),
-      }
-    }
+    function dayEntry(iso, s) { return LIB().planDayEntry(iso, s, templateByDay, labels) }
     // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
-    // default) — their stops are shown under "Not scheduled" until moved to a day.
+    // default) — their stops are shown under "Not scheduled" until moved to a day. Built once the
+    // shared module has loaded (see the startup at the end), before the first render.
     let extraDays = {}
     function buildState() {
-      const saved = loadSaved() || {}
-      const inRange = new Set(days)
-      extraDays = {}
-      new Set([...plan.map((d) => d.day), ...Object.keys(saved)]).forEach((iso) => {
-        if (!inRange.has(iso)) extraDays[iso] = dayEntry(iso, saved[iso])
-      })
-      return days.map((iso) => dayEntry(iso, saved[iso]))
+      const built = LIB().buildPlanState(plan, days, labels, loadSaved() || {})
+      extraDays = built.extraDays
+      return built.state
     }
-    let state = buildState()
+    let state = []
 
     function moveUnscheduled(iso, idx, dj) {
       const [s] = extraDays[iso].stops.splice(idx, 1)
@@ -373,63 +197,12 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       return { lat, lng }
     }
 
-    // Resolves the *effective* name/lat/lng for a stop: if it has a shopId, prefer the
-    // linked shop's current data, but only for fields the shop actually has — falls back
-    // to whatever's stored on the stop itself. This covers all three edge cases safely:
-    // shop deleted (shopById lookup misses -> falls back to stop's own fields), shop
-    // missing coords (falls back per-field), and the shops list failing to load at all,
-    // e.g. offline (shopById is empty -> every lookup misses -> falls back to stop's own
-    // fields). Never returns a null/undefined name.
-    function resolveStop(s) {
-      let name = s.name, lat = s.lat, lng = s.lng
-      const shop = s.shopId ? shopById.get(s.shopId) : null
-      if (shop) {
-        if (shop.shopName) name = shop.shopName
-        if (typeof shop.latitude === 'number') lat = shop.latitude
-        if (typeof shop.longitude === 'number') lng = shop.longitude
-      }
-      return { name: name != null ? name : 'Ukjent butikk', lat: lat != null ? lat : null, lng: lng != null ? lng : null }
-    }
-
-    // Parses a "HH:MM–HH:MM" (or "HH:MM-HH:MM") range out of a free-text opening-hours
-    // string. Returns { start, end } in minutes since midnight, or null if nothing usable
-    // was found. Never throws — worst case is "couldn't tell", not a crash.
-    // Overnight ranges (e.g. "22:00-02:00") are only recognized when the end time is
-    // before 06:00; anything else with end < start is treated as unparseable, since it's
-    // more likely bad data (e.g. a typo) than a genuine overnight opening.
-    function parseOpeningHours(text) {
-      const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(String(text || ''))
-      if (!m) return null
-      const h1 = +m[1], min1 = +m[2], h2 = +m[3], min2 = +m[4]
-      if (h1 > 23 || h2 > 23 || min1 > 59 || min2 > 59) return null
-      const start = h1 * 60 + min1
-      let end = h2 * 60 + min2
-      if (end < start) {
-        if (end < 360) end += 1440 // genuine overnight, e.g. 22:00-02:00 -> end becomes 26:00
-        else return null // ambiguous / likely bad data
-      }
-      return { start, end }
-    }
-
-    // True if plannedMinutes falls outside the parsed opening hours. Silent (false) if
-    // hoursText doesn't parse — "couldn't tell" is not the same as "closed".
-    function looksClosed(hoursText, plannedMinutes) {
-      const range = parseOpeningHours(hoursText)
-      if (!range) return false
-      const p = ((Math.round(plannedMinutes) % 1440) + 1440) % 1440
-      const isOpen = range.end > 1440
-        ? (p >= range.start || p <= range.end - 1440)
-        : (p >= range.start && p <= range.end)
-      return !isOpen
-    }
-
-    function defaultDur(s) {
-      if (s.tag === 'mat') return 60
-      if (s.tag === 'MUST') return 75
-      if (s.tag === 'sett av tid') return 120
-      if (s.slot === 'kveld') return 40
-      return 45
-    }
+    // Shared with /itinerary-timeline (src/lib/itinerary-plan.ts): the stop's effective
+    // name/coordinates (a linked shop's win), opening hours, and default visit lengths.
+    function resolveStop(s) { return LIB().resolveStop(s, shopById) }
+    function parseOpeningHours(text) { return LIB().parseOpeningHours(text) }
+    function looksClosed(hoursText, plannedMinutes) { return LIB().looksClosed(hoursText, plannedMinutes) }
+    function defaultDur(s) { return LIB().defaultDurationMin(s) }
 
     function distM(a, b) {
       const R = 6371000, toRad = (d) => d * Math.PI / 180
@@ -459,38 +232,11 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
       return `🚃 ~${min} min fra base`
     }
 
-    // A travel time entered for the leg into stop si only counts while it's still the same leg:
-    // it remembers which stop it was entered after (travelFrom), so after a reorder it's ignored
-    // (kept in the saved plan, used again if the stops go back) rather than misapplied.
-    const BASE_KEY = '__base__'
-    function legFromKey(day, si) { return si === 0 ? BASE_KEY : resolveStop(day.stops[si - 1]).name }
-    function manualTravelFor(day, si) {
-      const s = day.stops[si]
-      return typeof s.travelMin === 'number' && s.travelFrom === legFromKey(day, si) ? s.travelMin : null
-    }
-
-    // The day's timetable from the shared schedule (src/lib/itinerary-schedule.ts): fixed-time
-    // stops are anchors, everything else runs forward, with leave-by times and warnings.
-    // `times`: each stop's start, as before; `sched`: the full schedule.
-    function computeTimes(day) {
-      let start = parseT(day.startTime)
-      if (start == null) start = parseT(DEFAULT_START)
-      const lib = window.__routeOptimizer
-      const inputs = day.stops.map((s, si) => {
-        const r = resolveStop(s)
-        return {
-          name: r.name, lat: r.lat, lng: r.lng,
-          durationMin: s.dur != null ? s.dur : defaultDur(s),
-          fixedTime: s.fixedTime ? parseT(s.fixedTime) : null,
-          arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
-          manualTravelMin: manualTravelFor(day, si),
-          noteTravelMin: lib.extractNoteTravelMinutes(stopNote(s)),
-          must: s.tag === 'MUST',
-        }
-      })
-      const sched = lib.scheduleDay(inputs, start, base)
-      return { baseStart: start, times: sched.stops.map((x) => x.start), baseEnd: sched.end, sched, inputs }
-    }
+    // The leg's own travel time (only while it's still the same leg) and the day's timetable —
+    // src/lib/itinerary-plan.ts, the same code /itinerary-timeline uses.
+    function legFromKey(day, si) { return LIB().legFromKey(day, si, shopById) }
+    function manualTravelFor(day, si) { return LIB().manualTravelFor(day, si, shopById) }
+    function computeTimes(day) { return LIB().computeDayTimes(day, base, shopById) }
 
     // The travel line into stop si, tappable: "🚃 ~45 min (estimate)" etc., opening an editor
     // for the leg's own minutes and a Google Maps transit link.
@@ -858,11 +604,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
 
     // --- "Check day" AI review — read-only: never touches state/saveState, so the plan
     // itself is never changed by a review, only ever read to build the request. ---
-    function stopNote(s) {
-      if (!s.shopId) return null
-      const shop = shopById.get(s.shopId)
-      return (shop && shop.note) ? shop.note : null
-    }
+    function stopNote(s) { return LIB().stopNote(s, shopById) }
 
     function renderCheckError(resultsEl, text) {
       resultsEl.replaceChildren()
@@ -1229,7 +971,7 @@ for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)])
     const itineraryLibReady = window.__routeOptimizer
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
-    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; render() })
+    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; state = buildState(); render() })
   </script>
 
   <style is:global>

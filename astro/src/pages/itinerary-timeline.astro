@@ -213,6 +213,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       now.hidden = true
       grid.appendChild(now)
       dayEl.appendChild(grid)
+      // Room at the end so the last hour scrolls fully into view above the fixed bottom nav on
+      // mobile: the nav's own height (0 where it's hidden, on wider screens) plus the safe area.
+      const end = document.createElement('div')
+      end.className = 'itl-end'
+      const nav = document.querySelector('.bottom-nav') as HTMLElement | null
+      end.style.setProperty('--itl-nav-h', `${nav ? nav.offsetHeight : 0}px`)
+      dayEl.appendChild(end)
       updateNow()
     }
 
@@ -398,6 +405,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
     .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
     .itl-now[hidden] { display: none; }
+    .itl-end { height: calc(var(--itl-nav-h, 0px) + env(safe-area-inset-bottom, 0px)); }
     .itl-add {
       display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.8rem; padding: 0.75rem;
       background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;

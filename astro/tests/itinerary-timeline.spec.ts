@@ -326,3 +326,20 @@ test.describe('/itinerary-timeline on a phone: travel chips and overlapping stop
     expect(placed.map((p) => [p.col, p.cols])).toEqual([[0, 2], [1, 2], [0, 1]])
   })
 })
+
+test.describe('/itinerary-timeline on a phone: the end of the day', () => {
+  test('after scrolling to the end, the last block and the last hour are fully visible above the bottom nav', async ({ page, sanity, trackDoc }) => {
+    // The last stop ends 22:30, near the bottom of the 08:00–23:00 axis.
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'TAITO Station GameWorld', hours: '10:00–01:00', tag: '', slot: '', lat: 35.68991, lng: 139.702255, dur: 60, travelMin: 0, travelFrom: '__base__' },
+    ], {}, '21:30')
+    // Astro's dev toolbar (dev server only) also sits at the bottom of the screen.
+    await page.addStyleTag({ content: 'astro-dev-toolbar { display: none !important; }' })
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const nav = await box(page.locator('.bottom-nav'))
+    const last = await box(page.locator('.itl-block').last())
+    expect(last.y + last.height).toBeLessThanOrEqual(nav.y)
+    const lastHour = await box(page.locator('.itl-hour').last())
+    expect(lastHour.y + lastHour.height).toBeLessThanOrEqual(nav.y)
+  })
+})

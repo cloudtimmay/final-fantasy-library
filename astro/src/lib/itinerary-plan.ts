@@ -24,7 +24,7 @@ export type PlanStop = {
   slot?: string
   lat?: number | null
   lng?: number | null
-  shopId?: string
+  shopId?: string | null
   dur?: number | null
   fixedTime?: string | null
   arriveEarly?: number
@@ -152,4 +152,32 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
   const all: SavedDays = {}
   Object.values(extraDays).concat(state).forEach((d) => { if (d.day) all[d.day] = { startTime: d.startTime, stops: d.stops } })
   return JSON.stringify({ v: 2, days: all })
+}
+
+// --- Adding a stop (the list's "+ Legg til stopp" and the timeline's tap-to-add) -----------------
+// The shop picker's list: shops grouped by area (sorted), each with its index in `shops`.
+export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number }[]): { area: string; items: { i: number; name: string; hasCoord: boolean }[] }[] {
+  const byArea: Record<string, { i: number; name: string; hasCoord: boolean }[]> = {}
+  shops.forEach((s, i) => {
+    const area = s.area || 'Andre'
+    if (!byArea[area]) byArea[area] = []
+    byArea[area].push({ i, name: s.shopName || '', hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
+  })
+  return Object.keys(byArea).sort().map((area) => ({ area, items: byArea[area] }))
+}
+
+// A stop for a shop from the shop list, or one typed in by hand — the same saved shape on both pages.
+export function shopStopFrom(shop: { _id?: string; shopName?: string; openingHours?: string; placeType?: string; latitude?: number; longitude?: number }): PlanStop {
+  return {
+    name: shop.shopName,
+    hours: shop.openingHours || '',
+    tag: shop.placeType === 'restaurant' ? 'mat' : '',
+    slot: '',
+    shopId: shop._id || null,
+    lat: typeof shop.latitude === 'number' ? shop.latitude : null,
+    lng: typeof shop.longitude === 'number' ? shop.longitude : null,
+  }
+}
+export function customStopFrom(name: string, hours: string): PlanStop {
+  return { name, hours, tag: '', slot: '', lat: null, lng: null }
 }

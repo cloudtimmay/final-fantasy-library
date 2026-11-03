@@ -132,3 +132,64 @@ test.describe('/itinerary-timeline: the "now" line on a phone set to Norwegian t
     await expect(page.locator('.itl-now')).toBeHidden() // not today
   })
 })
+
+test.describe('/itinerary-timeline: tap an empty spot to add a stop', () => {
+  // A tap on the grid itself (left of the blocks) at `hhmm`.
+  async function tapAt(page: Page, hhmm: string) {
+    const grid = page.locator('.itl-grid')
+    const start = Number(await grid.getAttribute('data-start'))
+    await grid.click({ position: { x: 3, y: Math.round((t(hhmm) - start) * PX_PER_MIN) + 2 } })
+  }
+
+  test('a stop added at 17:00 goes after the stops starting before 17:00, not pinned; saved in the list\'s format', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await tapAt(page, '17:00')
+    const form = page.locator('#itl-add')
+    await expect(form).toBeVisible()
+    await expect(page.locator('#itl-add-time')).toHaveText('17:00')
+    await page.locator('#itl-add-shop').selectOption('__custom__')
+    await page.locator('#itl-add-name').fill('Test Insert')
+    await page.locator('#itl-add-dur').fill('30')
+    await page.locator('#itl-add-save').click()
+    await expect(form).toBeHidden()
+
+    // Starts: Yellow Sub 15:06, SURUGA-YA ~16:39, cafe 16:30 -> after all three, before the Temple.
+    const names = await page.evaluate(() => (window as any).__itl.state[0].stops.map((s: any) => s.name))
+    expect(names).toEqual(['Yellow Submarine Shinjuku', 'SURUGA-YA Marui City Yokohama', 'Square Enix Pop Up Cafe Yokohama', 'Test Insert', 'Tokyo Temple'])
+    // Recalculated: it runs from the cafe's end (17:30) + the walk, not 17:00.
+    const added = page.locator('.itl-block.itl-new')
+    await expect(added.locator('.itl-name')).toHaveText('Test Insert')
+    expect(Number(await added.getAttribute('data-start'))).toBeGreaterThanOrEqual(t('17:30'))
+
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const saved = saves[saves.length - 1]
+    expect(Object.keys(saved)).toEqual(['v', 'days'])
+    expect(saved.v).toBe(2)
+    const day = saved.days['2026-12-05']
+    expect(Object.keys(day)).toEqual(['startTime', 'stops'])
+    expect(day.stops[3]).toEqual({ name: 'Test Insert', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30 }) // no fixedTime
+  })
+
+  test('a shop from the picker: the same grouped list and stop shape as /itinerary\'s add-stop', async ({ page, sanity, trackDoc }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    const listGroups = await page.locator('.add-form').first().locator('.af-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
+    expect(listGroups.length).toBeGreaterThan(0)
+
+    await page.unroute('**/api/itinerary-save')
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY.slice(0, 1))
+    const timelineGroups = await page.locator('#itl-add-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
+    expect(timelineGroups).toEqual(listGroups)
+
+    await tapAt(page, '09:00')
+    const firstShop = page.locator('#itl-add-shop optgroup option').first()
+    const shopName = (await firstShop.textContent())!.replace(' (uten koord.)', '')
+    await page.locator('#itl-add-shop').selectOption(await firstShop.getAttribute('value'))
+    await page.locator('#itl-add-save').click()
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const stop = saves[saves.length - 1].days['2026-12-05'].stops[0] // before the 15:06 stop
+    expect(stop).toMatchObject({ name: shopName, tag: expect.any(String), slot: '', dur: 45 })
+    expect(Object.keys(stop)).toEqual(['name', 'hours', 'tag', 'slot', 'shopId', 'lat', 'lng', 'dur'])
+  })
+})

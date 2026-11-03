@@ -27,6 +27,22 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     </div>
 
     <p class="itl-hint">Tap an empty spot to add a stop there.</p>
+
+    <form id="itl-add" class="itl-add" hidden>
+      <p class="itl-add-title">Add a stop around <strong id="itl-add-time"></strong></p>
+      <select id="itl-add-shop" aria-label="Shop"></select>
+      <div id="itl-add-custom" class="itl-add-custom" hidden>
+        <input id="itl-add-name" type="text" placeholder="Name *" />
+        <input id="itl-add-hours" type="text" placeholder="Info (optional)" />
+      </div>
+      <label class="itl-add-dur">Duration <input id="itl-add-dur" type="number" min="5" step="5" value="45" /> min</label>
+      <p class="itl-add-note">It goes after the stops that start before this time; the day is recalculated, so its time may move.</p>
+      <div class="itl-add-actions">
+        <button id="itl-add-save" type="submit">Add</button>
+        <button id="itl-add-cancel" type="button">Cancel</button>
+      </div>
+    </form>
+
     <div id="itl-day" class="itl-day"></div>
   </div>
 
@@ -35,9 +51,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
-      type PlanDay, type PlanShop,
+      shopOptionGroups, shopStopFrom, customStopFrom, type PlanDay, type PlanShop,
     } from '../lib/itinerary-plan'
-    import { timelineRange, timelineItems, offsetFor, PX_PER_MIN } from '../lib/itinerary-timeline'
+    import { timelineRange, timelineItems, offsetFor, minutesAtOffset, insertIndexForTime, PX_PER_MIN } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { tokyoNow } from '../lib/trip-dates'
 
@@ -59,6 +75,25 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const extraDays = built.extraDays
     let currentDay: string = wrap.dataset.initialDay || days[0]
 
+    // Saving: the same as /itinerary — the whole plan in its { v: 2, days } form
+    // (serializePlan), in this browser and, a second later, to /api/itinerary-save.
+    const saveStatus = document.querySelector('#itl-save-status') as HTMLElement
+    let saveTimer: ReturnType<typeof setTimeout> | undefined
+    function saveState() {
+      const payload = serializePlan(state, extraDays)
+      try { localStorage.setItem(STORE_KEY, payload) } catch {}
+      saveStatus.textContent = 'Lagrer…'
+      clearTimeout(saveTimer)
+      saveTimer = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload }) })
+          saveStatus.textContent = res.ok ? 'Lagret ✓' : 'Lagring feilet'
+        } catch (e) {
+          saveStatus.textContent = 'Lagret lokalt (ingen nett)'
+        }
+      }, 1000)
+    }
+
     function render() {
       const di = state.findIndex((d) => d.day === currentDay)
       const day = state[di]
@@ -70,6 +105,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       grid.className = 'itl-grid'
       grid.style.height = `${offsetFor(range.end, range)}px`
       grid.dataset.start = String(range.start)
+      grid.dataset.end = String(range.end)
 
       for (let m = range.start; m <= range.end; m += 60) {
         const hour = document.createElement('div')
@@ -147,6 +183,61 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     tickEveryMinute()
 
+    // --- Tap an empty spot: add a stop there ---------------------------------------------------
+    const addForm = document.querySelector('#itl-add') as HTMLFormElement
+    const addTime = document.querySelector('#itl-add-time') as HTMLElement
+    const addShop = document.querySelector('#itl-add-shop') as HTMLSelectElement
+    const addCustom = document.querySelector('#itl-add-custom') as HTMLElement
+    const addName = document.querySelector('#itl-add-name') as HTMLInputElement
+    const addHours = document.querySelector('#itl-add-hours') as HTMLInputElement
+    const addDur = document.querySelector('#itl-add-dur') as HTMLInputElement
+    let addMinutes = 0
+    // The same grouped list as /itinerary's add-stop (shopOptionGroups), then "write it yourself".
+    addShop.innerHTML = '<option value="">Choose a place…</option>' +
+      shopOptionGroups(shops || []).map(({ area, items }) =>
+        `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
+      ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
+    addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__' })
+
+    dayEl.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
+      if (!grid || (target !== grid && !target.classList.contains('itl-hour'))) return
+      const range = { start: Number(grid.dataset.start), end: Number(grid.dataset.end) }
+      addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range)
+      addTime.textContent = formatClock(addMinutes)
+      addShop.value = ''; addCustom.hidden = true; addName.value = ''; addHours.value = ''; addDur.value = '45'
+      addForm.hidden = false
+      addForm.scrollIntoView({ block: 'nearest' })
+    })
+    document.querySelector('#itl-add-cancel')!.addEventListener('click', () => { addForm.hidden = true })
+    addForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const day = state.find((d) => d.day === currentDay)
+      if (!day) return
+      let stop
+      if (addShop.value === '__custom__') {
+        const name = addName.value.trim()
+        if (!name) { addName.focus(); return }
+        stop = customStopFrom(name, addHours.value.trim())
+      } else if (addShop.value !== '') {
+        const shop = (shops || [])[+addShop.value]
+        if (!shop) return
+        stop = shopStopFrom(shop)
+      } else return
+      const dur = parseInt(addDur.value, 10)
+      if (!isNaN(dur) && dur > 0) stop.dur = dur
+      // In the order after the last stop starting at or before the tapped time — not pinned to it.
+      const { times } = computeDayTimes(day, base, shopById)
+      const at = insertIndexForTime(times, addMinutes)
+      day.stops.splice(at, 0, stop)
+      addForm.hidden = true
+      saveState()
+      render()
+      const added = dayEl.querySelector(`.itl-block[data-index="${at}"]`)
+      if (added) { added.classList.add('itl-new'); added.scrollIntoView({ block: 'nearest' }) }
+    })
+
     document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
       currentDay = tab.dataset.day!
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
@@ -207,5 +298,24 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
     .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
     .itl-now[hidden] { display: none; }
+    .itl-add {
+      display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.8rem; padding: 0.75rem;
+      background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
+    }
+    .itl-add[hidden] { display: none; }
+    .itl-add-title { margin: 0; font-size: 0.9rem; }
+    .itl-add select, .itl-add input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.5rem 0.6rem; font-size: 0.95rem; font-family: inherit; box-sizing: border-box; width: 100%;
+    }
+    .itl-add-custom { display: flex; flex-direction: column; gap: 0.5rem; }
+    .itl-add-custom[hidden] { display: none; }
+    .itl-add-dur { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+    .itl-add-dur input { width: 5rem; }
+    .itl-add-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+    .itl-add-actions { display: flex; gap: 0.5rem; }
+    .itl-add-actions button { flex: 1; padding: 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
   </style>
 </Base>

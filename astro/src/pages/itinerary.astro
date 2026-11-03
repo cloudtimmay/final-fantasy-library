@@ -79,23 +79,19 @@ const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, 
       return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
     }
 
+    // The shop picker: shops grouped by area (src/lib/itinerary-plan.ts, shared with the timeline).
+    // Built at startup, once that module has loaded.
     function buildShopOptions() {
       if (!shops || !shops.length) return ''
-      const byArea = {}
-      shops.forEach((s, i) => {
-        const area = s.area || 'Andre'
-        if (!byArea[area]) byArea[area] = []
-        byArea[area].push({ i, name: s.shopName, hasCoord: (typeof s.latitude === 'number' && typeof s.longitude === 'number') })
-      })
       let html = ''
-      Object.keys(byArea).sort().forEach((area) => {
+      window.__routeOptimizer.shopOptionGroups(shops).forEach(({ area, items }) => {
         html += `<optgroup label="${esc(area)}">`
-        byArea[area].forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
+        items.forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
         html += `</optgroup>`
       })
       return html
     }
-    const SHOP_OPTIONS = buildShopOptions()
+    let SHOP_OPTIONS = ''
 
     // The saved plan, as { "YYYY-MM-DD": { startTime, stops } }. Saved as { v: 2, days }; an
     // older save is an array with one entry per plan day in the plan's order (1.–7. des), so
@@ -541,19 +537,11 @@ const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, 
     function addShopStop(di, shopIdx) {
       const shop = shops[shopIdx]
       if (!shop) return
-      state[di].stops.push({
-        name: shop.shopName,
-        hours: shop.openingHours || '',
-        tag: shop.placeType === 'restaurant' ? 'mat' : '',
-        slot: '',
-        shopId: shop._id || null,
-        lat: (typeof shop.latitude === 'number') ? shop.latitude : null,
-        lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
-      })
+      state[di].stops.push(LIB().shopStopFrom(shop)) // the same shape the timeline adds
       saveState(); render()
     }
     function addCustomStop(di, name, hours) {
-      state[di].stops.push({ name, hours, tag: '', slot: '', lat: null, lng: null })
+      state[di].stops.push(LIB().customStopFrom(name, hours))
       saveState(); render()
     }
 
@@ -971,7 +959,7 @@ const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, 
     const itineraryLibReady = window.__routeOptimizer
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
-    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; state = buildState(); render() })
+    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render() })
   </script>
 
   <style is:global>

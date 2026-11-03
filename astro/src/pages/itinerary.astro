@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import '../styles/itinerary-shared.css'
 
 // The default plan, the trip and its days, the flight home, the shops and the saved plan —
 // shared with /itinerary-timeline (src/lib/itinerary-page-data.ts).
@@ -41,24 +42,13 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
     import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
     import * as itineraryPlan from '../lib/itinerary-plan'
-    window.__routeOptimizer = { ...itineraryPlan, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
+    import * as itineraryUi from '../lib/itinerary-ui'
+    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
     // The inline script's first render waits for this (see itineraryLibReady there).
     window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
 
   <script is:inline>
-    function loadLeaflet() {
-      return new Promise((resolve) => {
-        if (window.L) return resolve(true)
-        const css = document.createElement('link')
-        css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-        document.head.appendChild(css)
-        const js = document.createElement('script')
-        js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        js.onload = () => resolve(true); js.onerror = () => resolve(false)
-        document.head.appendChild(js)
-      })
-    }
 
     const STORE_KEY = 'ff-itinerary-v12'
     const DEFAULT_START = '08:00'
@@ -243,21 +233,10 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       const leg = sched.stops[si].travelIn
       const from = si === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[si - 1])
       const to = resolveStop(day.stops[si])
-      let text
-      if (leg.source === 'manual') text = `🕒 ${leg.minutes} min (your time)`
-      else if (leg.source === 'note') text = `🚃 ~${leg.minutes} min (from the shop note)`
-      else if (leg.mode === 'train') text = `🚃 ~${leg.minutes} min (estimate)`
-      else if (leg.mode === 'walk') text = `🚶 ~${leg.minutes} min (estimate)`
-      else text = '➕ Travel time?'
-      const manual = manualTravelFor(day, si)
-      const routeUrl = window.__routeOptimizer.transitRouteUrl(from, to)
+      const text = LIB().travelLegText(leg)
+      const editor = LIB().travelEditorInnerHtml({ manual: manualTravelFor(day, si), placeholder: leg.minutes, from, to })
       return `<li class="walk-row"><button type="button" class="itn-travel" data-day="${di}" data-idx="${si}">${esc(text)} →</button></li>
-        <li class="itn-travel-edit" data-day="${di}" data-idx="${si}" hidden>
-          <label>Travel time <input type="number" class="itn-travel-min" min="0" step="1" value="${manual != null ? manual : ''}" placeholder="${leg.minutes}" /> min</label>
-          <button type="button" class="itn-travel-save">Save</button>
-          ${manual != null ? '<button type="button" class="itn-travel-clear">Use estimate</button>' : ''}
-          <a class="itn-route" href="${esc(routeUrl)}" target="_blank" rel="noopener">🗺️ Route</a>
-        </li>`
+        <li class="itn-travel-edit" data-day="${di}" data-idx="${si}" hidden>${editor}</li>`
     }
 
     // "Next: leave <stop> by HH:MM (in N min)" during the trip — today's next leave-by time in
@@ -344,22 +323,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       day.stops = withT.map((x) => x.s)
     }
 
-    function dayRouteUrls(day) {
-      const pts = day.stops.map(resolveStop).filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
-      const baseP = `${base.lat},${base.lng}`
-      const full = [baseP, ...pts, baseP]
-      if (full.length < 2) return []
-      const MAX = 10, segs = []
-      if (full.length <= MAX) segs.push(full)
-      else { let i = 0; while (i < full.length - 1) { segs.push(full.slice(i, i + MAX)); i += MAX - 1 } }
-      return segs.map((seg) => {
-        const origin = seg[0], destination = seg[seg.length - 1]
-        const waypoints = seg.slice(1, -1).join('|')
-        let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
-        if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
-        return url
-      })
-    }
+    function dayRouteUrls(day) { return LIB().dayRouteUrls(day.stops.map(resolveStop), base) }
     function baseRow(label, time) {
       return `<li class="stop is-base"><span class="stop-time">${time}</span><div class="move-col"><span class="base-icon">🏠</span></div>
         <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
@@ -377,23 +341,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       if (!leafletOk || !window.L) return
       const el = document.getElementById(`map-${di}`)
       if (!el) return
-      const map = L.map(el, { scrollWheelZoom: false })
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
-      const latlngs = [[base.lat, base.lng]]
-      const baseIcon = L.divIcon({ className: '', html: '<div class="pin base">🏠</div>', iconSize: [28,28], iconAnchor: [14,14] })
-      L.marker([base.lat, base.lng], { icon: baseIcon }).addTo(map).bindPopup('Base')
-      day.stops.forEach((s, i) => {
-        const r = resolveStop(s)
-        if (r.lat == null || r.lng == null) return
-        const icon = L.divIcon({ className: '', html: `<div class="pin ${s.tag === 'mat' ? 'food' : s.tag === 'MUST' ? 'must' : ''}">${i+1}</div>`, iconSize: [26,26], iconAnchor: [13,13] })
-        L.marker([r.lat, r.lng], { icon }).addTo(map).bindPopup(`${i+1}. ${r.name}`)
-        latlngs.push([r.lat, r.lng])
-      })
-      latlngs.push([base.lat, base.lng])
-      L.polyline(latlngs, { color: '#f4a24c', weight: 3, opacity: 0.85, dashArray: '6 6' }).addTo(map)
-      map.fitBounds(latlngs, { padding: [30, 30] })
-      setTimeout(() => map.invalidateSize(), 120)
-      mapInstances.push(map)
+      const map = LIB().drawDayMap(el, day, base, shopById)
+      if (map) mapInstances.push(map)
     }
 
     function render() {
@@ -597,122 +546,25 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     // itself is never changed by a review, only ever read to build the request. ---
     function stopNote(s) { return LIB().stopNote(s, shopById) }
 
-    function renderCheckError(resultsEl, text) {
-      resultsEl.replaceChildren()
-      const p = document.createElement('p')
-      p.className = 'ir-error'
-      p.textContent = text
-      resultsEl.appendChild(p)
-      resultsEl.hidden = false
-    }
-
-    function renderCheckResults(resultsEl, di, items) {
-      resultsEl.replaceChildren()
-      if (!items.length) {
-        const p = document.createElement('p')
-        p.className = 'ir-good'
-        p.textContent = '✓ Looks good.'
-        resultsEl.appendChild(p)
-        resultsEl.hidden = false
-        return
-      }
-
-      const list = document.createElement('ul')
-      list.className = 'ir-list'
-      items.forEach((item) => {
-        const li = document.createElement('li')
-        li.className = 'ir-item ' + (item.severity === 'warning' ? 'ir-warning' : 'ir-tip')
-
-        if (typeof item.stopIndex === 'number') {
-          const stopLi = daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${item.stopIndex}"]`)
-          const nameEl = stopLi ? stopLi.querySelector('.stop-name') : null
-          const stopName = nameEl ? nameEl.textContent : `Stop ${item.stopIndex + 1}`
-          const link = document.createElement('button')
-          link.type = 'button'
-          link.className = 'ir-item-stop-link'
-          link.textContent = `Stop ${item.stopIndex + 1}: ${stopName}`
-          link.addEventListener('click', () => {
-            if (!stopLi) return
-            stopLi.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            stopLi.classList.add('ir-highlight')
-            setTimeout(() => stopLi.classList.remove('ir-highlight'), 1600)
-          })
-          li.appendChild(link)
-        }
-
-        const msg = document.createElement('p')
-        msg.className = 'ir-item-message'
-        msg.textContent = item.message
-        li.appendChild(msg)
-
-        if (item.suggestion) {
-          const sug = document.createElement('p')
-          sug.className = 'ir-item-suggestion'
-          sug.textContent = `Suggestion: ${item.suggestion}`
-          li.appendChild(sug)
-        }
-
-        list.appendChild(li)
-      })
-      resultsEl.appendChild(list)
-      resultsEl.hidden = false
-    }
-
+    // Request and results: src/lib/itinerary-plan.ts checkDayRequestBody and itinerary-ui.ts
+    // runCheckDay (shared with the timeline). A stop's item links to its row here.
     async function checkDay(di, btn) {
       const day = state[di]
-      const { times } = computeTimes(day)
       const resultsEl = daysEl.querySelector(`.day-check-results[data-day="${di}"]`)
-      const stopsPayload = day.stops.map((s, si) => {
-        const r = resolveStop(s)
-        return {
-          name: r.name,
-          plannedTime: times[si],
-          durationMin: (s.dur != null ? s.dur : defaultDur(s)),
-          lat: r.lat,
-          lng: r.lng,
-          openingHours: s.hours || null,
-          note: stopNote(s),
-          // The review recomputes the timetable from these (src/lib/itinerary-schedule.ts).
-          fixedTime: s.fixedTime || null,
-          arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
-          manualTravelMin: manualTravelFor(day, si),
-          must: s.tag === 'MUST',
-        }
+      const stopLi = (i) => daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${i}"]`)
+      await LIB().runCheckDay(btn, resultsEl, LIB().checkDayRequestBody(day, { base, shopById, flight }), {
+        stopName: (i) => {
+          const nameEl = stopLi(i) ? stopLi(i).querySelector('.stop-name') : null
+          return nameEl ? nameEl.textContent : `Stop ${i + 1}`
+        },
+        onStopClick: (i) => {
+          const li = stopLi(i)
+          if (!li) return
+          li.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          li.classList.add('ir-highlight')
+          setTimeout(() => li.classList.remove('ir-highlight'), 1600)
+        },
       })
-
-      btn.disabled = true
-      const originalText = btn.textContent
-      btn.textContent = 'Checking…'
-      resultsEl.hidden = true
-      resultsEl.replaceChildren()
-
-      try {
-        const res = await fetch('/api/itinerary-review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dayDate: day.day,
-            dayLabel: day.date,
-            dayArea: day.area,
-            dayStartTime: day.startTime,
-            base: { lat: base.lat, lng: base.lng },
-            // Only on the day the flight home leaves — the review checks the day against it.
-            flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal } : undefined,
-            stops: stopsPayload,
-          }),
-        })
-        const data = await res.json()
-        if (!res.ok) {
-          renderCheckError(resultsEl, data.error || 'Check failed.')
-          return
-        }
-        renderCheckResults(resultsEl, di, data.items || [])
-      } catch (e) {
-        renderCheckError(resultsEl, 'Network error.')
-      } finally {
-        btn.disabled = false
-        btn.textContent = originalText
-      }
     }
 
     // --- "Suggest route" — a deterministic optimizer (src/lib/route-optimizer.ts via
@@ -723,113 +575,30 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     function renderUndoAffordance(di) {
       const el = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
       if (!el || undoByDay[di] === undefined) return
-      el.replaceChildren()
-      const p = document.createElement('p')
-      p.className = 'ir-good'
-      p.textContent = 'Route applied ✓'
-      const undoBtn = document.createElement('button')
-      undoBtn.type = 'button'
-      undoBtn.className = 'rt-undo-btn'
-      undoBtn.textContent = 'Undo'
-      undoBtn.addEventListener('click', () => {
+      LIB().renderRouteApplied(el, () => {
         state[di].stops = undoByDay[di]
         delete undoByDay[di]
         saveState(); render()
       })
-      el.appendChild(p)
-      el.appendChild(undoBtn)
-      el.hidden = false
     }
 
-    function renderRouteResults(resultsEl, di, day, result) {
-      resultsEl.replaceChildren()
-
-      const summary = document.createElement('p')
-      summary.className = 'rt-summary'
-      if (result.improved) {
-        const savedMin = Math.round(result.current.score - result.suggested.score)
-        summary.textContent = `Saves ~${savedMin} min travel.`
-      } else {
-        summary.textContent = 'Current order is already best.'
-      }
-      resultsEl.appendChild(summary)
-
-      if (result.usedFirstStopAsStart) {
-        const note = document.createElement('p')
-        note.className = 'rt-note'
-        note.textContent = 'No start location set for this day — using the first stop as the starting point.'
-        resultsEl.appendChild(note)
-      }
-
-      function buildColumn(title, order, schedule) {
-        const col = document.createElement('div')
-        col.className = 'rt-column'
-        const h = document.createElement('p')
-        h.className = 'rt-column-title'
-        h.textContent = title
-        col.appendChild(h)
-        const list = document.createElement('ol')
-        list.className = 'rt-list'
-        order.forEach((origIdx, pos) => {
-          const li = document.createElement('li')
-          li.className = 'rt-list-item'
-          const r = resolveStop(day.stops[origIdx])
-          li.textContent = `${fmt(schedule.times[pos])} ${r.name}`
-          list.appendChild(li)
-        })
-        col.appendChild(list)
-        return col
-      }
-
-      const cols = document.createElement('div')
-      cols.className = 'rt-columns'
-      cols.appendChild(buildColumn('Current', result.currentOrder, result.current))
-      cols.appendChild(buildColumn('Suggested', result.order, result.suggested))
-      resultsEl.appendChild(cols)
-
-      if (result.improved) {
-        const applyBtn = document.createElement('button')
-        applyBtn.type = 'button'
-        applyBtn.className = 'rt-apply-btn'
-        applyBtn.textContent = 'Apply'
-        applyBtn.addEventListener('click', () => {
-          undoByDay[di] = day.stops.slice()
-          state[di].stops = result.order.map((i) => day.stops[i])
-          saveState(); render()
-        })
-        resultsEl.appendChild(applyBtn)
-      }
-
-      resultsEl.hidden = false
-    }
-
+    // Input and preview: src/lib/itinerary-plan.ts optimizerInput and itinerary-ui.ts
+    // renderRouteSuggestion (shared with the timeline).
     function suggestRoute(di) {
       const day = state[di]
       const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
-      if (!day.stops.length) {
-        resultsEl.replaceChildren()
-        const p = document.createElement('p')
-        p.className = 'ir-error'
-        p.textContent = 'No stops to reorder.'
-        resultsEl.appendChild(p)
-        resultsEl.hidden = false
-        return
-      }
-      const startTime = parseT(day.startTime)
-      const start = (typeof base.lat === 'number' && typeof base.lng === 'number') ? { lat: base.lat, lng: base.lng } : null
-      const stops = day.stops.map((s) => {
-        const r = resolveStop(s)
-        return {
-          lat: r.lat,
-          lng: r.lng,
-          durationMin: (s.dur != null ? s.dur : defaultDur(s)),
-          fixedTime: s.fixedTime ? parseT(s.fixedTime) : null,
-          openingHours: s.hours || null,
-          note: stopNote(s),
-        }
+      if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
+      const input = LIB().optimizerInput(day, { base, shopById })
+      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start)
+      LIB().renderRouteSuggestion(resultsEl, result, {
+        stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
+        fmt,
+        onApply: () => {
+          undoByDay[di] = day.stops.slice()
+          state[di].stops = result.order.map((i) => day.stops[i])
+          saveState(); render()
+        },
       })
-      const result = window.__routeOptimizer.optimizeRoute(stops, startTime != null ? startTime : parseT(DEFAULT_START), start)
-      renderRouteResults(resultsEl, di, day, result)
     }
 
     function attachEvents() {
@@ -876,17 +645,10 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       }))
       document.querySelectorAll('.itn-travel-edit').forEach((ed) => {
         const di = +ed.dataset.day, si = +ed.dataset.idx
-        ed.querySelector('.itn-travel-save').addEventListener('click', () => {
-          const v = parseInt(ed.querySelector('.itn-travel-min').value, 10)
+        LIB().bindTravelEditor(ed, (minutes) => {
           const s = state[di].stops[si]
-          if (isNaN(v) || v < 0) { delete s.travelMin; delete s.travelFrom }
-          else { s.travelMin = v; s.travelFrom = legFromKey(state[di], si) }
-          saveState(); render()
-        })
-        const clear = ed.querySelector('.itn-travel-clear')
-        if (clear) clear.addEventListener('click', () => {
-          const s = state[di].stops[si]
-          delete s.travelMin; delete s.travelFrom
+          if (minutes == null) { delete s.travelMin; delete s.travelFrom }
+          else { s.travelMin = minutes; s.travelFrom = legFromKey(state[di], si) }
           saveState(); render()
         })
       })
@@ -962,7 +724,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     const itineraryLibReady = window.__routeOptimizer
       ? Promise.resolve()
       : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
-    Promise.all([loadLeaflet(), itineraryLibReady]).then(([ok]) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render(); focusFromUrl() })
+    itineraryLibReady.then(() => window.__routeOptimizer.loadLeaflet()).then((ok) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render(); focusFromUrl() })
 
     // ?day=<date>&stop=<n> (the timeline's "Edit in list"): that stop in view, highlighted.
     function focusFromUrl() {
@@ -1032,18 +794,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     }
     .day-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin-bottom: 0.7rem; }
 
-    .day-map {
-      height: 240px; border: 1px solid var(--border); border-radius: 8px;
-      overflow: hidden; margin-bottom: 0.6rem; max-width: 100%; background: #1a1a1a;
-    }
-    .route-parts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
-    .route-parts .route-btn { flex: 1; margin-bottom: 0; min-width: 130px; }
-    .route-btn {
-      display: block; text-align: center; background: var(--bg); color: var(--text);
-      border: 1px solid var(--accent); padding: 0.55rem; border-radius: 8px;
-      text-decoration: none; font-size: 0.88rem; font-weight: 600; margin-bottom: 0.9rem;
-    }
-    .route-btn:hover { background: rgba(244,162,76,0.1); }
 
     .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
     .stop {
@@ -1126,11 +876,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       background: none; border: none; padding: 0.15rem 0; cursor: pointer; font: inherit; color: var(--muted);
       text-decoration: underline dotted; text-underline-offset: 3px;
     }
-    .itn-travel-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; list-style: none; margin: 0.2rem 0 0.4rem 3.2rem; font-size: 0.8rem; }
-    .itn-travel-edit[hidden] { display: none; }
-    .itn-travel-edit input { width: 4.5rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.4rem; }
-    .itn-travel-edit button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; font-size: 0.8rem; }
-    .itn-route { color: var(--accent); text-decoration: none; font-weight: 600; }
     .itn-arrive { display: block; font-size: 0.7rem; color: var(--muted); }
     .itn-lines { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; }
     .itn-leave { font-size: 0.75rem; color: var(--accent); font-weight: 600; }
@@ -1183,16 +928,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     .af-save { flex: 1; background: var(--accent); color: #fff; border: none; padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
     .af-cancel { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
 
-    .pin {
-      display: flex; align-items: center; justify-content: center;
-      width: 100%; height: 100%; border-radius: 50%;
-      background: #f4a24c; color: #2a1a04; font-weight: 700; font-size: 12px;
-      border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-      font-family: 'IBM Plex Mono', monospace;
-    }
-    .pin.must { background: #e74c3c; color: #fff; }
-    .pin.food { background: #f5c542; color: #2a1a04; }
-    .pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
 
     /* "Check day" AI review — new classes use an "ir-" prefix (not an existing
        convention on this page, but these are JS-created via createElement/innerHTML, so
@@ -1208,22 +943,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     .day-check-btn:disabled { opacity: 0.6; cursor: default; }
     .day-check-results { margin-top: 0.6rem; }
     .day-check-results[hidden] { display: none; }
-    .ir-error { font-size: 0.85rem; color: #e74c3c; margin: 0; }
-    .ir-good { font-size: 0.85rem; color: #2ecc71; margin: 0; }
-    .ir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
-    .ir-item {
-      background: var(--surface); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.85rem;
-      border-left: 3px solid var(--border);
-    }
-    .ir-item.ir-warning { border-left-color: #e74c3c; }
-    .ir-item.ir-tip { border-left-color: #f5c542; }
-    .ir-item-stop-link {
-      display: block; background: none; border: none; padding: 0; margin: 0 0 0.3rem;
-      color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; text-align: left;
-    }
-    .ir-item-stop-link:hover { text-decoration: underline; }
-    .ir-item-message { margin: 0; color: var(--text); }
-    .ir-item-suggestion { margin: 0.3rem 0 0; color: var(--muted); font-style: italic; }
     .stop.ir-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
     /* "Suggest route" — deterministic optimizer, not AI. Same reasoning as the "ir-"
@@ -1236,20 +955,5 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     .day-route-btn:disabled { opacity: 0.6; cursor: default; }
     .day-route-results { margin-top: 0.6rem; }
     .day-route-results[hidden] { display: none; }
-    .rt-summary { font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0 0 0.5rem; }
-    .rt-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin: 0 0 0.5rem; }
-    .rt-columns { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
-    .rt-column { flex: 1; min-width: 140px; background: var(--surface); border-radius: 8px; padding: 0.6rem 0.7rem; }
-    .rt-column-title { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
-    .rt-list { list-style: decimal; margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
-    .rt-list-item { font-size: 0.8rem; color: var(--text); overflow-wrap: anywhere; }
-    .rt-apply-btn {
-      background: var(--accent); color: #fff; border: none; border-radius: 8px;
-      padding: 0.55rem 1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
-    }
-    .rt-undo-btn {
-      background: var(--surface); color: var(--text); border: 1px solid var(--border);
-      padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
-    }
   </style>
 </Base>

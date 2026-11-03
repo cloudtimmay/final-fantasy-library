@@ -1,0 +1,67 @@
+/* The itinerary's shared parts (src/lib/itinerary-ui.ts), on /itinerary and /itinerary-timeline:
+   the day map and its pins, the day route links, the per-leg travel editor, the "Check day"
+   results ("ir-") and the "Suggest route" preview ("rt-"). All of these are built in JS, so the
+   rules are global (a plain stylesheet, imported by both pages); classes shown and hidden with
+   [hidden] have their own [hidden] rule. Moved here unchanged from itinerary.astro. */
+.day-map {
+  height: 240px; border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; margin-bottom: 0.6rem; max-width: 100%; background: #1a1a1a;
+}
+.route-parts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.route-parts .route-btn { flex: 1; margin-bottom: 0; min-width: 130px; }
+.route-btn {
+  display: block; text-align: center; background: var(--bg); color: var(--text);
+  border: 1px solid var(--accent); padding: 0.55rem; border-radius: 8px;
+  text-decoration: none; font-size: 0.88rem; font-weight: 600; margin-bottom: 0.9rem;
+}
+.route-btn:hover { background: rgba(244,162,76,0.1); }
+
+.itn-travel-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; list-style: none; margin: 0.2rem 0 0.4rem 3.2rem; font-size: 0.8rem; }
+.itn-travel-edit[hidden] { display: none; }
+.itn-travel-edit input { width: 4.5rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.4rem; }
+.itn-travel-edit button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; font-size: 0.8rem; }
+.itn-route { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+.pin {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; border-radius: 50%;
+  background: #f4a24c; color: #2a1a04; font-weight: 700; font-size: 12px;
+  border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.pin.must { background: #e74c3c; color: #fff; }
+.pin.food { background: #f5c542; color: #2a1a04; }
+.pin.base { background: #1c1420; color: #f4a24c; border-color: #f4a24c; font-size: 14px; }
+
+.ir-error { font-size: 0.85rem; color: #e74c3c; margin: 0; }
+.ir-good { font-size: 0.85rem; color: #2ecc71; margin: 0; }
+.ir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.ir-item {
+  background: var(--surface); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.85rem;
+  border-left: 3px solid var(--border);
+}
+.ir-item.ir-warning { border-left-color: #e74c3c; }
+.ir-item.ir-tip { border-left-color: #f5c542; }
+.ir-item-stop-link {
+  display: block; background: none; border: none; padding: 0; margin: 0 0 0.3rem;
+  color: var(--accent); font-weight: 600; font-size: 0.8rem; cursor: pointer; text-align: left;
+}
+.ir-item-stop-link:hover { text-decoration: underline; }
+.ir-item-message { margin: 0; color: var(--text); }
+.ir-item-suggestion { margin: 0.3rem 0 0; color: var(--muted); font-style: italic; }
+
+.rt-summary { font-size: 0.85rem; font-weight: 600; color: var(--text); margin: 0 0 0.5rem; }
+.rt-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin: 0 0 0.5rem; }
+.rt-columns { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.rt-column { flex: 1; min-width: 140px; background: var(--surface); border-radius: 8px; padding: 0.6rem 0.7rem; }
+.rt-column-title { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
+.rt-list { list-style: decimal; margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.rt-list-item { font-size: 0.8rem; color: var(--text); overflow-wrap: anywhere; }
+.rt-apply-btn {
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 0.55rem 1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.rt-undo-btn {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem; margin-left: 0.5rem;
+}

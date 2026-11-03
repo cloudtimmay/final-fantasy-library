@@ -181,3 +181,78 @@ export function shopStopFrom(shop: { _id?: string; shopName?: string; openingHou
 export function customStopFrom(name: string, hours: string): PlanStop {
   return { name, hours, tag: '', slot: '', lat: null, lng: null }
 }
+
+// --- A day's Google Maps route, "Check day" request and "Suggest route" input -----------------
+// Shared by /itinerary and /itinerary-timeline (exactly what the list used to build inline).
+
+// Walking directions base -> the stops with coordinates, in order -> base; split into parts of
+// at most 10 points (Google Maps' limit), each part starting where the previous one ended.
+export function dayRouteUrls(points: { lat: number | null; lng: number | null }[], base: { lat: number; lng: number }): string[] {
+  const pts = points.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
+  const baseP = `${base.lat},${base.lng}`
+  const full = [baseP, ...pts, baseP]
+  if (full.length < 2) return []
+  const MAX = 10, segs: string[][] = []
+  if (full.length <= MAX) segs.push(full)
+  else { let i = 0; while (i < full.length - 1) { segs.push(full.slice(i, i + MAX)); i += MAX - 1 } }
+  return segs.map((seg) => {
+    const origin = seg[0], destination = seg[seg.length - 1]
+    const waypoints = seg.slice(1, -1).join('|')
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
+    if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
+    return url
+  })
+}
+
+// The body /api/itinerary-review gets for one day (it recomputes the timetable from it).
+export function checkDayRequestBody(
+  day: PlanDay,
+  ctx: { base: { lat: number; lng: number }; shopById: Map<string, PlanShop>; flight: { date: string; time: string; airport: string; terminal?: string } | null }
+) {
+  const { times } = computeDayTimes(day, ctx.base, ctx.shopById)
+  const stops = day.stops.map((s, si) => {
+    const r = resolveStop(s, ctx.shopById)
+    return {
+      name: r.name,
+      plannedTime: times[si],
+      durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
+      lat: r.lat,
+      lng: r.lng,
+      openingHours: s.hours || null,
+      note: stopNote(s, ctx.shopById),
+      fixedTime: s.fixedTime || null,
+      arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
+      manualTravelMin: manualTravelFor(day, si, ctx.shopById),
+      must: s.tag === 'MUST',
+    }
+  })
+  const flight = ctx.flight
+  return {
+    dayDate: day.day,
+    dayLabel: day.date,
+    dayArea: day.area,
+    dayStartTime: day.startTime,
+    base: { lat: ctx.base.lat, lng: ctx.base.lng },
+    // Only on the day the flight home leaves — the review checks the day against it.
+    flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal } : undefined,
+    stops,
+  }
+}
+
+// What the route optimizer (route-optimizer.ts optimizeRoute) needs for one day.
+export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; lng: number | null }; shopById: Map<string, PlanShop> }) {
+  const startTime = parseClock(day.startTime)
+  const start = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? { lat: ctx.base.lat, lng: ctx.base.lng } : null
+  const stops = day.stops.map((s) => {
+    const r = resolveStop(s, ctx.shopById)
+    return {
+      lat: r.lat,
+      lng: r.lng,
+      durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
+      fixedTime: s.fixedTime ? parseClock(s.fixedTime) : null,
+      openingHours: s.hours || null,
+      note: stopNote(s, ctx.shopById),
+    }
+  })
+  return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start }
+}

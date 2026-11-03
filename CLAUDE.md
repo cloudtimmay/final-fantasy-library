@@ -15,6 +15,7 @@ Final Fantasy Library — a personal collection tracker (albums/games/books/merc
 - Local dev and all Playwright tests run against the Sanity `development` dataset (a copy of production) — never write to `production`. Two independent guards already enforce this (`astro/tests/guard-dataset.mjs`, `astro/tests/global-setup.ts`); never bypass or weaken them.
 - Testing (see **Testing** below): related specs during a task, the full suite once at the end.
 - Make a LOCAL git commit only when tests pass. One change per commit.
+- Never chain `git commit` after a test command (`npx playwright test …; git commit …` in one shell command, or a background job that commits when it finishes): run the tests, read the result, and only then commit. A chained commit runs whether the tests passed or not.
 - Never `git push` — Kim pushes.
 - Never run `sanity deploy` — Kim deploys schema changes himself.
 - Always respond in English.

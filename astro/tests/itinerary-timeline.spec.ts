@@ -760,3 +760,50 @@ test('on a phone, two overlapping 30-min stops side by side still show both butt
     await expect(b.locator('.itl-here')).toHaveAttribute('aria-label', "I'm here now")
   }
 })
+
+test.describe('/itinerary-timeline: the "🧪 Test time" control', () => {
+  const putStops = (page: Page) => page.evaluate((stops) => {
+    // @ts-ignore - the page's test hook
+    const itl = window.__itl
+    itl.state[0].stops = stops
+    itl.state[0].startTime = '15:06'
+    itl.render()
+  }, YOKOHAMA_DAY)
+
+  test('sets the same override as ?now= (kept in the address over a reload), and "Clear test time" ends it', async ({ page, sanity, trackDoc }) => {
+    await page.clock.setFixedTime(new Date('2026-11-03T12:00:00+09:00')) // before the trip
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-03' })
+    await expect(page.locator('#itl-test-time')).toBeHidden()
+    await expect(page.locator('#itl-test-clear')).toBeHidden()
+    await expect(page.locator('.itl-here')).toHaveCount(0)
+
+    await page.locator('.itl-tab', { hasText: '3. des' }).click() // setting it opens that day
+    await page.locator('#itl-test-btn').click()
+    await expect(page.locator('#itl-test-date option')).toHaveText(['1. des (tir)', '2. des (ons)', '3. des (tor)'])
+    await page.locator('#itl-test-date').selectOption('2026-12-01')
+    await page.locator('#itl-test-clock').fill('13:00')
+    await page.locator('#itl-test-set').click()
+    await expect(page.locator('#itl-test-form')).toBeHidden()
+    await expect(page.locator('#itl-test-time')).toContainText('🧪 Test time: 2026-12-01 13:00 (Tokyo)')
+    await expect(page.locator('.itl-tab.active')).toHaveText('1. des (tir)')
+    expect(new URL(page.url()).searchParams.get('now')).toBe('2026-12-01T13:00')
+    await expect(page.locator('.itl-now')).toHaveAttribute('data-minutes', String(t('13:00')))
+    await expect(page.locator('.itl-block').first().locator('.itl-here')).toBeVisible()
+    await page.locator('.itl-tab', { hasText: '2. des' }).click()
+    await expect(page.locator('.itl-here, .itl-leave')).toHaveCount(0) // not on other days
+    await expect(page.locator('#itl-test-time')).toBeVisible() // stays on
+
+    await page.reload()
+    await expect(page.locator('#itl-test-time')).toContainText('2026-12-01 13:00')
+    await expect(page.locator('#itl-test-clear')).toBeVisible()
+    await page.locator('.itl-tab', { hasText: '1. des' }).click()
+    await putStops(page)
+    await expect(page.locator('.itl-block').first().locator('.itl-leave')).toBeVisible()
+
+    await page.locator('#itl-test-clear').click()
+    await expect(page.locator('#itl-test-time')).toBeHidden()
+    await expect(page.locator('#itl-test-clear')).toBeHidden()
+    expect(new URL(page.url()).searchParams.get('now')).toBeNull()
+    await expect(page.locator('.itl-here, .itl-leave')).toHaveCount(0)
+  })
+})

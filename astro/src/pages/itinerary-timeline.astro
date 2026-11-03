@@ -23,11 +23,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <span id="itl-save-status" class="itl-save-status"></span>
     </div>
     <h1>Timeline <span class="itl-beta">beta</span></h1>
-    {testNow && (
-      <p id="itl-test-time" class="itl-test-time" data-date={testNow.date} data-minutes={testNow.minutes}>
-        🧪 Test time: {testNow.date} {String(Math.floor(testNow.minutes / 60)).padStart(2, '0')}:{String(testNow.minutes % 60).padStart(2, '0')} (Tokyo) — remove ?now= from the address to use the real clock
-      </p>
-    )}
+    <!-- Shown while a test time is set (?now=, or the "🧪 Test time" control below). -->
+    <p id="itl-test-time" class="itl-test-time" data-date={testNow ? testNow.date : ''} data-minutes={testNow ? testNow.minutes : ''} hidden={!testNow}>
+      🧪 Test time: <span id="itl-test-time-text">{testNow ? `${testNow.date} ${String(Math.floor(testNow.minutes / 60)).padStart(2, '0')}:${String(testNow.minutes % 60).padStart(2, '0')}` : ''}</span> (Tokyo) — "Clear test time" to use the real clock
+    </p>
 
     <div class="itl-tabs" id="itl-tabs" role="tablist">
       {days.map((d) => (
@@ -49,7 +48,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
       <span id="itl-dayroute" class="itl-dayroute"></span>
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
+      <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
+      <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
     </div>
+    <!-- "🧪 Test time": pretend it's this date and time in Tokyo — the same as ?now=. -->
+    <form id="itl-test-form" class="itl-test-form" hidden>
+      <select id="itl-test-date" aria-label="Test date">
+        {days.map((d) => <option value={d}>{labels[d]}</option>)}
+      </select>
+      <input id="itl-test-clock" type="time" aria-label="Test time of day" required />
+      <button id="itl-test-set" type="submit" class="itl-daybtn">Set</button>
+      <button id="itl-test-cancel" type="button" class="itl-daybtn">Cancel</button>
+    </form>
     <details id="itl-map-section" class="itl-map-section">
       <summary>🗺️ Map</summary>
       <div id="itl-map" class="day-map itl-map"></div>
@@ -194,8 +204,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
 
     // The clock in Tokyo — or the ?now= test time (see the frontmatter), which stays put.
-    const testTimeEl = document.querySelector('#itl-test-time') as HTMLElement | null
-    const nowTokyo = () => testTimeEl
+    const testTimeEl = document.querySelector('#itl-test-time') as HTMLElement
+    const nowTokyo = () => !testTimeEl.hidden
       ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
       : tokyoNow()
 
@@ -661,6 +671,45 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       render()
     }))
 
+    // --- "🧪 Test time": the ?now= override, set from the day bar --------------------------------
+    // Kept in the address (?now=YYYY-MM-DDTHH:MM, Tokyo time) so a reload keeps it; the label above
+    // the tabs shows it while it's on. Setting it opens that day.
+    const testForm = document.querySelector('#itl-test-form') as HTMLFormElement
+    const testDate = document.querySelector('#itl-test-date') as HTMLSelectElement
+    const testClock = document.querySelector('#itl-test-clock') as HTMLInputElement
+    const testClear = document.querySelector('#itl-test-clear') as HTMLButtonElement
+    function setTestTime(t: { date: string; minutes: number } | null) {
+      testTimeEl.hidden = !t
+      testClear.hidden = !t
+      testTimeEl.dataset.date = t ? t.date : ''
+      testTimeEl.dataset.minutes = t ? String(t.minutes) : ''
+      ;(document.querySelector('#itl-test-time-text') as HTMLElement).textContent = t ? `${t.date} ${formatClock(t.minutes)}` : ''
+      try {
+        const url = new URL(window.location.href)
+        if (t) url.searchParams.set('now', `${t.date}T${formatClock(t.minutes)}`)
+        else url.searchParams.delete('now')
+        history.replaceState(null, '', url.toString())
+      } catch (e) {}
+      const tab = t ? document.querySelector<HTMLButtonElement>(`.itl-tab[data-day="${t.date}"]`) : null
+      if (tab) tab.click() // renders, and keeps ?day= in step
+      else render()
+    }
+    document.querySelector('#itl-test-btn')!.addEventListener('click', () => {
+      const now = nowTokyo()
+      testDate.value = days.includes(now.date) ? now.date : currentDay
+      testClock.value = formatClock(now.minutes)
+      testForm.hidden = !testForm.hidden
+    })
+    document.querySelector('#itl-test-cancel')!.addEventListener('click', () => { testForm.hidden = true })
+    testForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const m = /^(\d{2}):(\d{2})/.exec(testClock.value) // "HH:MM", or "HH:MM:SS"
+      if (!m || !testDate.value) { testClock.focus(); return }
+      testForm.hidden = true
+      setTestTime({ date: testDate.value, minutes: Number(m[1]) * 60 + Number(m[2]) })
+    })
+    testClear.addEventListener('click', () => setTestTime(null))
+
     render()
     // Exposed for tests and the later steps (insert / details) of this page.
     Object.assign(window, { __itl: { get state() { return state }, extraDays, render, serializePlan } })
@@ -745,6 +794,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
     .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
     .itl-test-time { font-size: 0.8rem; font-weight: 600; color: #e0a04c; margin: -0.3rem 0 0.6rem; }
+    .itl-test-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+    .itl-test-form[hidden] { display: none; }
+    .itl-test-form select, .itl-test-form input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; font-size: 0.9rem; min-height: 36px;
+    }
     .itl-block.itl-visited { opacity: 0.55; border-left-color: var(--muted); }
     .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.1rem 0; }
     .itl-actions button {

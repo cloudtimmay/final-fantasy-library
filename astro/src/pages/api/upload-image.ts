@@ -4,7 +4,7 @@ import { json } from '../../lib/api'
 
 export const prerender = false
 
-const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase', 'familyItem', 'priceEntry']
+const ALLOWED_TYPES = ['album', 'game', 'book', 'figure', 'familyPurchase', 'familyItem', 'priceEntry', 'shopNote']
 
 export const POST: APIRoute = async ({ request }) => {
   let form: FormData
@@ -44,6 +44,8 @@ export const POST: APIRoute = async ({ request }) => {
     if (!existing || !ALLOWED_TYPES.includes(existing._type)) {
       return json(400, { error: 'Invalid target document' })
     }
+    // A shop has no main image, only its photos.
+    if (existing._type === 'shopNote' && field !== 'photos') return json(400, { error: 'Invalid field' })
 
     // Upload the binary to Sanity's asset store.
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -57,19 +59,24 @@ export const POST: APIRoute = async ({ request }) => {
       asset: { _type: 'reference', _ref: asset._id },
     }
 
+    let key: string | undefined
     if (field === 'photos') {
-      // Append to an array field (e.g. familyPurchase receipts).
+      // Append to an array field (familyPurchase receipts, shop photos). A shop's photos get a
+      // random key: Sanity gives the same file the same asset id, so the asset id as the key
+      // would repeat if one photo were added twice — and a shop's photos are edited by key
+      // (/api/shop-photos).
+      key = existing._type === 'shopNote' ? crypto.randomUUID().replace(/-/g, '').slice(0, 12) : asset._id
       await sanityWrite
         .patch(docId)
         .setIfMissing({ photos: [] })
-        .append('photos', [{ ...imageRef, _key: asset._id }])
+        .append('photos', [{ ...imageRef, _key: key }])
         .commit()
     } else {
       // Set the single main image field.
       await sanityWrite.patch(docId).set({ image: imageRef }).commit()
     }
 
-    return json(200, { ok: true, assetId: asset._id, url: asset.url })
+    return json(200, { ok: true, assetId: asset._id, url: asset.url, ...(key ? { key } : {}) })
   } catch (e) {
     return json(500, { error: 'Upload failed' })
   }

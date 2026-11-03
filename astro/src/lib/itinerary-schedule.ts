@@ -181,17 +181,21 @@ export function transitRouteUrl(from: { name: string; lat: number | null; lng: n
 }
 
 // --- "⏰ Reminder": a calendar event at a stop's leave-by time ---------------------------------
-// An .ics file (RFC 5545) the phone's calendar opens: titled "Leave <stop> for <next stop>",
-// starting at the leave-by time in Asia/Tokyo (with its own VTIMEZONE, so a calendar set to
-// Norwegian time still shows it at the right moment), an alarm at the event time, and the
-// route link in the description.
+// An .ics file (RFC 5545) the phone's calendar opens, starting at the leave-by time in
+// Asia/Tokyo (with its own VTIMEZONE, so the alarm fires at the right moment in Japan whatever
+// time zone the phone is on), an alarm at the event time, and the route link in the description.
+// A phone still on Norwegian time shows the event at its Norwegian time, so the title carries the
+// Japan time itself — "Leave <stop> 17:35 JST → <next stop>" — and the description says so.
+export const JST_NOTE = "Times are Japan time (JST). Your calendar shows this in your phone's current time zone."
+
 export function leaveReminderIcs(o: { date: string; leaveBy: number; from: string; to: string; routeUrl: string; now?: Date }): string {
   const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.date)
   if (!p) throw new Error(`Not a calendar date: ${o.date}`)
   const pad = (n: number) => String(n).padStart(2, '0')
   const local = `${p[1]}${p[2]}${p[3]}T${pad(Math.floor(o.leaveBy / 60))}${pad(o.leaveBy % 60)}00`
   const stamp = (o.now || new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-  const title = `Leave ${o.from} for ${o.to}`
+  const jst = `${pad(Math.floor(o.leaveBy / 60))}:${pad(o.leaveBy % 60)}`
+  const title = `Leave ${o.from} ${jst} JST → ${o.to}`
   const uid = `leave-${local}-${slug(o.from)}-${slug(o.to)}@final-fantasy-library`
   const lines = [
     'BEGIN:VCALENDAR',
@@ -214,7 +218,7 @@ export function leaveReminderIcs(o: { date: string; leaveBy: number; from: strin
     `DTSTART;TZID=Asia/Tokyo:${local}`,
     'DURATION:PT15M',
     `SUMMARY:${icsText(title)}`,
-    `DESCRIPTION:${icsText(`Route: ${o.routeUrl}`)}`,
+    `DESCRIPTION:${icsText(`${JST_NOTE}\nRoute: ${o.routeUrl}`)}`,
     `URL:${o.routeUrl}`,
     'BEGIN:VALARM',
     'ACTION:DISPLAY',

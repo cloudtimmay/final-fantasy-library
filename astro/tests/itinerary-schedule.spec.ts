@@ -184,7 +184,7 @@ test.describe('itinerary: "⏰ Reminder" (.ics) in Japan time', () => {
     expect(tokyoNow(new Date('2026-12-05T20:10:00Z'))).toEqual({ date: '2026-12-06', minutes: 5 * 60 + 10 })
   })
 
-  test('the event: "Leave <stop> for <next stop>" at the leave-by time in Asia/Tokyo, alarm at that time, route link', () => {
+  test('the event: "Leave <stop> HH:MM JST → <next stop>" at the leave-by time in Asia/Tokyo, alarm at that time, JST note and route link', () => {
     const route = 'https://www.google.com/maps/dir/?api=1&origin=35.4658%2C139.6223&destination=35.6526%2C139.7279&travelmode=transit'
     const ics = leaveReminderIcs({ date: '2026-12-06', leaveBy: 17 * 60 + 35, from: 'Square Enix Pop Up Cafe, Yokohama', to: 'Tokyo Temple', routeUrl: route, now: new Date('2026-11-02T10:00:00Z') })
     const unfolded = ics.replace(/\r\n /g, '')
@@ -193,8 +193,10 @@ test.describe('itinerary: "⏰ Reminder" (.ics) in Japan time', () => {
     expect(unfolded).toContain('BEGIN:VTIMEZONE\r\nTZID:Asia/Tokyo')
     expect(unfolded).toContain('TZOFFSETTO:+0900')
     expect(unfolded).toContain('DTSTART;TZID=Asia/Tokyo:20261206T173500')
-    expect(unfolded).toContain('SUMMARY:Leave Square Enix Pop Up Cafe\\, Yokohama for Tokyo Temple') // comma escaped
-    expect(unfolded).toContain(`DESCRIPTION:Route: ${route}`)
+    expect(unfolded).toContain('SUMMARY:Leave Square Enix Pop Up Cafe\\, Yokohama 17:35 JST → Tokyo Temple') // comma escaped
+    // The Japan-time note first, then the route (\n is an escaped line break inside the value).
+    expect(unfolded).toContain(`DESCRIPTION:Times are Japan time (JST). Your calendar shows this in your phone's current time zone.\\nRoute: ${route}`)
+    expect(unfolded).toContain('DESCRIPTION:Leave Square Enix Pop Up Cafe\\, Yokohama 17:35 JST → Tokyo Temple\r\nTRIGGER:PT0M') // the alarm's text
     expect(unfolded).toContain('BEGIN:VALARM\r\nACTION:DISPLAY')
     expect(unfolded).toContain('TRIGGER:PT0M')
     expect(unfolded).toContain('DTSTAMP:20261102T100000Z')
@@ -230,7 +232,8 @@ test.describe('itinerary page: reminder link on a phone set to Norwegian time', 
     expect(href.startsWith('data:text/calendar;charset=utf-8,')).toBe(true)
     const ics = decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
     expect(ics).toContain(`DTSTART;TZID=Asia/Tokyo:${date.replace(/-/g, '')}T${hhmm}00`)
-    expect(ics).toContain('SUMMARY:Leave Square Enix Pop Up Cafe Yokohama for Tokyo Temple')
+    expect(ics).toContain(`SUMMARY:Leave Square Enix Pop Up Cafe Yokohama ${hhmm.slice(0, 2)}:${hhmm.slice(2)} JST → Tokyo Temple`)
+    expect(ics).toContain("DESCRIPTION:Times are Japan time (JST). Your calendar shows this in your phone's current time zone.")
     expect(ics).toContain('travelmode=transit')
   })
 })

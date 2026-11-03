@@ -68,6 +68,21 @@ export const shopNote = defineType({
     defineField({ name: 'website', title: 'Website', type: 'url' }),
     defineField({ name: 'latitude', title: 'Latitude', type: 'number' }),
     defineField({ name: 'longitude', title: 'Longitude', type: 'number' }),
+    defineField({
+      name: 'photos',
+      title: 'Shop photos',
+      description: 'Floor guides, shelves, the entrance … Added and ordered on the shop\'s edit page.',
+      type: 'array',
+      of: [
+        {
+          type: 'image',
+          options: { hotspot: false },
+          fields: [
+            defineField({ name: 'caption', title: 'Caption', type: 'string', description: 'E.g. "Floor guide", "4F retro games".' }),
+          ],
+        },
+      ],
+    }),
   ],
   preview: {
     select: { title: 'shopName', subtitle: 'area', placeType: 'placeType' },

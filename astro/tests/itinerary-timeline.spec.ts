@@ -343,3 +343,110 @@ test.describe('/itinerary-timeline on a phone: the end of the day', () => {
     expect(lastHour.y + lastHour.height).toBeLessThanOrEqual(nav.y)
   })
 })
+
+test.describe('/itinerary-timeline: the day toolbar, map, travel editor, Check day and Suggest route', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+
+  test('changing the day\'s start time moves the blocks and is saved', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await expect(page.locator('#itl-start')).toHaveValue('15:06')
+    await expect(block(page, 'Yellow Submarine')).toHaveAttribute('data-start', String(t('15:06')))
+    await page.locator('#itl-start').fill('14:00')
+    await page.locator('#itl-start').dispatchEvent('change')
+    await expect(block(page, 'Yellow Submarine')).toHaveAttribute('data-start', String(t('14:00')))
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    expect(saves[saves.length - 1].days['2026-12-05'].startTime).toBe('14:00')
+  })
+
+  test('"🗺️ Route for the day" goes through the stops in order, base first and last', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    const link = page.locator('.itl-dayroute-link')
+    await expect(link).toHaveText('🗺️ Route for the day')
+    const url = new URL((await link.getAttribute('href'))!)
+    expect(url.searchParams.get('origin')).toBe('35.697999,139.77083')
+    expect(url.searchParams.get('destination')).toBe('35.697999,139.77083')
+    expect(url.searchParams.get('waypoints')).toBe('35.689356,139.697787|35.464556,139.624649|35.4658,139.6223|35.6526,139.7279')
+  })
+
+  test('the map is closed by default and shows the stops numbered in order when opened', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await expect(page.locator('#itl-map')).toBeHidden()
+    await page.locator('#itl-map-section summary').click()
+    const pins = page.locator('#itl-map .pin:not(.base)')
+    await expect(pins).toHaveText(['1', '2', '3', '4'], { timeout: 20000 })
+    await expect(page.locator('#itl-map .pin.base')).toHaveCount(1)
+  })
+
+  test('a travel time entered on the timeline is saved like the list\'s and moves the following blocks', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await page.locator('.itl-travel[data-index="1"]').click() // Yellow Submarine -> SURUGA-YA
+    const editor = page.locator('#itl-travel-editor')
+    await expect(editor).toBeVisible()
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama')
+    await expect(editor.locator('.itn-route')).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&origin=35.689356%2C139.697787&destination=35.464556%2C139.624649&travelmode=transit')
+    await editor.locator('.itn-travel-min').fill('35')
+    await editor.locator('.itn-travel-save').click()
+    await expect(editor).toBeHidden()
+
+    await expect(block(page, 'SURUGA-YA')).toHaveAttribute('data-start', String(t('16:26'))) // 15:51 + 35
+    await expect(page.locator('.itl-travel[data-index="1"]')).toHaveText('🚆 35 min')
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const stop = saves[saves.length - 1].days['2026-12-05'].stops[1]
+    // The same fields the list writes (tests/itinerary-schedule.spec.ts checks the list's).
+    expect(stop).toMatchObject({ travelMin: 35, travelFrom: 'Yellow Submarine Shinjuku' })
+  })
+
+  test('Check day: results above the calendar, the stop\'s block marked, tapping the item scrolls to it', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    let body: any = null
+    await page.route('**/api/itinerary-review', async (route) => {
+      body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ ok: true, items: [
+          { severity: 'warning', stopIndex: 3, message: 'Tight before the Temple.', suggestion: 'Leave the cafe earlier.' },
+          { severity: 'tip', stopIndex: null, message: 'Long day.', suggestion: null },
+        ] }),
+      })
+    })
+    await page.locator('#itl-check-btn').click()
+    const panel = page.locator('#itl-check-results')
+    await expect(panel.locator('.ir-item')).toHaveCount(2)
+    await expect(panel.locator('.ir-item-stop-link')).toHaveText('Stop 4: Tokyo Temple')
+    expect(body).toMatchObject({ dayDate: '2026-12-05', dayStartTime: '15:06' })
+    expect(body.stops.map((s: any) => s.name)).toEqual(YOKOHAMA_DAY.map((s) => s.name))
+
+    const temple = block(page, 'Tokyo Temple')
+    await expect(temple).toHaveClass(/itl-ir-warning/)
+    await expect(temple.locator('.itl-badge', { hasText: '🔍' })).toBeVisible()
+    await expect(block(page, 'SURUGA-YA')).not.toHaveClass(/itl-ir-/)
+
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await panel.locator('.ir-item-stop-link').click()
+    await expect(temple).toBeInViewport()
+  })
+
+  test('Suggest route: preview with new order and times, Apply saves it, Undo restores it', async ({ page, sanity, trackDoc }) => {
+    // Far first, then Near — base is next to Near, so near-then-far is clearly better.
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Far', hours: '', tag: '', slot: '', lat: 35.797999, lng: 139.77083, dur: 30 },
+      { name: 'Near', hours: '', tag: '', slot: '', lat: 35.698999, lng: 139.77083, dur: 30 },
+    ], {}, '08:00')
+    await page.locator('#itl-route-btn').click()
+    const panel = page.locator('#itl-route-results')
+    await expect(panel.locator('.rt-summary')).toContainText('Saves')
+    await expect(panel.locator('.rt-column').nth(1).locator('.rt-list-item')).toHaveText([/^\d\d:\d\d Near$/, /^\d\d:\d\d Far$/])
+    const names = () => page.evaluate(() => (window as any).__itl.state[0].stops.map((s: any) => s.name))
+    expect(await names()).toEqual(['Far', 'Near']) // nothing changes before Apply
+
+    await panel.locator('.rt-apply-btn').click()
+    expect(await names()).toEqual(['Near', 'Far'])
+    await expect(panel).toContainText('Route applied ✓')
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    expect(saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Near', 'Far'])
+
+    await panel.locator('.rt-undo-btn').click()
+    expect(await names()).toEqual(['Far', 'Near'])
+    await expect.poll(() => saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name), { timeout: 10000 }).toEqual(['Far', 'Near'])
+  })
+})

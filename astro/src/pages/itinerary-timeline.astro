@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro'
 import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import '../styles/itinerary-shared.css'
 import { tokyoNow } from '../lib/trip-dates'
 
 // A calendar-style day view of the same plan as /itinerary: the same data (loadItineraryPageData),
@@ -32,6 +33,26 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-zoom-out" type="button" aria-label="Zoom out">−</button>
         <button id="itl-zoom-in" type="button" aria-label="Zoom in">+</button>
       </div>
+    </div>
+
+    <div class="itl-daybar">
+      <label class="itl-start">🕗 Start <input id="itl-start" type="time" /></label>
+      <button id="itl-check-btn" type="button" class="itl-daybtn">🔍 Check day</button>
+      <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
+      <span id="itl-dayroute" class="itl-dayroute"></span>
+    </div>
+    <details id="itl-map-section" class="itl-map-section">
+      <summary>🗺️ Map</summary>
+      <div id="itl-map" class="day-map itl-map"></div>
+    </details>
+    <div id="itl-check-results" class="itl-panel" hidden></div>
+    <div id="itl-route-results" class="itl-panel" hidden></div>
+    <div id="itl-travel-editor" class="itl-travel-editor" hidden>
+      <div class="itl-travel-editor-head">
+        <strong id="itl-travel-editor-title"></strong>
+        <button id="itl-travel-editor-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <div id="itl-travel-edit" class="itn-travel-edit"></div>
     </div>
 
     <form id="itl-add" class="itl-add" hidden>
@@ -66,8 +87,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
-      shopOptionGroups, shopStopFrom, customStopFrom, type PlanDay, type PlanShop,
+      shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
+      legFromKey, manualTravelFor, DEFAULT_START, type PlanDay, type PlanShop,
     } from '../lib/itinerary-plan'
+    import {
+      loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
+      renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder,
+    } from '../lib/itinerary-ui'
+    import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { tokyoNow } from '../lib/trip-dates'
@@ -127,11 +154,16 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       }, 1000)
     }
 
+    // Stops the last "Check day" had something to say about: index -> 'warning' | 'tip'. Cleared
+    // when the day or the plan changes (indices would no longer match).
+    let checkMarks: Record<number, string> = {}
+
     function render() {
       const di = state.findIndex((d) => d.day === currentDay)
       const day = state[di]
       dayEl.replaceChildren()
       if (!day) return
+      renderDayBar(day)
       const { sched, inputs } = computeDayTimes(day, base, shopById)
       const range = timelineRange(sched)
       const px = ZOOM_LEVELS[zoomIndex]
@@ -158,6 +190,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       layout.travel.forEach((tr) => {
         const el = document.createElement('div')
         el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '')
+        el.setAttribute('role', 'button')
+        el.title = 'Travel time'
         el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
         el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
         el.dataset.index = String(tr.index)
@@ -184,6 +218,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
         if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
         el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
+          + (checkMarks[item.index] ? ` itl-ir-${checkMarks[item.index]}` : '')
+        if (checkMarks[item.index]) warnings.push(checkMarks[item.index] === 'warning' ? '🔍 See Check day' : '🔍 Tip in Check day')
         el.dataset.start = String(item.start)
         el.dataset.dur = String(inputs[item.index].durationMin)
         const time = x.fixed
@@ -240,6 +276,123 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       setTimeout(() => { updateNow(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
     }
     tickEveryMinute()
+
+    // --- The day toolbar: start time, Check day, Suggest route, the day's route ----------------
+    const startInput = document.querySelector('#itl-start') as HTMLInputElement
+    const checkBtn = document.querySelector('#itl-check-btn') as HTMLButtonElement
+    const routeBtn = document.querySelector('#itl-route-btn') as HTMLButtonElement
+    const dayRouteEl = document.querySelector('#itl-dayroute') as HTMLElement
+    const checkPanel = document.querySelector('#itl-check-results') as HTMLElement
+    const routePanel = document.querySelector('#itl-route-results') as HTMLElement
+    const mapSection = document.querySelector('#itl-map-section') as HTMLDetailsElement
+    const mapEl = document.querySelector('#itl-map') as HTMLElement
+    let mapInstance: any = null
+    const currentDayPlan = () => state.find((d) => d.day === currentDay)!
+
+    // "🗺️ Route for the day": Google Maps through the stops in order, base first and last
+    // (itinerary-plan.ts dayRouteUrls — the list's own links; more than 10 points come in parts).
+    function renderDayBar(day: PlanDay) {
+      startInput.value = day.startTime
+      const urls = dayRouteUrls(day.stops.map((s) => resolveStop(s, shopById)), base)
+      dayRouteEl.innerHTML = urls
+        .map((u, i) => `<a class="itl-dayroute-link" href="${esc(u)}" target="_blank" rel="noopener">🗺️ ${urls.length > 1 ? `Route part ${i + 1}` : 'Route for the day'}</a>`)
+        .join('')
+      if (mapSection.open) drawMap(day)
+    }
+
+    // The map (closed by default): the same as /itinerary's (itinerary-ui.ts drawDayMap).
+    function drawMap(day: PlanDay) {
+      if (mapInstance) { try { mapInstance.remove() } catch (e) {} mapInstance = null }
+      loadLeaflet().then((ok) => {
+        if (!ok || !mapSection.open || currentDayPlan() !== day) return
+        if (mapInstance) { try { mapInstance.remove() } catch (e) {} }
+        mapInstance = drawDayMap(mapEl, day, base, shopById)
+      })
+    }
+    mapSection.addEventListener('toggle', () => { if (mapSection.open) drawMap(currentDayPlan()) })
+
+    startInput.addEventListener('change', () => {
+      currentDayPlan().startTime = startInput.value || DEFAULT_START
+      checkMarks = {}
+      saveState(); render()
+    })
+
+    // "🔍 Check day": the same request and results as the list (itinerary-ui.ts runCheckDay);
+    // a stop's item also marks its block, and tapping the item scrolls to it.
+    function scrollToBlock(i: number) {
+      const block = dayEl.querySelector(`.itl-block[data-index="${i}"]`) as HTMLElement | null
+      if (!block) return
+      block.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      block.classList.add('itl-flash')
+      setTimeout(() => block.classList.remove('itl-flash'), 1600)
+    }
+    checkBtn.addEventListener('click', async () => {
+      const day = currentDayPlan()
+      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base, shopById, flight }), {
+        stopName: (i) => (day.stops[i] ? resolveStop(day.stops[i], shopById).name : `Stop ${i + 1}`),
+        onStopClick: (i) => scrollToBlock(i),
+      })
+      checkMarks = {}
+      ;(items || []).forEach((it) => {
+        if (typeof it.stopIndex !== 'number') return
+        if (checkMarks[it.stopIndex] !== 'warning') checkMarks[it.stopIndex] = it.severity === 'warning' ? 'warning' : 'tip'
+      })
+      render()
+    })
+
+    // "🧭 Suggest route": the same optimizer and preview as the list; Apply and Undo save the
+    // same way (state -> saveState -> render).
+    const undoByDay: Record<string, PlanDay['stops']> = {}
+    routeBtn.addEventListener('click', () => {
+      const day = currentDayPlan()
+      if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
+      const input = optimizerInput(day, { base, shopById })
+      const result = optimizeRoute(input.stops, input.startTime, input.start)
+      renderRouteSuggestion(routePanel, result, {
+        stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
+        fmt: formatClock,
+        onApply: () => {
+          undoByDay[day.day] = day.stops.slice()
+          day.stops = result.order.map((i) => day.stops[i])
+          checkMarks = {}
+          saveState(); render()
+          renderRouteApplied(routePanel, () => {
+            day.stops = undoByDay[day.day]
+            delete undoByDay[day.day]
+            checkMarks = {}
+            saveState(); render()
+            routePanel.hidden = true
+          })
+        },
+      })
+    })
+
+    // --- Tap a travel chip or band: the same travel time editor as the list ------------------
+    const travelEditor = document.querySelector('#itl-travel-editor') as HTMLElement
+    const travelEdit = document.querySelector('#itl-travel-edit') as HTMLElement
+    document.querySelector('#itl-travel-editor-close')!.addEventListener('click', () => { travelEditor.hidden = true })
+    function openTravelEditor(idx: number) {
+      const day = currentDayPlan()
+      if (!day.stops[idx]) return
+      const { sched } = computeDayTimes(day, base, shopById)
+      const from = idx === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[idx - 1], shopById)
+      const to = resolveStop(day.stops[idx], shopById)
+      ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
+      travelEdit.innerHTML = travelEditorInnerHtml({ manual: manualTravelFor(day, idx, shopById), placeholder: sched.stops[idx].travelIn.minutes, from, to })
+      bindTravelEditor(travelEdit, (minutes) => {
+        const s = day.stops[idx]
+        if (minutes == null) { delete s.travelMin; delete s.travelFrom }
+        else { s.travelMin = minutes; s.travelFrom = legFromKey(day, idx, shopById) }
+        travelEditor.hidden = true
+        saveState(); render()
+      })
+      travelEditor.hidden = false
+      travelEditor.scrollIntoView({ block: 'nearest' })
+    }
+    dayEl.addEventListener('click', (e) => {
+      const travel = (e.target as HTMLElement).closest('.itl-travel') as HTMLElement | null
+      if (travel) openTravelEditor(Number(travel.dataset.index))
+    })
 
     // --- Tap a block: its details, and "Edit in list" (read-only here) -------------------------
     const detail = document.querySelector('#itl-detail') as HTMLElement
@@ -330,6 +483,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
       currentDay = tab.dataset.day!
+      checkMarks = {}
+      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
         t.classList.toggle('active', t === tab)
         t.setAttribute('aria-selected', t === tab ? 'true' : 'false')
@@ -425,6 +580,36 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-add-actions button { flex: 1; padding: 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
     #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
     .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
+    .itl-daybar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+    .itl-start {
+      display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.3); border-radius: 8px; padding: 0.3rem 0.6rem;
+    }
+    .itl-start input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.4rem; font-size: 0.9rem; }
+    .itl-daybtn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: 8px;
+      padding: 0.45rem 0.75rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
+    }
+    .itl-daybtn:disabled { opacity: 0.6; cursor: default; }
+    .itl-dayroute { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .itl-dayroute-link {
+      display: inline-flex; align-items: center; min-height: 36px; padding: 0 0.75rem; border-radius: 8px;
+      border: 1px solid var(--accent); color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600;
+    }
+    .itl-map-section { margin: 0 0 0.6rem; }
+    .itl-map-section summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; padding: 0.3rem 0; }
+    .itl-map { margin-top: 0.4rem; }
+    .itl-panel { margin: 0 0 0.8rem; }
+    .itl-panel[hidden] { display: none; }
+    .itl-travel { pointer-events: auto; cursor: pointer; }
+    .itl-travel-editor { margin: 0 0 0.8rem; padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; }
+    .itl-travel-editor[hidden] { display: none; }
+    .itl-travel-editor-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin-bottom: 0.4rem; }
+    .itl-travel-editor-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-travel-editor .itn-travel-edit { margin: 0; }
+    .itl-block.itl-ir-warning { box-shadow: inset 0 0 0 2px #e74c3c; }
+    .itl-block.itl-ir-tip { box-shadow: inset 0 0 0 2px #f5c542; }
+    .itl-block.itl-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
     .itl-detail { margin: 0 0 0.8rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     .itl-detail[hidden] { display: none; }
     .itl-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }

@@ -235,8 +235,8 @@ test.describe('/itinerary-timeline: block details and the links', () => {
 const box = async (l: import('@playwright/test').Locator) => (await l.boundingBox())!
 
 test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => {
-  test('at the default zoom an hour is 2.5× the old height, and a 30-min block shows its name', async ({ page, sanity, trackDoc }) => {
-    expect(PX_PER_MIN * 60).toBe(180) // was 72 px (1.2 px/min)
+  test('at the default zoom an hour is 135 px, and a 30-min block shows its name', async ({ page, sanity, trackDoc }) => {
+    expect(PX_PER_MIN * 60).toBe(135) // between the first 72 px and the later 180 px
     await openTimeline(page, sanity, trackDoc, [
       { name: 'Liberty Akihabara 5 (retro games, 4 floors)', hours: '11:00–20:30 · cash only on floors 3–4', tag: '', slot: '', lat: 35.701461, lng: 139.771787, dur: 30, travelMin: 0, travelFrom: '__base__' },
     ], {}, '11:00')
@@ -259,18 +259,17 @@ test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => 
       const tops = await page.locator('.itl-hour').evaluateAll((els) => els.slice(0, 2).map((e) => (e as HTMLElement).offsetTop))
       return tops[1] - tops[0]
     }
-    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[2]))
+    expect(await hourGap()).toBe(135) // the default
     await page.locator('#itl-zoom-in').click()
-    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[3]))
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[2]))
     await page.locator('#itl-zoom-out').click()
     await page.locator('#itl-zoom-out').click()
-    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[1]))
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[0]))
+    await expect(page.locator('#itl-zoom-out')).toBeDisabled() // the smallest step
 
     await page.reload()
     await expect(page.locator('.itl-grid')).toBeVisible()
-    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[1]))
-    await page.locator('#itl-zoom-out').click()
-    await expect(page.locator('#itl-zoom-out')).toBeDisabled() // the smallest step
+    expect(await hourGap()).toBe(Math.round(60 * ZOOM_LEVELS[0]))
   })
 })
 

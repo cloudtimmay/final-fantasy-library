@@ -4,10 +4,11 @@
 
 import type { DaySchedule } from './itinerary-schedule'
 
-// Zoom: pixels per minute. The default, 3 px/min, makes an hour 180 px — a 30-min visit (90 px)
+// Zoom: pixels per minute. The default, 2.25 px/min, makes an hour 135 px (the first version had
+// 72, which hid names in short visits; 180 was more than needed) — a 30-min visit (~68 px) still
 // fits its name, time and opening hours on a phone. "−"/"+" step through the levels.
 export const ZOOM_LEVELS = [1.5, 2.25, 3, 4, 5.5]
-export const DEFAULT_ZOOM_INDEX = 2
+export const DEFAULT_ZOOM_INDEX = 1
 export const DEFAULT_PX_PER_MIN = ZOOM_LEVELS[DEFAULT_ZOOM_INDEX]
 export const AXIS_START_MIN = 8 * 60
 export const AXIS_END_MIN = 23 * 60

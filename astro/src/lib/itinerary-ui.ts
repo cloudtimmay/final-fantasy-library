@@ -5,7 +5,7 @@
 // callbacks — so each page saves through its own state/saveState/render, as before.
 
 import { transitRouteUrl, type TravelLeg } from './itinerary-schedule'
-import { resolveStop, type PlanDay, type PlanShop } from './itinerary-plan'
+import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 
 declare global {
   interface Window { L?: any }
@@ -263,4 +263,49 @@ export function renderRouteApplied(el: HTMLElement, onUndo: () => void): void {
   el.appendChild(p)
   el.appendChild(undoBtn)
   el.hidden = false
+}
+
+// --- A stop's coordinates (the list's ⋯ menu and the timeline's edit sheet) ---------------------
+// `save` stores the plan, `msg` shows a status line, `done` re-renders (1.4 s later, so the
+// message can be read first). A stop linked to a shop also gets the coordinates saved on the shop
+// in Sanity (/api/shop-coords).
+type CoordCallbacks = { save: () => void; msg: (text: string, color: string) => void; done: () => void }
+
+export async function saveStopCoords(stop: PlanStop, text: string, cb: CoordCallbacks): Promise<void> {
+  const parsed = parseLatLng(text)
+  if (!parsed) { cb.msg('Skriv «lat, lng» — f.eks. 35.6990, 139.7710', '#e74c3c'); return }
+  stop.lat = parsed.lat; stop.lng = parsed.lng
+  cb.save()
+  if (stop.shopId) {
+    cb.msg('Lagrer til butikken…', 'var(--muted)')
+    try {
+      const res = await fetch('/api/shop-coords', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: stop.shopId, latitude: parsed.lat, longitude: parsed.lng }),
+      })
+      cb.msg(res.ok ? 'Lagret ✓ — også til butikken i Sanity' : 'Lagret lokalt, men Sanity-lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
+    } catch (e) { cb.msg('Lagret lokalt (ingen nett til Sanity)', '#e74c3c') }
+  } else {
+    cb.msg('Lagret ✓ (ikke koblet til en butikk)', '#2ecc71')
+  }
+  setTimeout(cb.done, 1400)
+}
+
+// The coordinates from the linked shop in Sanity.
+export async function fetchStopCoordsFromShop(stop: PlanStop, cb: CoordCallbacks): Promise<void> {
+  if (!stop.shopId) return
+  cb.msg('Henter fra butikken…', 'var(--muted)')
+  try {
+    const res = await fetch('/api/shop-coords?id=' + encodeURIComponent(stop.shopId))
+    const data = await res.json()
+    if (!res.ok || !data.ok) { cb.msg('Henting feilet.', '#e74c3c'); return }
+    if (!data.found) { cb.msg('Fant ikke butikken i Sanity.', '#e74c3c'); return }
+    if (!data.hasCoords) { cb.msg('Butikken har ingen koordinater ennå.', '#e74c3c'); return }
+    stop.lat = data.latitude; stop.lng = data.longitude
+    cb.save()
+    cb.msg('Hentet ✓ — koordinater satt fra butikken', '#2ecc71')
+    setTimeout(cb.done, 1400)
+  } catch (e) {
+    cb.msg('Nettverksfeil ved henting.', '#e74c3c')
+  }
 }

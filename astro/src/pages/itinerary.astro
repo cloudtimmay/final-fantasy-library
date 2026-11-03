@@ -178,13 +178,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
     function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
 
-    function parseLatLng(str) {
-      const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(str || '')
-      if (!m) return null
-      const lat = parseFloat(m[1]), lng = parseFloat(m[2])
-      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
-      return { lat, lng }
-    }
 
     // Shared with /itinerary-timeline (src/lib/itinerary-plan.ts): the stop's effective
     // name/coordinates (a linked shop's win), opening hours, and default visit lengths.
@@ -312,16 +305,6 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       return times[times.length - 1]
     }
 
-    function resortDay(di) {
-      const day = state[di]
-      const { times } = computeTimes(day)
-      const withT = day.stops.map((s, i) => ({
-        s, orig: i,
-        t: (s.fixedTime && parseT(s.fixedTime) != null) ? parseT(s.fixedTime) : times[i],
-      }))
-      withT.sort((a, b) => (a.t - b.t) || (a.orig - b.orig))
-      day.stops = withT.map((x) => x.s)
-    }
 
     function dayRouteUrls(day) { return LIB().dayRouteUrls(day.stops.map(resolveStop), base) }
     function baseRow(label, time) {
@@ -477,14 +460,14 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       attachEvents()
     }
 
+    // The ⋯ menu's actions, ▲▼ and ✕: src/lib/itinerary-plan.ts (shared with the timeline's edit
+    // sheet); this page then saves and re-renders as before.
     function move(di, idx, delta) {
-      const arr = state[di].stops, ni = idx + delta
-      if (ni < 0 || ni >= arr.length) return
-      ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
+      if (!LIB().moveStopBy(state[di], idx, delta)) return
       saveState(); render()
     }
-    function moveToDay(di, idx, dj) { const [s] = state[di].stops.splice(idx, 1); state[dj].stops.push(s); saveState(); render() }
-    function copyToDay(di, idx, dj) { state[dj].stops.push({ ...state[di].stops[idx] }); saveState(); render() }
+    function moveToDay(di, idx, dj) { LIB().moveStopToDay(state[di], idx, state[dj]); saveState(); render() }
+    function copyToDay(di, idx, dj) { LIB().copyStopToDay(state[di], idx, state[dj]); saveState(); render() }
 
     function addShopStop(di, shopIdx) {
       const shop = shops[shopIdx]
@@ -499,47 +482,16 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 
     function coordMsg(el, text, color) { el.hidden = false; el.textContent = text; el.style.color = color }
 
-    async function saveCoords(di, idx, panel) {
-      const s = state[di].stops[idx]
-      const inp = panel.querySelector('.mc-coord')
+    // Coordinates: src/lib/itinerary-ui.ts (shared with the timeline's edit sheet).
+    function coordCallbacks(panel) {
       const msg = panel.querySelector('.mc-coord-msg')
-      const parsed = parseLatLng(inp.value)
-      if (!parsed) { coordMsg(msg, 'Skriv «lat, lng» — f.eks. 35.6990, 139.7710', '#e74c3c'); return }
-      s.lat = parsed.lat; s.lng = parsed.lng
-      saveState()
-      if (s.shopId) {
-        coordMsg(msg, 'Lagrer til butikken…', 'var(--muted)')
-        try {
-          const res = await fetch('/api/shop-coords', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: s.shopId, latitude: parsed.lat, longitude: parsed.lng }),
-          })
-          coordMsg(msg, res.ok ? 'Lagret ✓ — også til butikken i Sanity' : 'Lagret lokalt, men Sanity-lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
-        } catch (e) { coordMsg(msg, 'Lagret lokalt (ingen nett til Sanity)', '#e74c3c') }
-      } else {
-        coordMsg(msg, 'Lagret ✓ (ikke koblet til en butikk)', '#2ecc71')
-      }
-      setTimeout(render, 1400)
+      return { save: saveState, msg: (text, color) => coordMsg(msg, text, color), done: render }
     }
-
+    async function saveCoords(di, idx, panel) {
+      await LIB().saveStopCoords(state[di].stops[idx], panel.querySelector('.mc-coord').value, coordCallbacks(panel))
+    }
     async function fetchShopCoords(di, idx, panel) {
-      const s = state[di].stops[idx]
-      const msg = panel.querySelector('.mc-coord-msg')
-      if (!s.shopId) return
-      coordMsg(msg, 'Henter fra butikken…', 'var(--muted)')
-      try {
-        const res = await fetch('/api/shop-coords?id=' + encodeURIComponent(s.shopId))
-        const data = await res.json()
-        if (!res.ok || !data.ok) { coordMsg(msg, 'Henting feilet.', '#e74c3c'); return }
-        if (!data.found) { coordMsg(msg, 'Fant ikke butikken i Sanity.', '#e74c3c'); return }
-        if (!data.hasCoords) { coordMsg(msg, 'Butikken har ingen koordinater ennå.', '#e74c3c'); return }
-        s.lat = data.latitude; s.lng = data.longitude
-        saveState()
-        coordMsg(msg, 'Hentet ✓ — koordinater satt fra butikken', '#2ecc71')
-        setTimeout(render, 1400)
-      } catch (e) {
-        coordMsg(msg, 'Nettverksfeil ved henting.', '#e74c3c')
-      }
+      await LIB().fetchStopCoordsFromShop(state[di].stops[idx], coordCallbacks(panel))
     }
 
     // --- "Check day" AI review — read-only: never touches state/saveState, so the plan
@@ -610,7 +562,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
       document.querySelectorAll('.mv.down').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
       document.querySelectorAll('.remove-btn').forEach((btn) => btn.addEventListener('click', () => {
-        state[+btn.dataset.day].stops.splice(+btn.dataset.idx, 1); saveState(); render()
+        LIB().removeStop(state[+btn.dataset.day], +btn.dataset.idx); saveState(); render()
       }))
       document.querySelectorAll('.more-btn').forEach((btn) => btn.addEventListener('click', () => {
         const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
@@ -626,16 +578,13 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       }))
       document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
-        const s = state[di].stops[+panel.dataset.idx]
-        s.fixedTime = inp.value || null
-        resortDay(di)
+        LIB().setFixedTime(state[di], +panel.dataset.idx, inp.value, base, shopById)
         saveState(); render()
       }))
       // Arrive early (fixed-time stops): the anchor for travel becomes time − minutes.
       document.querySelectorAll('.mc-early').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
-        const v = parseInt(inp.value, 10)
-        if (isNaN(v) || v <= 0) delete s.arriveEarly; else s.arriveEarly = v
+        LIB().setArriveEarly(s, inp.value)
         saveState(); render()
       }))
       // The travel line: tap to enter minutes for this leg, or go back to the estimate.
@@ -654,7 +603,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       })
       document.querySelectorAll('.mc-dur').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
-        const v = parseInt(inp.value, 10); s.dur = isNaN(v) ? null : v; saveState(); render()
+        LIB().setStopDuration(s, inp.value); saveState(); render()
       }))
       document.querySelectorAll('.mc-move').forEach((sel) => sel.addEventListener('change', () => {
         const panel = sel.closest('.mc-panel')

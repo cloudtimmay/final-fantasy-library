@@ -256,3 +256,62 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
   })
   return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start }
 }
+
+// --- Editing a stop: the list's ⋯ menu, ▲▼ and ✕, and the timeline's edit sheet ---------------
+// Each changes the day in place; the page then saves and re-renders as usual.
+
+// "lat, lng" (or "lat lng") as pasted from Google Maps; null when it isn't a valid pair.
+export function parseLatLng(str: string | null | undefined): { lat: number; lng: number } | null {
+  const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(str || '')
+  if (!m) return null
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2])
+  if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+  return { lat, lng }
+}
+
+// One place up (delta -1) or down (+1); false when it's already first/last.
+export function moveStopBy(day: { stops: PlanStop[] }, idx: number, delta: number): boolean {
+  const arr = day.stops, ni = idx + delta
+  if (ni < 0 || ni >= arr.length) return false
+  ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
+  return true
+}
+// To the end of another day.
+export function moveStopToDay(from: { stops: PlanStop[] }, idx: number, to: { stops: PlanStop[] }): void {
+  const [s] = from.stops.splice(idx, 1)
+  to.stops.push(s)
+}
+export function copyStopToDay(from: { stops: PlanStop[] }, idx: number, to: { stops: PlanStop[] }): void {
+  to.stops.push({ ...from.stops[idx] })
+}
+export function removeStop(day: { stops: PlanStop[] }, idx: number): void {
+  day.stops.splice(idx, 1)
+}
+
+// Minutes as typed; anything that isn't a number clears it (back to the default length).
+export function setStopDuration(stop: PlanStop, raw: string): void {
+  const v = parseInt(raw, 10)
+  stop.dur = isNaN(v) ? null : v
+}
+export function setArriveEarly(stop: PlanStop, raw: string): void {
+  const v = parseInt(raw, 10)
+  if (isNaN(v) || v <= 0) delete stop.arriveEarly
+  else stop.arriveEarly = v
+}
+
+// Order the day by time: fixed-time stops at their time, the others where the timetable puts
+// them (ties keep their order) — done after a fixed time is set or changed.
+export function resortByTime(day: PlanDay, base: RoutePoint, shopById: Map<string, PlanShop>): void {
+  const { times } = computeDayTimes(day, base, shopById)
+  const withT = day.stops.map((s, i) => ({
+    s, orig: i,
+    t: s.fixedTime && parseClock(s.fixedTime) != null ? parseClock(s.fixedTime)! : times[i],
+  }))
+  withT.sort((a, b) => a.t - b.t || a.orig - b.orig)
+  day.stops = withT.map((x) => x.s)
+}
+// "HH:MM" pins the stop to that time ('' unpins it), then the day is re-sorted.
+export function setFixedTime(day: PlanDay, idx: number, value: string, base: RoutePoint, shopById: Map<string, PlanShop>): void {
+  day.stops[idx].fixedTime = value || null
+  resortByTime(day, base, shopById)
+}

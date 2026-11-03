@@ -675,3 +675,88 @@ test.describe('/itinerary (the list) keeps what it doesn\'t use', () => {
     expect(saved.stops[0]).toMatchObject({ actualStart: '10:05', actualEnd: '10:40', note: 'Own note', somethingNew: { kept: true } })
   })
 })
+
+test.describe('/itinerary-timeline on a phone: finding "I\'m here now" / "Leaving now"', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  // A trip from 1 December, with the Yokohama stops on its first day.
+  const DEC_1 = { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-03' }
+  // The whole button inside its block's box — the block cuts off whatever overflows it.
+  async function expectInsideBlock(blockEl: ReturnType<Page['locator']>, button: ReturnType<Page['locator']>) {
+    const b = (await blockEl.boundingBox())!
+    const r = (await button.boundingBox())!
+    expect(r.y).toBeGreaterThanOrEqual(b.y)
+    expect(r.y + r.height).toBeLessThanOrEqual(b.y + b.height + 0.5)
+    expect(r.x + r.width).toBeLessThanOrEqual(b.x + b.width + 0.5)
+  }
+
+  test('with ?now=2026-12-01T13:00 on the 1 December tab: on every block, fully visible; not on other days', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1, '15:06', '&now=2026-12-01T13:00')
+    await expect(page.locator('.itl-tab.active')).toHaveText('1. des (tir)')
+    for (const name of ['Yellow Submarine', 'SURUGA-YA', 'Square Enix Pop Up Cafe', 'Tokyo Temple']) {
+      const b = block(page, name)
+      await expect(b.locator('.itl-here')).toBeVisible()
+      await expect(b.locator('.itl-leave')).toBeVisible()
+      await expectInsideBlock(b, b.locator('.itl-here'))
+      await expectInsideBlock(b, b.locator('.itl-leave'))
+    }
+    await page.locator('.itl-tab', { hasText: '2. des' }).click()
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await expect(page.locator('.itl-here, .itl-leave')).toHaveCount(0)
+  })
+
+  test('without a test time, before the trip: no buttons, on the block or in the sheet', async ({ page, sanity, trackDoc }) => {
+    await page.clock.setFixedTime(new Date('2026-11-03T12:00:00+09:00'))
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1)
+    await expect(page.locator('#itl-test-time')).toBeHidden()
+    await expect(page.locator('.itl-here, .itl-leave')).toHaveCount(0)
+    await block(page, 'Yellow Submarine').click()
+    await expect(page.locator('#itl-detail')).toBeVisible()
+    await expect(page.locator('#itl-ed-now')).toBeHidden()
+  })
+
+  test('in the edit sheet: both on today\'s stop, saved like the block\'s; hidden on other days', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1, '15:06', '&now=2026-12-01T13:00')
+    await block(page, 'Yellow Submarine').click()
+    await expect(page.locator('#itl-ed-here')).toBeVisible()
+    await expect(page.locator('#itl-ed-leave')).toBeVisible()
+    await page.locator('#itl-ed-here').click()
+    await expect(page.locator('#itl-ed-here')).toBeHidden() // got there
+    await expect(page.locator('#itl-ed-leave')).toBeVisible()
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('📍 since 13:00')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-01'].stops[0].actualStart === '13:00', { timeout: 10000 }).toBe(true)
+    await page.locator('#itl-ed-leave').click()
+    await expect(page.locator('#itl-ed-now')).toBeHidden() // left: nothing more to press
+    await expect(page.locator('#itl-detail')).toBeVisible() // still on the stop
+    await expect.poll(() => saves[saves.length - 1].days['2026-12-01'].stops[0], { timeout: 10000 }).toMatchObject({ actualStart: '13:00', actualEnd: '13:00' })
+
+    await page.locator('#itl-detail-close').click()
+    await page.locator('.itl-tab', { hasText: '2. des' }).click()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook: one stop on 2 December
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Other Day Shop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 }]
+      itl.render()
+    })
+    await block(page, 'Other Day Shop').click()
+    await expect(page.locator('#itl-detail')).toBeVisible()
+    await expect(page.locator('#itl-ed-now')).toBeHidden()
+  })
+})
+
+test('on a phone, two overlapping 30-min stops side by side still show both buttons in full', async ({ page, sanity, trackDoc }) => {
+  await openTimeline(page, sanity, trackDoc, [
+    { name: 'Narrow A', hours: '10:00–20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, travelMin: 0, travelFrom: '__base__' },
+    { name: 'Narrow B', hours: '10:00–20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, fixedTime: '10:15' },
+  ], { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-03' }, '10:00', '&now=2026-12-01T09:00')
+  for (const name of ['Narrow A', 'Narrow B']) {
+    const b = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+    await expect(b).toHaveAttribute('data-cols', '2')
+    const box = (await b.boundingBox())!
+    for (const cls of ['.itl-here', '.itl-leave']) {
+      const r = (await b.locator(cls).boundingBox())!
+      expect(r.y + r.height).toBeLessThanOrEqual(box.y + box.height + 0.5)
+      expect(r.x + r.width).toBeLessThanOrEqual(box.x + box.width + 0.5)
+    }
+    await expect(b.locator('.itl-here')).toHaveAttribute('aria-label', "I'm here now")
+  }
+})

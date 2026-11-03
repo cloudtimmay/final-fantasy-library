@@ -87,6 +87,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
       </div>
       <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
+      <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
+        <button id="itl-ed-here" type="button">📍 I'm here now</button>
+        <button id="itl-ed-leave" type="button">✅ Leaving now</button>
+      </div>
       <div class="itl-sheet-grid">
         <label>⏱ Duration <span><input id="itl-ed-dur" type="number" min="5" step="5" /> min</span></label>
         <label>🕐 Fixed time <input id="itl-ed-time" type="time" /></label>
@@ -195,6 +199,24 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
       : tokyoNow()
 
+    // Which of "I'm here now" / "Leaving now" a stop offers — only on today's day in Tokyo:
+    // "I'm here now" until you've got there, "Leaving now" until you've left. The same on the
+    // block and in its edit sheet.
+    const nowButtons = (day: PlanDay, x: { actual: boolean; visited: boolean }) => {
+      const isToday = day.day === nowTokyo().date
+      return { here: isToday && !x.actual, leave: isToday && !x.visited }
+    }
+    // Pressing one: stored on the stop as actualStart/actualEnd ("HH:MM"); the timetable runs on
+    // from them (src/lib/itinerary-schedule.ts).
+    function markNow(kind: 'here' | 'leave', day: PlanDay, idx: number) {
+      const stop = day.stops[idx]
+      const now = nowTokyo().minutes
+      if (kind === 'here') markHereNow(stop, now)
+      else markLeavingNow(stop, now, computeDayTimes(day, base, shopById).sched.stops[idx].start)
+      checkMarks = {}
+      saveState(); render()
+    }
+
     // Stops the last "Check day" had something to say about: index -> 'warning' | 'tip'. Cleared
     // when the day or the plan changes (indices would no longer match).
     let checkMarks: Record<number, string> = {}
@@ -271,18 +293,21 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
               ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
               : `${formatClock(x.start)}–${formatClock(x.end)}`
         if (x.visited) el.classList.add('itl-visited')
-        // Today in Tokyo: "I'm here now" until you've got there, "Leaving now" until you've left.
-        const isToday = day.day === nowTokyo().date
-        const here = isToday && !x.actual ?'<button type="button" class="itl-here">📍 I\'m here now</button>' : ''
-        const leave = isToday && !x.visited ? '<button type="button" class="itl-leave">✅ Leaving now</button>' : ''
+        // Today in Tokyo (nowButtons): "I'm here now" / "Leaving now" right under the first line,
+        // so a short block doesn't cut them off; just the icons where blocks share the width (the
+        // edit sheet has them in full).
+        const now = nowButtons(day, x)
+        const narrow = item.cols > 1
+        const here = now.here ? `<button type="button" class="itl-here" aria-label="I'm here now" title="I'm here now">📍${narrow ? '' : ' I\'m here now'}</button>` : ''
+        const leave = now.leave ? `<button type="button" class="itl-leave" aria-label="Leaving now" title="Leaving now">✅${narrow ? '' : ' Leaving now'}</button>` : ''
         const actions = here || leave ? `<span class="itl-actions">${here}${leave}</span>` : ''
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
-        // opening hours, then any warnings.
+        // buttons above, then the opening hours, then any warnings.
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          ${actions}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
-          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}
-          ${actions}`
+          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
         grid.appendChild(el)
       })
 
@@ -485,6 +510,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
       ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${esc(l)}</li>`).join('')
+      const now = nowButtons(day, x)
+      ed('here').hidden = !now.here
+      ed('leave').hidden = !now.leave
+      ;(document.querySelector('#itl-ed-now') as HTMLElement).hidden = !now.here && !now.leave
       ed('dur').value = String(inputs[idx].durationMin)
       ed('time').value = s.fixedTime || ''
       ed('early').value = typeof s.arriveEarly === 'number' ? String(s.arriveEarly) : ''
@@ -543,6 +572,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     document.querySelector('#itl-ed-coord-save')!.addEventListener('click', withStop((s) => { saveStopCoords(s, ed('coord').value, coordCb()) }))
     document.querySelector('#itl-ed-coord-fetch')!.addEventListener('click', withStop((s) => { fetchStopCoordsFromShop(s, coordCb()) }))
+    ed('here').addEventListener('click', withStop((s, idx, day) => { markNow('here', day, idx); fillSheet() }))
+    ed('leave').addEventListener('click', withStop((s, idx, day) => { markNow('leave', day, idx); fillSheet() }))
     document.querySelector('#itl-ed-delete')!.addEventListener('click', withStop((s, idx, day) => {
       if (!confirm(`Delete "${resolveStop(s, shopById).name}" from ${day.date}?`)) return
       removeStop(day, idx)
@@ -553,18 +584,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const block = target.closest('.itl-block') as HTMLElement | null
       if (!block) return
       const idx = Number(block.dataset.index)
-      if (target.closest('.itl-here') || target.closest('.itl-leave')) {
-        // "I'm here now" / "Leaving now": stored on the stop as actualStart/actualEnd ("HH:MM");
-        // the timetable runs on from them (src/lib/itinerary-schedule.ts).
-        const day = currentDayPlan()
-        const stop = day.stops[idx]
-        const now = nowTokyo().minutes
-        if (target.closest('.itl-here')) markHereNow(stop, now)
-        else markLeavingNow(stop, now, computeDayTimes(day, base, shopById).sched.stops[idx].start)
-        checkMarks = {}
-        saveState(); render()
-        return
-      }
+      if (target.closest('.itl-here')) { markNow('here', currentDayPlan(), idx); return }
+      if (target.closest('.itl-leave')) { markNow('leave', currentDayPlan(), idx); return }
       showDetails(idx)
     })
 
@@ -725,7 +746,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
     .itl-test-time { font-size: 0.8rem; font-weight: 600; color: #e0a04c; margin: -0.3rem 0 0.6rem; }
     .itl-block.itl-visited { opacity: 0.55; border-left-color: var(--muted); }
-    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.1rem 0; }
     .itl-actions button {
       font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 6px; cursor: pointer;
       background: var(--bg); color: var(--text); border: 1px solid var(--accent); min-height: 26px;
@@ -788,6 +809,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     .itl-sheet button:disabled { opacity: 0.4; cursor: default; }
     .itl-sheet button[hidden] { display: none; }
+    .itl-sheet-row[hidden] { display: none; }
+    .itl-sheet .itl-sheet-now button { border-color: var(--accent); font-weight: 600; }
     .itl-sheet-msg { font-size: 0.8rem; margin: 0; }
     .itl-sheet-msg[hidden] { display: none; }
     .itl-sheet-foot { justify-content: space-between; }

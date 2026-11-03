@@ -52,7 +52,9 @@ test.describe('price display: NOK first, yen alongside', () => {
 
 // A product with three prices in three currencies, and its own trip (known rate).
 async function threeCurrencyProduct(sanity: any, trackDoc: (id: string) => void, rate: number | null) {
-  const name = testName(`Price Display ${Date.now()}`)
+  // Unique even when two parallel tests create it in the same millisecond: a product without a
+  // barcode is grouped by name, so a shared name would merge their prices ("+5" instead of "+2").
+  const name = testName(`Price Display ${Date.now()} ${Math.random().toString(36).slice(2, 8)}`)
   // Unique, so parallel copies of these fixtures aren't flagged as possible duplicates of each other.
   const jp = `テスト表示${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 1000)}`
   const trip = await sanity.create({

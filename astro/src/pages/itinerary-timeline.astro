@@ -70,13 +70,37 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       </div>
     </form>
 
-    <div id="itl-detail" class="itl-detail" hidden>
+    <!-- Tap a block: this bottom sheet, with everything the list's ⋯ menu offers (plus tag and
+         note). Fixed to the bottom of the screen above the nav; no sticky, no backdrop-filter. -->
+    <div id="itl-detail" class="itl-detail itl-sheet" role="dialog" aria-label="Edit stop" hidden>
       <div class="itl-detail-head">
         <strong id="itl-detail-name"></strong>
         <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
       </div>
       <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
-      <a id="itl-detail-edit" class="itl-detail-edit" href="/itinerary">Edit in list →</a>
+      <div class="itl-sheet-grid">
+        <label>⏱ Duration <span><input id="itl-ed-dur" type="number" min="5" step="5" /> min</span></label>
+        <label>🕐 Fixed time <input id="itl-ed-time" type="time" /></label>
+        <label id="itl-ed-early-label">Arrive early <span><input id="itl-ed-early" type="number" min="0" step="5" /> min</span></label>
+        <label>Tag <input id="itl-ed-tag" type="text" list="itl-tag-options" placeholder="MUST, mat …" /></label>
+      </div>
+      <datalist id="itl-tag-options"><option value="MUST"></option><option value="mat"></option><option value="sett av tid"></option></datalist>
+      <label class="itl-sheet-note">Note <textarea id="itl-ed-note" rows="2"></textarea></label>
+      <div class="itl-sheet-row">
+        <button id="itl-ed-up" type="button">▲ Up</button>
+        <button id="itl-ed-down" type="button">▼ Down</button>
+        <label>Move to <select id="itl-ed-move"></select></label>
+      </div>
+      <div class="itl-sheet-row">
+        <input id="itl-ed-coord" type="text" placeholder="lat, lng (from Google Maps)" aria-label="Coordinates" />
+        <button id="itl-ed-coord-save" type="button">Save</button>
+        <button id="itl-ed-coord-fetch" type="button">🔄 From the shop</button>
+      </div>
+      <p id="itl-ed-coord-msg" class="itl-sheet-msg" hidden></p>
+      <div class="itl-sheet-row itl-sheet-foot">
+        <button id="itl-ed-delete" type="button" class="itl-sheet-delete">🗑️ Delete</button>
+        <a id="itl-detail-edit" class="itl-detail-edit" href="/itinerary">Edit in list →</a>
+      </div>
     </div>
 
     <div id="itl-day" class="itl-day"></div>
@@ -88,11 +112,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
-      legFromKey, manualTravelFor, DEFAULT_START, type PlanDay, type PlanShop,
+      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
+      setArriveEarly, setFixedTime, type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
-      renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder,
+      renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
     } from '../lib/itinerary-ui'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
@@ -394,12 +419,22 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (travel) openTravelEditor(Number(travel.dataset.index))
     })
 
-    // --- Tap a block: its details, and "Edit in list" (read-only here) -------------------------
+    // --- Tap a block: the edit sheet ---------------------------------------------------------
+    // The list's ⋯ actions (src/lib/itinerary-plan.ts / itinerary-ui.ts), then saveState() and
+    // render() like every edit here. The sheet follows its stop (by object), so it stays on it
+    // after a re-sort or ▲▼, and closes when the stop moves to another day or is deleted.
     const detail = document.querySelector('#itl-detail') as HTMLElement
-    document.querySelector('#itl-detail-close')!.addEventListener('click', () => { detail.hidden = true })
-    function showDetails(idx: number) {
-      const day = state.find((d) => d.day === currentDay)
-      if (!day || !day.stops[idx]) return
+    const ed = (id: string) => document.querySelector(`#itl-ed-${id}`) as HTMLInputElement
+    let sheetStop: PlanStop | null = null
+    const sheetDay = () => currentDayPlan()
+    const sheetIdx = () => (sheetStop ? sheetDay().stops.indexOf(sheetStop) : -1)
+    function closeSheet() { detail.hidden = true; sheetStop = null }
+    document.querySelector('#itl-detail-close')!.addEventListener('click', closeSheet)
+
+    function fillSheet() {
+      const day = sheetDay()
+      const idx = sheetIdx()
+      if (idx < 0) { closeSheet(); return }
       const { sched, inputs } = computeDayTimes(day, base, shopById)
       const x = sched.stops[idx]
       const s = day.stops[idx]
@@ -413,14 +448,69 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
       ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${esc(l)}</li>`).join('')
+      ed('dur').value = String(inputs[idx].durationMin)
+      ed('time').value = s.fixedTime || ''
+      ed('early').value = typeof s.arriveEarly === 'number' ? String(s.arriveEarly) : ''
+      ;(document.querySelector('#itl-ed-early-label') as HTMLElement).hidden = !s.fixedTime
+      ed('tag').value = s.tag || ''
+      ;(document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value = typeof s.note === 'string' ? s.note : ''
+      ;(document.querySelector('#itl-ed-up') as HTMLButtonElement).disabled = idx === 0
+      ;(document.querySelector('#itl-ed-down') as HTMLButtonElement).disabled = idx === day.stops.length - 1
+      const move = document.querySelector('#itl-ed-move') as HTMLSelectElement
+      move.innerHTML = '<option value="">—</option>' + state.filter((d) => d !== day).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}</option>`).join('')
+      ed('coord').value = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : ''
+      ;(document.querySelector('#itl-ed-coord-fetch') as HTMLButtonElement).hidden = !s.shopId
       // /itinerary opens with this day and stop in view (?day=&stop=).
       const params = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '')
       params.set('day', currentDay)
       params.set('stop', String(idx))
       ;(document.querySelector('#itl-detail-edit') as HTMLAnchorElement).href = `/itinerary?${params.toString()}`
-      detail.hidden = false
-      detail.scrollIntoView({ block: 'nearest' })
     }
+    function showDetails(idx: number) {
+      sheetStop = sheetDay().stops[idx] || null
+      if (!sheetStop) return
+      ;(document.querySelector('#itl-ed-coord-msg') as HTMLElement).hidden = true
+      fillSheet()
+      detail.hidden = false
+    }
+    // Any change: save, redraw, and refresh the sheet on the same stop.
+    function changed() { checkMarks = {}; saveState(); render(); if (sheetStop) fillSheet() }
+    const withStop = (fn: (s: PlanStop, idx: number, day: PlanDay) => void) => () => {
+      const idx = sheetIdx()
+      if (idx >= 0) fn(sheetStop!, idx, sheetDay())
+    }
+    ed('dur').addEventListener('change', withStop((s) => { setStopDuration(s, ed('dur').value); changed() }))
+    ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, base, shopById); changed() }))
+    ed('early').addEventListener('change', withStop((s) => { setArriveEarly(s, ed('early').value); changed() }))
+    ed('tag').addEventListener('change', withStop((s) => { const v = ed('tag').value.trim(); s.tag = v; changed() }))
+    document.querySelector('#itl-ed-note')!.addEventListener('change', withStop((s) => {
+      const v = (document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value.trim()
+      if (v) s.note = v; else delete s.note
+      changed()
+    }))
+    document.querySelector('#itl-ed-up')!.addEventListener('click', withStop((s, idx, day) => { if (moveStopBy(day, idx, -1)) changed() }))
+    document.querySelector('#itl-ed-down')!.addEventListener('click', withStop((s, idx, day) => { if (moveStopBy(day, idx, +1)) changed() }))
+    document.querySelector('#itl-ed-move')!.addEventListener('change', withStop((s, idx, day) => {
+      const to = state.find((d) => d.day === (document.querySelector('#itl-ed-move') as HTMLSelectElement).value)
+      if (!to) return
+      moveStopToDay(day, idx, to)
+      closeSheet(); changed()
+    }))
+    const coordCb = () => {
+      const msg = document.querySelector('#itl-ed-coord-msg') as HTMLElement
+      return {
+        save: saveState,
+        msg: (text: string, color: string) => { msg.hidden = false; msg.textContent = text; msg.style.color = color },
+        done: () => { render(); if (sheetStop) fillSheet() },
+      }
+    }
+    document.querySelector('#itl-ed-coord-save')!.addEventListener('click', withStop((s) => { saveStopCoords(s, ed('coord').value, coordCb()) }))
+    document.querySelector('#itl-ed-coord-fetch')!.addEventListener('click', withStop((s) => { fetchStopCoordsFromShop(s, coordCb()) }))
+    document.querySelector('#itl-ed-delete')!.addEventListener('click', withStop((s, idx, day) => {
+      if (!confirm(`Delete "${resolveStop(s, shopById).name}" from ${day.date}?`)) return
+      removeStop(day, idx)
+      closeSheet(); changed()
+    }))
     dayEl.addEventListener('click', (e) => {
       const block = (e.target as HTMLElement).closest('.itl-block') as HTMLElement | null
       if (block) showDetails(Number(block.dataset.index))
@@ -485,6 +575,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       currentDay = tab.dataset.day!
       checkMarks = {}
       checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true
+      closeSheet()
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
         t.classList.toggle('active', t === tab)
         t.setAttribute('aria-selected', t === tab ? 'true' : 'false')
@@ -610,10 +701,41 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-block.itl-ir-warning { box-shadow: inset 0 0 0 2px #e74c3c; }
     .itl-block.itl-ir-tip { box-shadow: inset 0 0 0 2px #f5c542; }
     .itl-block.itl-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .itl-detail { margin: 0 0 0.8rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    /* The edit sheet: fixed to the bottom of the screen, above the bottom nav (z-index 20), with
+       room for the safe area; scrolls inside itself when taller than the screen allows. */
+    .itl-detail {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; box-sizing: border-box;
+      max-height: 80vh; overflow-y: auto; padding: 0.9rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      background: var(--surface); border-top: 1px solid var(--accent); border-radius: 14px 14px 0 0;
+      box-shadow: 0 -6px 24px rgba(0,0,0,0.5);
+    }
+    .itl-sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.75rem; margin: 0.4rem 0; }
+    .itl-sheet-grid label, .itl-sheet-note { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
+    .itl-sheet-grid label[hidden] { display: none; }
+    .itl-sheet-grid label span { display: flex; align-items: center; gap: 0.3rem; color: var(--text); }
+    .itl-sheet input, .itl-sheet select, .itl-sheet textarea {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.4rem 0.5rem; font-size: 0.95rem; font-family: inherit; box-sizing: border-box; min-width: 0;
+    }
+    .itl-sheet-grid input { width: 100%; }
+    .itl-sheet-grid label span input { width: 5rem; }
+    .itl-sheet-note textarea { width: 100%; resize: vertical; }
+    .itl-sheet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.5rem 0; }
+    .itl-sheet-row label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
+    .itl-sheet-row input { flex: 1; min-width: 9rem; }
+    .itl-sheet button {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.45rem 0.75rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
+    }
+    .itl-sheet button:disabled { opacity: 0.4; cursor: default; }
+    .itl-sheet button[hidden] { display: none; }
+    .itl-sheet-msg { font-size: 0.8rem; margin: 0; }
+    .itl-sheet-msg[hidden] { display: none; }
+    .itl-sheet-foot { justify-content: space-between; }
+    .itl-sheet .itl-sheet-delete { color: #e74c3c; border-color: #e74c3c; }
     .itl-detail[hidden] { display: none; }
     .itl-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-    .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-detail-head button, .itl-sheet .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
     .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
     .itl-detail-edit { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
   </style>

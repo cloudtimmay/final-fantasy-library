@@ -449,3 +449,115 @@ test.describe('/itinerary-timeline: the day toolbar, map, travel editor, Check d
     await expect.poll(() => saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name), { timeout: 10000 }).toEqual(['Far', 'Near'])
   })
 })
+
+test.describe('/itinerary-timeline: editing a stop in the sheet', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const lastSave = async (saves: any[]) => {
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const saved = saves[saves.length - 1]
+    expect(Object.keys(saved)).toEqual(['v', 'days']) // the list's format
+    return saved.days
+  }
+  // Wait for the debounced save that carries `check`.
+  const savedWhere = async (saves: any[], check: (days: any) => boolean) => {
+    await expect.poll(() => saves.length > 0 && check(saves[saves.length - 1].days), { timeout: 10000 }).toBe(true)
+    return saves[saves.length - 1].days
+  }
+
+  test('duration, tag and note', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await block(page, 'Yellow Submarine').click()
+    const sheet = page.locator('#itl-detail')
+    await expect(sheet).toBeVisible()
+    await expect(page.locator('#itl-ed-dur')).toHaveValue('45')
+    await page.locator('#itl-ed-dur').fill('60')
+    await page.locator('#itl-ed-dur').dispatchEvent('change')
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('15:06–16:06')
+    await page.locator('#itl-ed-tag').fill('MUST')
+    await page.locator('#itl-ed-tag').dispatchEvent('change')
+    await page.locator('#itl-ed-note').fill('Ask about the FF7 box')
+    await page.locator('#itl-ed-note').dispatchEvent('change')
+    await expect(sheet).toBeVisible() // stays open on the stop
+    const days = await savedWhere(saves, (d) => d['2026-12-05'].stops[0].note === 'Ask about the FF7 box')
+    expect(days['2026-12-05'].stops[0]).toMatchObject({ name: 'Yellow Submarine Shinjuku', dur: 60, tag: 'MUST', note: 'Ask about the FF7 box' })
+  })
+
+  test('fixed time re-sorts the day and arrive-early appears; ▲▼ reorder', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await block(page, 'SURUGA-YA').click()
+    await expect(page.locator('#itl-ed-early-label')).toBeHidden()
+    await page.locator('#itl-ed-time').fill('17:45')
+    await page.locator('#itl-ed-time').dispatchEvent('change')
+    // Pinned at 17:45 it now sorts after the 16:30 cafe; the sheet stays on SURUGA-YA.
+    await expect(page.locator('#itl-detail-name')).toHaveText('SURUGA-YA Marui City Yokohama')
+    await expect(page.locator('#itl-ed-early-label')).toBeVisible()
+    await page.locator('#itl-ed-early').fill('15')
+    await page.locator('#itl-ed-early').dispatchEvent('change')
+    await expect(block(page, 'SURUGA-YA').locator('.itl-time')).toHaveText('📌 17:45 (arrive 17:30)')
+    let days = await savedWhere(saves, (d) => d['2026-12-05'].stops[2].arriveEarly === 15)
+    expect(days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Yellow Submarine Shinjuku', 'Square Enix Pop Up Cafe Yokohama', 'SURUGA-YA Marui City Yokohama', 'Tokyo Temple'])
+    expect(days['2026-12-05'].stops[2]).toMatchObject({ fixedTime: '17:45', arriveEarly: 15 })
+
+    await page.locator('#itl-ed-up').click()
+    days = await savedWhere(saves, (d) => d['2026-12-05'].stops[1].name.startsWith('SURUGA'))
+    expect(days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Yellow Submarine Shinjuku', 'SURUGA-YA Marui City Yokohama', 'Square Enix Pop Up Cafe Yokohama', 'Tokyo Temple'])
+    await page.locator('#itl-ed-down').click()
+    days = await savedWhere(saves, (d) => d['2026-12-05'].stops[2].name.startsWith('SURUGA'))
+    expect(days['2026-12-05'].stops[2].name).toBe('SURUGA-YA Marui City Yokohama')
+  })
+
+  test('move to another day', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await block(page, 'Yellow Submarine').click()
+    await page.locator('#itl-ed-move').selectOption('2026-12-06')
+    await expect(page.locator('#itl-detail')).toBeHidden()
+    await expect(block(page, 'Yellow Submarine')).toHaveCount(0)
+    const days = await savedWhere(saves, (d) => d['2026-12-05'].stops.length === 3)
+    expect(days['2026-12-06'].stops.at(-1)).toMatchObject({ name: 'Yellow Submarine Shinjuku' })
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await expect(block(page, 'Yellow Submarine')).toHaveCount(1)
+  })
+
+  test('coordinates: paste "lat, lng", or fetch them from the linked shop', async ({ page, sanity, trackDoc }) => {
+    await page.route('**/api/shop-coords*', (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ok: true, found: true, hasCoords: true, latitude: 35.7011, longitude: 139.7712 }),
+    }))
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'No Coords Shop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Linked Shop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30, shopId: 'test-shop-not-real' },
+    ], {}, '10:00')
+    await block(page, 'No Coords Shop').click()
+    await expect(page.locator('#itl-ed-coord-fetch')).toBeHidden() // not linked to a shop
+    await page.locator('#itl-ed-coord').fill('35.6990, 139.7710')
+    await page.locator('#itl-ed-coord-save').click()
+    await expect(page.locator('#itl-ed-coord-msg')).toHaveText('Lagret ✓ (ikke koblet til en butikk)')
+    let days = await savedWhere(saves, (d) => d['2026-12-05'].stops[0].lat === 35.699)
+    expect(days['2026-12-05'].stops[0]).toMatchObject({ lat: 35.699, lng: 139.771 })
+
+    await page.locator('#itl-detail-close').click()
+    await block(page, 'Linked Shop').click()
+    await page.locator('#itl-ed-coord-fetch').click()
+    await expect(page.locator('#itl-ed-coord-msg')).toHaveText('Hentet ✓ — koordinater satt fra butikken')
+    days = await savedWhere(saves, (d) => d['2026-12-05'].stops[1].lat === 35.7011)
+    expect(days['2026-12-05'].stops[1]).toMatchObject({ shopId: 'test-shop-not-real', lat: 35.7011, lng: 139.7712 })
+  })
+
+  test('delete asks first: cancel keeps the stop, OK removes it', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await block(page, 'SURUGA-YA').click()
+    const messages: string[] = []
+    page.once('dialog', (d) => { messages.push(d.message()); d.dismiss() })
+    await page.locator('#itl-ed-delete').click()
+    await expect.poll(() => messages.length).toBe(1)
+    expect(messages[0]).toBe('Delete "SURUGA-YA Marui City Yokohama" from 5. des (lør)?')
+    await expect(block(page, 'SURUGA-YA')).toHaveCount(1)
+
+    page.once('dialog', (d) => d.accept())
+    await page.locator('#itl-ed-delete').click()
+    await expect(page.locator('#itl-detail')).toBeHidden()
+    await expect(block(page, 'SURUGA-YA')).toHaveCount(0)
+    const days = await lastSave(saves)
+    expect(days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Yellow Submarine Shinjuku', 'Square Enix Pop Up Cafe Yokohama', 'Tokyo Temple'])
+  })
+})

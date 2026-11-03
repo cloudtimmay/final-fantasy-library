@@ -1,0 +1,211 @@
+---
+import Base from '../layouts/Base.astro'
+import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import { tokyoNow } from '../lib/trip-dates'
+
+// A calendar-style day view of the same plan as /itinerary: the same data (loadItineraryPageData),
+// the same timetable (itinerary-plan.ts computeDayTimes) and the same saved format.
+const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
+// ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
+const requestedDay = Astro.url.searchParams.get('day') || ''
+const today = tokyoNow().date
+const initialDay = days.includes(requestedDay) ? requestedDay : days.includes(today) ? today : days[0]
+const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURIComponent(Astro.url.searchParams.get('trip')!)}` : ''
+---
+<Base title="Timeline">
+  <div class="itl-wrap" data-initial-day={initialDay} data-trip-query={tripQuery}>
+    <div class="itl-nav">
+      <a id="itl-list-link" href={`/itinerary${tripQuery}`} class="itl-nav-link">← List view</a>
+      <span id="itl-save-status" class="itl-save-status"></span>
+    </div>
+    <h1>Timeline <span class="itl-beta">beta</span></h1>
+
+    <div class="itl-tabs" id="itl-tabs" role="tablist">
+      {days.map((d) => (
+        <button type="button" role="tab" class:list={['itl-tab', { active: d === initialDay }]} data-day={d} aria-selected={d === initialDay ? 'true' : 'false'}>{labels[d]}</button>
+      ))}
+    </div>
+
+    <p class="itl-hint">Tap an empty spot to add a stop there.</p>
+    <div id="itl-day" class="itl-day"></div>
+  </div>
+
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState })}></script>
+
+  <script>
+    import {
+      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
+      type PlanDay, type PlanShop,
+    } from '../lib/itinerary-plan'
+    import { timelineRange, timelineItems, offsetFor, PX_PER_MIN } from '../lib/itinerary-timeline'
+    import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
+    import { tokyoNow } from '../lib/trip-dates'
+
+    const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
+    const { plan, days, labels, flight, base, shops, savedState } = DATA
+    const shopById = new Map<string, PlanShop>((shops || []).map((s: PlanShop) => [s._id, s]))
+    const wrap = document.querySelector('.itl-wrap') as HTMLElement
+    const dayEl = document.querySelector('#itl-day') as HTMLElement
+    const esc = (s: unknown) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+
+    // The same load as /itinerary: the server's saved plan, else this browser's copy.
+    const STORE_KEY = 'ff-itinerary-v12' // must match itinerary.astro
+    function loadSaved() {
+      if (savedState) { try { const p = normalizeSavedPlan(JSON.parse(savedState), plan); if (p) return p } catch (e) {} }
+      try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSavedPlan(JSON.parse(s), plan) : null } catch { return null }
+    }
+    const built = buildPlanState(plan, days, labels, loadSaved() || {})
+    let state: PlanDay[] = built.state
+    const extraDays = built.extraDays
+    let currentDay: string = wrap.dataset.initialDay || days[0]
+
+    function render() {
+      const di = state.findIndex((d) => d.day === currentDay)
+      const day = state[di]
+      dayEl.replaceChildren()
+      if (!day) return
+      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const range = timelineRange(sched)
+      const grid = document.createElement('div')
+      grid.className = 'itl-grid'
+      grid.style.height = `${offsetFor(range.end, range)}px`
+      grid.dataset.start = String(range.start)
+
+      for (let m = range.start; m <= range.end; m += 60) {
+        const hour = document.createElement('div')
+        hour.className = 'itl-hour'
+        hour.style.top = `${offsetFor(m, range)}px`
+        hour.textContent = formatClock(m)
+        grid.appendChild(hour)
+      }
+
+      timelineItems(sched, range).forEach((item) => {
+        const el = document.createElement('div')
+        el.style.top = `${item.top}px`
+        el.style.height = `${item.height}px`
+        el.dataset.index = String(item.index)
+        if (item.kind === 'travel') {
+          el.className = 'itl-travel'
+          el.textContent = `${item.mode === 'walk' ? '🚶' : '🚆'} ${item.minutes} min`
+        } else {
+          const x = sched.stops[item.index]
+          const s = day.stops[item.index]
+          const r = resolveStop(s, shopById)
+          const closed = looksClosed(s.hours, x.start)
+          const warnings: string[] = []
+          if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
+          else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+          if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+          el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
+          el.dataset.start = String(item.start)
+          el.dataset.dur = String(inputs[item.index].durationMin)
+          const time = x.fixed
+            ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
+            : `${formatClock(x.start)}–${formatClock(x.end)}`
+          el.innerHTML = `
+            <span class="itl-time">${esc(time)}</span>
+            <span class="itl-name">${esc(r.name)}</span>
+            ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
+            ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
+        }
+        grid.appendChild(el)
+      })
+
+      // The flight home: the latest the day's last stop can end (lib/itinerary-review-helpers.ts).
+      if (flight && flight.date === day.day) {
+        const latest = latestEndForFlight(flight)
+        const line = document.createElement('div')
+        line.className = 'itl-flight'
+        line.style.top = `${offsetFor(latest, range)}px`
+        line.textContent = `✈️ Leave for ${flight.airport} by ${formatClock(latest)} (${flight.line.replace('✈️ ', '')})`
+        grid.appendChild(line)
+      }
+
+      const now = document.createElement('div')
+      now.className = 'itl-now'
+      now.hidden = true
+      grid.appendChild(now)
+      dayEl.appendChild(grid)
+      updateNow()
+    }
+
+    // The red "now" line: Tokyo time (lib/trip-dates.ts tokyoNow), whatever the phone's timezone;
+    // shown only on today's date in Tokyo, moved just after each minute starts.
+    function updateNow() {
+      const line = dayEl.querySelector('.itl-now') as HTMLElement | null
+      const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
+      if (!line || !grid) return
+      const t = tokyoNow()
+      const start = Number(grid.dataset.start)
+      const top = (t.minutes - start) * PX_PER_MIN
+      const show = t.date === currentDay && top >= 0 && top <= grid.offsetHeight
+      line.hidden = !show
+      if (show) { line.style.top = `${Math.round(top)}px`; line.dataset.minutes = String(t.minutes) }
+    }
+    function tickEveryMinute() {
+      setTimeout(() => { updateNow(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
+    }
+    tickEveryMinute()
+
+    document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
+      currentDay = tab.dataset.day!
+      document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
+        t.classList.toggle('active', t === tab)
+        t.setAttribute('aria-selected', t === tab ? 'true' : 'false')
+      })
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('day', currentDay)
+        history.replaceState(null, '', url.toString())
+      } catch (e) {}
+      render()
+    }))
+
+    render()
+    // Exposed for tests and the later steps (insert / details) of this page.
+    Object.assign(window, { __itl: { get state() { return state }, extraDays, render, serializePlan } })
+  </script>
+
+  <style is:global>
+    .itl-wrap { max-width: 680px; }
+    .itl-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .itl-nav-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; padding: 0.4rem 0; }
+    .itl-nav-link:hover { color: var(--accent); }
+    .itl-save-status { font-size: 0.75rem; color: var(--muted); }
+    .itl-beta { font-size: 0.7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; vertical-align: middle; }
+    .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
+    .itl-tab {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
+    }
+    .itl-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .itl-hint { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem; }
+    .itl-grid { position: relative; margin-left: 3rem; border-left: 1px solid var(--border); cursor: copy; }
+    .itl-hour {
+      position: absolute; left: -3rem; width: calc(100% + 3rem); border-top: 1px dashed rgba(255,255,255,0.08);
+      font-size: 0.7rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; pointer-events: none;
+    }
+    .itl-block {
+      position: absolute; left: 0.4rem; right: 0.2rem; box-sizing: border-box; overflow: hidden; cursor: pointer;
+      background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+      border-radius: 6px; padding: 0.2rem 0.45rem; display: flex; flex-direction: column; gap: 0.05rem; font-size: 0.78rem;
+    }
+    .itl-block.itl-fixed { border-left-color: #6b9fd4; background: rgba(107,159,212,0.1); }
+    .itl-block.itl-warn-fit, .itl-block.itl-warn-leave { border-left-color: #e74c3c; }
+    .itl-block.itl-warn-closed { border-left-color: #e0a04c; }
+    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); }
+    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .itl-hours { font-size: 0.7rem; color: var(--muted); }
+    .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
+    .itl-travel {
+      position: absolute; left: 1.2rem; right: 1rem; box-sizing: border-box; display: flex; align-items: center;
+      font-size: 0.68rem; color: var(--muted); padding-left: 0.4rem; overflow: hidden; pointer-events: none;
+      background: repeating-linear-gradient(135deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 12px);
+      border-left: 2px dotted var(--border);
+    }
+    .itl-flight { position: absolute; left: 0; right: 0; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
+    .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
+    .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
+    .itl-now[hidden] { display: none; }
+  </style>
+</Base>

@@ -15,14 +15,18 @@ test.describe('shop-found (lib/shop-found.ts)', () => {
         { _id: 'p3', productName: 'Moogle plush', price: 2000, currency: 'JPY', seenAt: '2026-10-30T09:00:00Z' },
         { _id: 'p4', productName: '', price: 1 }, // no name: skipped
       ],
-      [{ _id: 'f1', name: 'Chocobo keyring', priceYen: 800, purchaseDate: '2026-11-02' }],
+      [
+        { _id: 'f1', name: 'Chocobo keyring', status: 'bought', priceYen: 800, purchaseDate: '2026-11-02' },
+        { _id: 'f2', name: 'Moogle mug', status: 'planned', priceNok: 199, purchaseDate: '2026-10-29' },
+      ],
     )
-    expect(items.map((i) => i.id)).toEqual(['p2', 'f1', 'p1', 'p3'])
+    expect(items.map((i) => i.id)).toEqual(['p2', 'f1', 'p1', 'p3', 'f2'])
     expect(items[0]).toMatchObject({ kind: 'price', status: 'bought', href: '/edit-price?id=p2' })
     expect(items[1]).toMatchObject({ kind: 'purchase', status: 'bought', href: null, price: 800, currency: 'JPY' })
     expect(items[2]).toMatchObject({ status: 'considering' })
+    expect(items[4]).toMatchObject({ kind: 'purchase', status: 'planned', price: 199, currency: 'NOK' }) // its real status
     // p1 and p2 are the same product (JAN 111): one thumbnail, its newest price.
-    expect(foundThumbs(items, 2)).toEqual({ thumbs: [items[0], items[1]], more: 1 })
+    expect(foundThumbs(items, 2)).toEqual({ thumbs: [items[0], items[1]], more: 2 })
     expect(foundThumbs([], 4)).toEqual({ thumbs: [], more: 0 })
     expect(formatFoundDate('2026-11-02')).toBe('Nov 2, 2026')
   })
@@ -50,15 +54,19 @@ test.describe('/edit-store: "Found here"', () => {
     })
     const elsewhere = await price('Found Elsewhere', { status: 'considering', seenAt: '2026-11-04T09:00:00Z', shop: ref(other._id, true) })
     const purchase = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName('Found Keyring'), store: ref(shop._id), status: 'bought', purchaseDate: '2026-11-02', priceYen: 800 })
-    for (const d of [considering, bought, elsewhere, purchase]) trackDoc(d._id)
+    const planned = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName('Found Planned Mug'), store: ref(shop._id), status: 'planned', purchaseDate: '2026-10-30', priceYen: 1500 })
+    for (const d of [considering, bought, elsewhere, purchase, planned]) trackDoc(d._id)
 
     await page.goto(`/edit-store?id=${shop._id}`)
     const rows = page.locator('#found-here .fh-item')
-    await expect(rows.locator('.fh-name')).toHaveText([bought.productName, purchase.name, considering.productName])
+    await expect(rows.locator('.fh-name')).toHaveText([bought.productName, purchase.name, considering.productName, planned.name])
     await expect(rows.nth(0).locator('.fh-status')).toHaveText('✅ Bought')
     await expect(rows.nth(1).locator('.fh-status')).toHaveText('✅ Bought')
     await expect(rows.nth(1).locator('.fh-kind')).toHaveText('Family purchase')
     await expect(rows.nth(2).locator('.fh-status')).toHaveText('🤔 Considering')
+    // A family purchase shows its real status.
+    await expect(rows.nth(3).locator('.fh-status')).toHaveText('🛒 Planned')
+    await expect(rows.nth(3).locator('.fh-kind')).toHaveText('Family purchase')
     await expect(rows.nth(2).locator('.fh-price')).toHaveText(/¥5\s980/)
     await expect(rows.nth(1).locator('.fh-date')).toHaveText('Nov 2, 2026')
     // Prices open /edit-price; a family purchase has no page.

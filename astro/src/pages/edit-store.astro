@@ -39,6 +39,7 @@ const photos: { _key: string; caption?: string; url: string }[] = (shop?.photos 
 // "Found here" (lib/shop-found.ts): this shop's prices and the family purchases from it that
 // didn't come from a price, newest first — prices in NOK with ≈ JPY at /prices' rate (the
 // default trip's, pickDefaultTrip()).
+const STATUS_LABELS: Record<FoundItem['status'], string> = { bought: '✅ Bought', planned: '🛒 Planned', considering: '🤔 Considering' }
 let found: FoundItem[] = []
 let rate: number | null = null
 if (shop) {
@@ -221,7 +222,7 @@ if (shop) {
                       <span class="fh-name">{item.name}</span>
                       {item.price != null && <span class="fh-price">{formatPriceNokFirst(item.price, item.currency, rate)}</span>}
                       <span class="fh-meta">
-                        <span class:list={['fh-status', item.status === 'bought' ? 'fh-bought' : 'fh-considering']}>{item.status === 'bought' ? '✅ Bought' : '🤔 Considering'}</span>
+                        <span class:list={['fh-status', `fh-${item.status}`]}>{STATUS_LABELS[item.status]}</span>
                         {item.kind === 'purchase' && <span class="fh-kind">Family purchase</span>}
                         {item.date && <span class="fh-date">{formatFoundDate(item.date)}</span>}
                       </span>
@@ -703,7 +704,7 @@ if (shop) {
     .fh-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; font-size: 0.78rem; color: var(--muted); }
     .fh-status { font-weight: 600; }
     .fh-bought { color: #2ecc71; }
-    .fh-considering { color: var(--accent); }
+    .fh-considering, .fh-planned { color: var(--accent); }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
 

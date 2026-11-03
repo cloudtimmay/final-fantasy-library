@@ -17,7 +17,7 @@ export const foundPricesQuery = (filter: string) => `
 export const foundPurchasesQuery = (filter: string) => `
   *[_type == "familyPurchase" && !(_id in path("drafts.**")) && ${filter}
     && !(_id in *[_type == "priceEntry" && defined(createdFamilyPurchase)].createdFamilyPurchase._ref)] {
-    _id, name, priceYen, priceNok, purchaseDate, _createdAt,
+    _id, name, status, priceYen, priceNok, purchaseDate, _createdAt,
     "shopId": store._ref,
     "imageUrl": photos[0].asset->url
   }`
@@ -38,6 +38,7 @@ export type FoundPriceDoc = {
 export type FoundPurchaseDoc = {
   _id: string
   name?: string | null
+  status?: string | null
   priceYen?: number | null
   priceNok?: number | null
   purchaseDate?: string | null
@@ -53,8 +54,9 @@ export type FoundItem = {
   imageUrl: string | null
   price: number | null
   currency: string
-  // A price is "considering" or "bought"; a family purchase always counts as bought.
-  status: 'considering' | 'bought'
+  // A price is "considering" or "bought"; a family purchase "planned" or "bought" — only
+  // "bought" counts as bought, as on /spending.
+  status: 'considering' | 'planned' | 'bought'
   date: string // ISO date or date-time ('' if none)
   href: string | null // a price opens /edit-price; a family purchase has no page of its own
   productKey: string // the same product grouping as /prices (price-products.ts productKey)
@@ -92,7 +94,7 @@ export function foundItems(prices: FoundPriceDoc[], purchases: FoundPurchaseDoc[
       imageUrl: f.imageUrl || null,
       price: yen ?? nok,
       currency: yen != null ? 'JPY' : 'NOK',
-      status: 'bought',
+      status: f.status === 'bought' ? 'bought' : 'planned',
       date: f.purchaseDate || f._createdAt || '',
       href: null,
       productKey: `purchase:${f._id}`,

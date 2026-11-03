@@ -2,6 +2,9 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
+import { foundItems, foundPricesQuery, foundPurchasesQuery, formatFoundDate, type FoundItem } from '../lib/shop-found'
+import { formatPriceNokFirst } from '../lib/price-display'
+import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
 const id = (Astro.url.searchParams.get('id') || '').trim()
 
@@ -32,6 +35,22 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || []), ...(sho
 
 const currentTripIds: string[] = shop?.tripIds || []
 const photos: { _key: string; caption?: string; url: string }[] = (shop?.photos || []).filter((p: any) => p && p.url)
+
+// "Found here" (lib/shop-found.ts): this shop's prices and the family purchases from it that
+// didn't come from a price, newest first — prices in NOK with ≈ JPY at /prices' rate (the
+// default trip's, pickDefaultTrip()).
+let found: FoundItem[] = []
+let rate: number | null = null
+if (shop) {
+  const [prices, purchases, trips] = await Promise.all([
+    sanity.fetch(foundPricesQuery('shop._ref == $id'), { id: shop._id }),
+    sanity.fetch(foundPurchasesQuery('store._ref == $id'), { id: shop._id }),
+    fetchTripsForSpending(),
+  ])
+  found = foundItems(prices || [], purchases || [])
+  const rateTrip = pickDefaultTrip(trips)
+  rate = rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null
+}
 ---
 <Base title="Edit shop">
   <div class="add-wrap">
@@ -184,6 +203,39 @@ const photos: { _key: string; caption?: string; url: string }[] = (shop?.photos 
               <input id="sp-gallery" type="file" accept="image/*" multiple hidden />
             </label>
           </div>
+        </section>
+
+        <section id="found-here" class="fh-section">
+          <h2 class="fh-title">🔎 Found here</h2>
+          {found.length === 0 ? (
+            <p class="fh-empty">Nothing logged at this shop yet — prices added with this shop on /add-price show up here.</p>
+          ) : (
+            <ul class="fh-list">
+              {found.map((item) => {
+                const inner = (
+                  <>
+                    {item.imageUrl
+                      ? <img class="fh-img" src={cdnImage(item.imageUrl, 120)} data-lightbox={cdnImage(item.imageUrl, 2000)} alt={item.name} loading="lazy" />
+                      : <span class="fh-img fh-img-none" aria-hidden="true">📦</span>}
+                    <span class="fh-body">
+                      <span class="fh-name">{item.name}</span>
+                      {item.price != null && <span class="fh-price">{formatPriceNokFirst(item.price, item.currency, rate)}</span>}
+                      <span class="fh-meta">
+                        <span class:list={['fh-status', item.status === 'bought' ? 'fh-bought' : 'fh-considering']}>{item.status === 'bought' ? '✅ Bought' : '🤔 Considering'}</span>
+                        {item.kind === 'purchase' && <span class="fh-kind">Family purchase</span>}
+                        {item.date && <span class="fh-date">{formatFoundDate(item.date)}</span>}
+                      </span>
+                    </span>
+                  </>
+                )
+                return (
+                  <li class="fh-item" data-kind={item.kind} data-id={item.id}>
+                    {item.href ? <a class="fh-row fh-link" href={item.href}>{inner}</a> : <div class="fh-row">{inner}</div>}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </section>
 
         <a href="/notes" class="back-link">← Back to notes</a>
@@ -634,6 +686,24 @@ const photos: { _key: string; caption?: string; url: string }[] = (shop?.photos 
     }
     .save-btn:disabled { opacity: 0.6; cursor: default; }
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .fh-section { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); scroll-margin-top: 1rem; }
+    .fh-title { font-size: 1.1rem; margin: 0 0 0.6rem; }
+    .fh-empty { font-size: 0.9rem; color: var(--muted); margin: 0; }
+    .fh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .fh-row {
+      display: flex; gap: 0.75rem; align-items: center; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.55rem; color: var(--text); text-decoration: none;
+    }
+    .fh-link:hover { border-color: var(--accent); }
+    .fh-img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--bg); cursor: zoom-in; }
+    .fh-img-none { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; cursor: inherit; }
+    .fh-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+    .fh-name { font-weight: 600; font-size: 0.95rem; overflow-wrap: anywhere; }
+    .fh-price { font-size: 0.85rem; }
+    .fh-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; font-size: 0.78rem; color: var(--muted); }
+    .fh-status { font-weight: 600; }
+    .fh-bought { color: #2ecc71; }
+    .fh-considering { color: var(--accent); }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
 

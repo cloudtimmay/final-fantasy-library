@@ -25,6 +25,11 @@
 // - A fixed stop followed by another anchor gets `stayUntil`: the latest it can end and still
 //   make the next anchor (through any stops in between); `leaveEarlierMin` when its planned
 //   end is later than that.
+// - Actual times ("I'm here now" / "Leaving now" on the timeline): a non-fixed stop with
+//   `actualStart` starts then, and with `actualEnd` ends then; everything after it runs on from
+//   that. A fixed stop never moves — only its actual end carries forward. So the warnings update
+//   (doesn't fit, leave earlier, segment overrun) instead; a stop already left (`visited`) gets
+//   none itself.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
 import { tokyoNow } from './trip-dates'
@@ -42,6 +47,8 @@ export type ScheduleStopInput = {
   manualTravelMin: number | null // travel time entered for the leg INTO this stop
   noteTravelMin: number | null // from the shop's note; only used for the leg from the base
   must?: boolean // tagged MUST: never suggested as the visit to shorten
+  actualStart?: number | null // when you really got there (minutes after midnight)
+  actualEnd?: number | null // when you really left
 }
 
 export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate'; mode: 'walk' | 'train' | null }
@@ -57,6 +64,8 @@ export type ScheduledStop = {
   leaveEarlierMin: number | null // the stop ends this much later than leaveBy (only before an anchor)
   stayUntil: number | null // fixed stops followed by an anchor
   doesntFit: { anchorIndex: number; anchorTime: number; shortMin: number } | null
+  actual: boolean // its times come from actualStart/actualEnd
+  visited: boolean // already left (actualEnd set)
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -91,12 +100,14 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   let clock = startTime
   stops.forEach((s, i) => {
     const anchor = anchorArrival(s)
-    const arrival = anchor != null ? anchor : clock + legs[i].minutes
+    const actualStart = s.fixedTime == null && s.actualStart != null ? s.actualStart : null
+    const arrival = anchor != null ? anchor : actualStart != null ? actualStart : clock + legs[i].minutes
     const start = s.fixedTime != null ? s.fixedTime : arrival
-    const end = start + s.durationMin
+    const end = s.actualEnd != null ? Math.max(s.actualEnd, start) : start + s.durationMin
     out.push({
       arrival, start, end, fixed: s.fixedTime != null, travelIn: legs[i],
       leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, doesntFit: null,
+      actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
     })
     clock = end
   })
@@ -126,11 +137,11 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     const next = stops[i + 1]
     o.nextIsAnchor = next.fixedTime != null
     o.leaveBy = o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
-    if (o.nextIsAnchor && o.end > o.leaveBy) o.leaveEarlierMin = o.end - o.leaveBy
+    if (o.nextIsAnchor && o.end > o.leaveBy && !o.visited) o.leaveEarlierMin = o.end - o.leaveBy
     if (nextAnchor[i] == null || latestEnd[i] == null) return
     if (o.fixed) {
       o.stayUntil = latestEnd[i]
-      if (o.end > latestEnd[i]!) o.leaveEarlierMin = o.end - latestEnd[i]!
+      if (o.end > latestEnd[i]! && !o.visited) o.leaveEarlierMin = o.end - latestEnd[i]!
     }
   })
 
@@ -152,8 +163,10 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       const est = estimateLeg(stops[k], s)
       return est ? est.minutes : legs[a].minutes
     }
-    const firstLateIndex = members.find((k) => out[k].end + toAnchor(k) + LEAVE_BUFFER_MIN > arrive)!
-    members.filter((k) => k >= firstLateIndex).forEach((k) => {
+    // Stops already left are past fixing: the first late one is among those still ahead.
+    const ahead = members.filter((k) => !out[k].visited)
+    const firstLateIndex = ahead.find((k) => out[k].end + toAnchor(k) + LEAVE_BUFFER_MIN > arrive) ?? members[members.length - 1]
+    ahead.filter((k) => k >= firstLateIndex).forEach((k) => {
       out[k].doesntFit = { anchorIndex: a, anchorTime: s.fixedTime!, shortMin: out[k].end + toAnchor(k) + LEAVE_BUFFER_MIN - arrive }
     })
     const suggestions = members

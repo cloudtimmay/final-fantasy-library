@@ -30,6 +30,9 @@ export type PlanStop = {
   arriveEarly?: number
   travelMin?: number
   travelFrom?: string
+  note?: string
+  actualStart?: string // "HH:MM", set by "I'm here now" on the timeline
+  actualEnd?: string // "HH:MM", set by "Leaving now"
   [key: string]: unknown
 }
 export type PlanDay = { day: string; date: string; area: string; note: string; startTime: string; stops: PlanStop[] }
@@ -104,6 +107,8 @@ export function computeDayTimes(
       manualTravelMin: manualTravelFor(day, si, shopById),
       noteTravelMin: extractNoteTravelMinutes(stopNote(s, shopById)),
       must: s.tag === 'MUST',
+      actualStart: parseClock(s.actualStart),
+      actualEnd: parseClock(s.actualEnd),
     }
   })
   const sched = scheduleDay(inputs, start, base)
@@ -224,6 +229,8 @@ export function checkDayRequestBody(
       arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
       manualTravelMin: manualTravelFor(day, si, ctx.shopById),
       must: s.tag === 'MUST',
+      actualStart: s.actualStart || null,
+      actualEnd: s.actualEnd || null,
     }
   })
   const flight = ctx.flight
@@ -314,4 +321,24 @@ export function resortByTime(day: PlanDay, base: RoutePoint, shopById: Map<strin
 export function setFixedTime(day: PlanDay, idx: number, value: string, base: RoutePoint, shopById: Map<string, PlanShop>): void {
   day.stops[idx].fixedTime = value || null
   resortByTime(day, base, shopById)
+}
+
+// --- Actual times ("I'm here now" / "Leaving now" on the timeline) ----------------------------
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+// Arrived now: the visit starts now (a later "I'm here now" starts it again).
+export function markHereNow(stop: PlanStop, nowMin: number): void {
+  stop.actualStart = hhmm(nowMin)
+  delete stop.actualEnd
+}
+// Leaving now: the visit ends now; one never marked as arrived started when it was planned to.
+export function markLeavingNow(stop: PlanStop, nowMin: number, plannedStart: number): void {
+  if (!stop.actualStart) stop.actualStart = hhmm(Math.min(plannedStart, nowMin))
+  stop.actualEnd = hhmm(nowMin)
+}
+// "Reset day": every stop back to its planned times.
+export function clearActualTimes(day: { stops: PlanStop[] }): void {
+  day.stops.forEach((s) => { delete s.actualStart; delete s.actualEnd })
+}
+export function hasActualTimes(day: { stops: PlanStop[] }): boolean {
+  return day.stops.some((s) => !!s.actualStart || !!s.actualEnd)
 }

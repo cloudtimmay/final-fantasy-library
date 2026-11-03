@@ -92,3 +92,11 @@ export function tokyoNow(now: Date = new Date()): { date: string; minutes: numbe
   const t = new Date(now.getTime() + TOKYO_OFFSET_MIN * 60000)
   return { date: toIso(t), minutes: t.getUTCHours() * 60 + t.getUTCMinutes() }
 }
+
+// "2026-12-05T14:00" read as a Tokyo date and time (the timeline's ?now= test mode); null when it
+// isn't one.
+export function parseTokyoDateTime(s: unknown): { date: string; minutes: number } | null {
+  const m = typeof s === 'string' ? /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)$/.exec(s.trim()) : null
+  if (!m || !isIsoDate(m[1])) return null
+  return { date: m[1], minutes: +m[2] * 60 + +m[3] }
+}

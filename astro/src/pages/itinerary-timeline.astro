@@ -2,14 +2,17 @@
 import Base from '../layouts/Base.astro'
 import { loadItineraryPageData } from '../lib/itinerary-page-data'
 import '../styles/itinerary-shared.css'
-import { tokyoNow } from '../lib/trip-dates'
+import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 
 // A calendar-style day view of the same plan as /itinerary: the same data (loadItineraryPageData),
 // the same timetable (itinerary-plan.ts computeDayTimes) and the same saved format.
 const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
 // ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
 const requestedDay = Astro.url.searchParams.get('day') || ''
-const today = tokyoNow().date
+// ?now=YYYY-MM-DDTHH:MM (Tokyo time) stands in for the clock on this page — to try "I'm here
+// now" before the trip. Shown as "Test time" whenever it's used.
+const testNow = parseTokyoDateTime(Astro.url.searchParams.get('now'))
+const today = (testNow || tokyoNow()).date
 const initialDay = days.includes(requestedDay) ? requestedDay : days.includes(today) ? today : days[0]
 const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURIComponent(Astro.url.searchParams.get('trip')!)}` : ''
 ---
@@ -20,6 +23,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <span id="itl-save-status" class="itl-save-status"></span>
     </div>
     <h1>Timeline <span class="itl-beta">beta</span></h1>
+    {testNow && (
+      <p id="itl-test-time" class="itl-test-time" data-date={testNow.date} data-minutes={testNow.minutes}>
+        🧪 Test time: {testNow.date} {String(Math.floor(testNow.minutes / 60)).padStart(2, '0')}:{String(testNow.minutes % 60).padStart(2, '0')} (Tokyo) — remove ?now= from the address to use the real clock
+      </p>
+    )}
 
     <div class="itl-tabs" id="itl-tabs" role="tablist">
       {days.map((d) => (
@@ -40,6 +48,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-check-btn" type="button" class="itl-daybtn">🔍 Check day</button>
       <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
       <span id="itl-dayroute" class="itl-dayroute"></span>
+      <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
     </div>
     <details id="itl-map-section" class="itl-map-section">
       <summary>🗺️ Map</summary>
@@ -113,7 +122,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, type PlanDay, type PlanShop, type PlanStop,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
+      type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
@@ -178,6 +188,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         }
       }, 1000)
     }
+
+    // The clock in Tokyo — or the ?now= test time (see the frontmatter), which stays put.
+    const testTimeEl = document.querySelector('#itl-test-time') as HTMLElement | null
+    const nowTokyo = () => testTimeEl
+      ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
+      : tokyoNow()
 
     // Stops the last "Check day" had something to say about: index -> 'warning' | 'tip'. Cleared
     // when the day or the plan changes (indices would no longer match).
@@ -247,15 +263,26 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         if (checkMarks[item.index]) warnings.push(checkMarks[item.index] === 'warning' ? '🔍 See Check day' : '🔍 Tip in Check day')
         el.dataset.start = String(item.start)
         el.dataset.dur = String(inputs[item.index].durationMin)
-        const time = x.fixed
-          ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
-          : `${formatClock(x.start)}–${formatClock(x.end)}`
+        const time = x.visited
+          ? `✓ ${formatClock(x.start)}–${formatClock(x.end)}`
+          : x.actual
+            ? `📍 since ${formatClock(x.start)}`
+            : x.fixed
+              ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
+              : `${formatClock(x.start)}–${formatClock(x.end)}`
+        if (x.visited) el.classList.add('itl-visited')
+        // Today in Tokyo: "I'm here now" until you've got there, "Leaving now" until you've left.
+        const isToday = day.day === nowTokyo().date
+        const here = isToday && !x.actual ?'<button type="button" class="itl-here">📍 I\'m here now</button>' : ''
+        const leave = isToday && !x.visited ? '<button type="button" class="itl-leave">✅ Leaving now</button>' : ''
+        const actions = here || leave ? `<span class="itl-actions">${here}${leave}</span>` : ''
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
         // opening hours, then any warnings.
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
-          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
+          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}
+          ${actions}`
         grid.appendChild(el)
       })
 
@@ -290,7 +317,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const line = dayEl.querySelector('.itl-now') as HTMLElement | null
       const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
       if (!line || !grid) return
-      const t = tokyoNow()
+      const t = nowTokyo()
       const start = Number(grid.dataset.start)
       const top = (t.minutes - start) * Number(grid.dataset.px)
       const show = t.date === currentDay && top >= 0 && top <= grid.offsetHeight
@@ -313,6 +340,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const mapEl = document.querySelector('#itl-map') as HTMLElement
     let mapInstance: any = null
     const currentDayPlan = () => state.find((d) => d.day === currentDay)!
+    // "↺ Reset day": back to the planned times (shown once the day has actual times).
+    const resetDayBtn = document.querySelector('#itl-reset-day') as HTMLButtonElement
+    resetDayBtn.addEventListener('click', () => {
+      const day = currentDayPlan()
+      if (!confirm(`Reset the actual times for ${day.date}? The planned times are used again.`)) return
+      clearActualTimes(day)
+      checkMarks = {}
+      saveState(); render()
+    })
 
     // "🗺️ Route for the day": Google Maps through the stops in order, base first and last
     // (itinerary-plan.ts dayRouteUrls — the list's own links; more than 10 points come in parts).
@@ -323,6 +359,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         .map((u, i) => `<a class="itl-dayroute-link" href="${esc(u)}" target="_blank" rel="noopener">🗺️ ${urls.length > 1 ? `Route part ${i + 1}` : 'Route for the day'}</a>`)
         .join('')
       if (mapSection.open) drawMap(day)
+      resetDayBtn.hidden = !hasActualTimes(day)
     }
 
     // The map (closed by default): the same as /itinerary's (itinerary-ui.ts drawDayMap).
@@ -512,8 +549,23 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       closeSheet(); changed()
     }))
     dayEl.addEventListener('click', (e) => {
-      const block = (e.target as HTMLElement).closest('.itl-block') as HTMLElement | null
-      if (block) showDetails(Number(block.dataset.index))
+      const target = e.target as HTMLElement
+      const block = target.closest('.itl-block') as HTMLElement | null
+      if (!block) return
+      const idx = Number(block.dataset.index)
+      if (target.closest('.itl-here') || target.closest('.itl-leave')) {
+        // "I'm here now" / "Leaving now": stored on the stop as actualStart/actualEnd ("HH:MM");
+        // the timetable runs on from them (src/lib/itinerary-schedule.ts).
+        const day = currentDayPlan()
+        const stop = day.stops[idx]
+        const now = nowTokyo().minutes
+        if (target.closest('.itl-here')) markHereNow(stop, now)
+        else markLeavingNow(stop, now, computeDayTimes(day, base, shopById).sched.stops[idx].start)
+        checkMarks = {}
+        saveState(); render()
+        return
+      }
+      showDetails(idx)
     })
 
     // --- Tap an empty spot: add a stop there ---------------------------------------------------
@@ -671,6 +723,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-add-actions button { flex: 1; padding: 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
     #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
     .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
+    .itl-test-time { font-size: 0.8rem; font-weight: 600; color: #e0a04c; margin: -0.3rem 0 0.6rem; }
+    .itl-block.itl-visited { opacity: 0.55; border-left-color: var(--muted); }
+    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+    .itl-actions button {
+      font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 6px; cursor: pointer;
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent); min-height: 26px;
+    }
     .itl-daybar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
     .itl-start {
       display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;

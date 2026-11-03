@@ -440,3 +440,24 @@ test.describe('itinerary: "doesn\'t fit" per segment, not per stop', () => {
     await expect(late.locator('.itn-warn')).toHaveText("⚠️ Doesn't fit before Final Fantasy Eorzea Cafe 20:00 (15 min short)")
   })
 })
+
+test.describe('itinerary schedule: actual times', () => {
+  test('an actual start/end moves the following stops; a fixed stop never moves, its warning updates', () => {
+    const planned = scheduleDay([YELLOW_SUB, SURUGA, CAFE, TEMPLE], t('15:06'), BASE)
+    const here = scheduleDay([{ ...YELLOW_SUB, actualStart: t('15:30') }, SURUGA, CAFE, TEMPLE], t('15:06'), BASE)
+    expect(here.stops[0]).toMatchObject({ start: t('15:30'), end: t('16:15'), actual: true, visited: false })
+    expect(here.stops[1].start).toBe(planned.stops[1].start + 24)
+    expect(here.stops[2]).toMatchObject({ start: t('16:30'), end: t('17:30') })
+    expect(here.stops[1].doesntFit!.shortMin).toBe(planned.stops[1].doesntFit!.shortMin + 24)
+
+    const left = scheduleDay([{ ...YELLOW_SUB, actualStart: t('15:30'), actualEnd: t('15:40') }, SURUGA, CAFE, TEMPLE], t('15:06'), BASE)
+    expect(left.stops[0]).toMatchObject({ start: t('15:30'), end: t('15:40'), visited: true, doesntFit: null })
+    expect(left.stops[1].start).toBe(t('15:40') + estimateLeg(YELLOW_SUB, SURUGA)!.minutes)
+  })
+
+  test('a fixed stop left late moves what comes after it, not itself', () => {
+    const cafeLate = scheduleDay([{ ...CAFE, actualStart: t('16:45'), actualEnd: t('18:10') }, TEMPLE], t('16:00'), BASE)
+    expect(cafeLate.stops[0]).toMatchObject({ start: t('16:30'), end: t('18:10'), visited: true, leaveEarlierMin: null })
+    expect(cafeLate.stops[1]).toMatchObject({ arrival: t('18:30'), start: t('19:00') }) // the Temple stays too
+  })
+})

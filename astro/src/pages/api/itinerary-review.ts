@@ -91,6 +91,9 @@ export const POST: APIRoute = async ({ request }) => {
       manualTravelMin: minutesField(raw?.manualTravelMin, 600),
       noteTravelMin: extractNoteTravelMinutes(notesByStop[i]),
       must: raw?.must === true,
+      // "I'm here now" / "Leaving now" on the timeline: the same "HH:MM" check as fixed times.
+      actualStart: hhmm(raw?.actualStart),
+      actualEnd: hhmm(raw?.actualEnd),
     }
   })
   const base = point(body.base)

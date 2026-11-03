@@ -18,7 +18,7 @@ const YOKOHAMA_DAY = [
 // A trip with Tokyo days only (no travel dates, so it never becomes another test's default
 // trip), and the page's own state replaced with `stops` for its first day. Saves are answered
 // by the mock (and recorded), so the shared plan is never written.
-async function openTimeline(page: Page, sanity: any, trackDoc: (id: string) => void, stops: any[], extra: Record<string, unknown> = {}, startTime = '15:06') {
+async function openTimeline(page: Page, sanity: any, trackDoc: (id: string) => void, stops: any[], extra: Record<string, unknown> = {}, startTime = '15:06', query = '') {
   const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Timeline Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06', ...extra })
   trackDoc(trip._id)
   const saves: any[] = []
@@ -26,7 +26,7 @@ async function openTimeline(page: Page, sanity: any, trackDoc: (id: string) => v
     saves.push(JSON.parse(route.request().postDataJSON().data))
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
   })
-  await page.goto(`/itinerary-timeline?trip=${trip._id}`)
+  await page.goto(`/itinerary-timeline?trip=${trip._id}${query}`)
   await expect(page.locator('.itl-grid')).toBeVisible()
   await page.evaluate(({ stops, startTime }) => {
     // @ts-ignore - the page's test hook
@@ -559,5 +559,119 @@ test.describe('/itinerary-timeline: editing a stop in the sheet', () => {
     await expect(block(page, 'SURUGA-YA')).toHaveCount(0)
     const days = await lastSave(saves)
     expect(days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Yellow Submarine Shinjuku', 'Square Enix Pop Up Cafe Yokohama', 'Tokyo Temple'])
+  })
+})
+
+test.describe('/itinerary-timeline: "I\'m here now" and "Leaving now"', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const shinjukuToYokohama = estimateLeg({ lat: 35.689356, lng: 139.697787 }, { lat: 35.464556, lng: 139.624649 })!.minutes
+  // The ?now= test clock, moved on without a reload (the page reads it on every tap).
+  const setTestTime = (page: Page, hhmm: string) => page.evaluate((m) => { document.querySelector<HTMLElement>('#itl-test-time')!.dataset.minutes = String(m) }, t(hhmm))
+  const savedDay = async (saves: any[], check: (stops: any[]) => boolean) => {
+    await expect.poll(() => saves.length > 0 && check(saves[saves.length - 1].days['2026-12-05'].stops), { timeout: 10000 }).toBe(true)
+    return saves[saves.length - 1].days['2026-12-05'].stops
+  }
+
+  test('?now= sets the clock for this page, with a visible "Test time"', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, {}, '15:06', '&now=2026-12-05T15:30')
+    await expect(page.locator('#itl-test-time')).toContainText('🧪 Test time: 2026-12-05 15:30 (Tokyo)')
+    await expect(page.locator('.itl-tab.active')).toHaveText('5. des (lør)') // its date is "today"
+    await expect(page.locator('.itl-now')).toHaveAttribute('data-minutes', String(t('15:30')))
+    await expect(block(page, 'Yellow Submarine').locator('.itl-here')).toBeVisible()
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await expect(page.locator('.itl-here')).toHaveCount(0) // only on today's blocks
+  })
+
+  test('I\'m here now / Leaving now shift the following blocks; the fixed cafe stays and its warning updates', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, {}, '15:06', '&now=2026-12-05T15:30')
+    const suruga = block(page, 'SURUGA-YA')
+    const cafe = block(page, 'Square Enix Pop Up Cafe')
+    const shortBefore = Number((await suruga.locator('.itl-badge').first().textContent())!.match(/(\d+) min short/)![1])
+
+    // At 15:30 (planned 15:06): Yellow Submarine runs 15:30–16:15, SURUGA-YA after it.
+    await block(page, 'Yellow Submarine').locator('.itl-here').click()
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('📍 since 15:30')
+    await expect(suruga).toHaveAttribute('data-start', String(t('16:15') + shinjukuToYokohama))
+    await expect(cafe).toHaveAttribute('data-start', String(t('16:30'))) // fixed: never moves
+    await expect(suruga.locator('.itl-badge').first()).toHaveText(`⚠️ Doesn't fit before 16:30 (${shortBefore + 24} min short)`)
+    let stops = await savedDay(saves, (s) => s[0].actualStart === '15:30')
+    expect(stops[0].actualEnd).toBeUndefined()
+
+    // Leaving at 15:50: visited (muted, actual times), SURUGA-YA from 15:50.
+    await setTestTime(page, '15:50')
+    await block(page, 'Yellow Submarine').locator('.itl-leave').click()
+    await expect(block(page, 'Yellow Submarine')).toHaveClass(/itl-visited/)
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('✓ 15:30–15:50')
+    await expect(block(page, 'Yellow Submarine').locator('.itl-actions')).toHaveCount(0)
+    await expect(suruga).toHaveAttribute('data-start', String(t('15:50') + shinjukuToYokohama))
+    await expect(cafe).toHaveAttribute('data-start', String(t('16:30')))
+    stops = await savedDay(saves, (s) => s[0].actualEnd === '15:50')
+    expect(stops[0]).toMatchObject({ name: 'Yellow Submarine Shinjuku', actualStart: '15:30', actualEnd: '15:50' })
+  })
+
+  test('Leaving now without "I\'m here now" takes the planned start as the arrival', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, {}, '15:06', '&now=2026-12-05T15:40')
+    await block(page, 'Yellow Submarine').locator('.itl-leave').click()
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('✓ 15:06–15:40')
+    const stops = await savedDay(saves, (s) => s[0].actualEnd === '15:40')
+    expect(stops[0]).toMatchObject({ actualStart: '15:06', actualEnd: '15:40' })
+  })
+
+  test('Reset day removes the actual times, after a confirmation', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, {}, '15:06', '&now=2026-12-05T15:30')
+    await expect(page.locator('#itl-reset-day')).toBeHidden()
+    await block(page, 'Yellow Submarine').locator('.itl-here').click()
+    await expect(page.locator('#itl-reset-day')).toBeVisible()
+    const messages: string[] = []
+    page.once('dialog', (d) => { messages.push(d.message()); d.accept() })
+    await page.locator('#itl-reset-day').click()
+    await expect.poll(() => messages.length).toBe(1)
+    expect(messages[0]).toBe('Reset the actual times for 5. des (lør)? The planned times are used again.')
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('15:06–15:51')
+    await expect(page.locator('#itl-reset-day')).toBeHidden()
+    const stops = await savedDay(saves, (s) => !s[0].actualStart)
+    expect(stops[0].actualEnd).toBeUndefined()
+  })
+
+  test('Check day sends the actual times', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, {}, '15:06', '&now=2026-12-05T15:30')
+    await block(page, 'Yellow Submarine').locator('.itl-here').click()
+    let body: any = null
+    await page.route('**/api/itinerary-review', async (route) => {
+      body = route.request().postDataJSON()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
+    })
+    await page.locator('#itl-check-btn').click()
+    await expect.poll(() => body).toBeTruthy()
+    expect(body.stops[0]).toMatchObject({ actualStart: '15:30', actualEnd: null })
+    expect(body.stops[1]).toMatchObject({ actualStart: null, actualEnd: null })
+  })
+})
+
+test.describe('/itinerary (the list) keeps what it doesn\'t use', () => {
+  test('saving from the list keeps actualStart/actualEnd and other unknown fields on the stops', async ({ page }) => {
+    const saves: any[] = []
+    await page.route('**/api/itinerary-save', async (route) => {
+      saves.push(JSON.parse(route.request().postDataJSON().data))
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+    })
+    await page.goto('/itinerary')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    const day = await page.evaluate(() => {
+      // @ts-ignore - globals of the list's inline script
+      const s = state[0].stops[0]
+      s.actualStart = '10:05'; s.actualEnd = '10:40'; s.note = 'Own note'; s.somethingNew = { kept: true }
+      // @ts-ignore
+      render()
+      // @ts-ignore
+      return state[0].day
+    })
+    // An ordinary list edit: the day's start time.
+    await page.locator('.day-start-input').first().fill('09:15')
+    await page.locator('.day-start-input').first().dispatchEvent('change')
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    const saved = saves[saves.length - 1].days[day]
+    expect(saved.startTime).toBe('09:15')
+    expect(saved.stops[0]).toMatchObject({ actualStart: '10:05', actualEnd: '10:40', note: 'Own note', somethingNew: { kept: true } })
   })
 })

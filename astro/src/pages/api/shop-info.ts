@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
+import { hoursUnderstood } from '../../lib/opening-hours'
 
 export const prerender = false
 
@@ -46,24 +47,6 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   const dLng = toRad(b.lng - a.lng)
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(x))
-}
-
-// Must match itinerary-list.astro's parseOpeningHours exactly (src/pages/itinerary-list.astro) — an
-// openingHours string that this can't parse is silently treated as "unknown hours" by the
-// itinerary page (never an error, just never flags a shop as closed), so an AI-suggested
-// string that doesn't fit this is worse than useless there and is dropped here instead.
-function parseOpeningHoursRange(text: string): { start: number; end: number } | null {
-  const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(String(text || ''))
-  if (!m) return null
-  const h1 = +m[1], min1 = +m[2], h2 = +m[3], min2 = +m[4]
-  if (h1 > 23 || h2 > 23 || min1 > 59 || min2 > 59) return null
-  const start = h1 * 60 + min1
-  let end = h2 * 60 + min2
-  if (end < start) {
-    if (end < 360) end += 1440
-    else return null
-  }
-  return { start, end }
 }
 
 function hostnameOf(url: string): string | null {
@@ -202,7 +185,9 @@ export const POST: APIRoute = async ({ request }) => {
 
   let openingHours: string | null =
     typeof parsed.openingHours === 'string' && parsed.openingHours.trim() ? parsed.openingHours.trim().slice(0, 200) : null
-  if (openingHours && !parseOpeningHoursRange(openingHours)) openingHours = null
+  // Hours the itinerary can't understand (lib/opening-hours.ts, the same parser) would only show
+  // "Hours not understood" there, so an AI suggestion like that is dropped here instead.
+  if (openingHours && !hoursUnderstood(openingHours)) openingHours = null
 
   const address: string | null =
     typeof parsed.address === 'string' && parsed.address.trim() ? parsed.address.trim().slice(0, 200) : null

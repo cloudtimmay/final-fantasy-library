@@ -1,0 +1,144 @@
+import { test, expect } from '@playwright/test'
+import { parseOpeningHours, checkVisit, checkHours, visitWarning, hoursUnderstood, closedOnArrival, type OpeningHours } from '../src/lib/opening-hours'
+import { weekdayIndex } from '../src/lib/trip-dates'
+
+const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
+const r = (a: string, b: string) => ({ start: t(a), end: t(b) < t(a) ? t(b) + 1440 : t(b) })
+const open = (...ranges: { start: number; end: number }[]) => ({ closed: false, ranges })
+const CLOSED = { closed: true, ranges: [] }
+// Sunday … Saturday.
+const SUN = 0, MON = 1, TUE = 2, WED = 3, THU = 4, FRI = 5, SAT = 6
+const days = (h: OpeningHours | null) => h!.days
+const warn = (text: string, date: string, arrival: string, leave: string) =>
+  visitWarning(checkHours(text, weekdayIndex(date), t(arrival) + (t(arrival) < 360 ? 1440 : 0), t(leave) + (t(leave) < 360 ? 1440 : 0)))?.message ?? null
+
+test.describe('opening hours (lib/opening-hours.ts): the formats', () => {
+  test('dashes: hyphen, en dash, "~" and "〜", with or without spaces; 時; Norwegian dots', () => {
+    for (const text of ['10:00-20:00', '10:00 - 20:00', '10:00–20:00', '10:00 – 20:00', '10:00~20:00', '10:00 ~ 20:00', '10:00〜20:00', '10:00 〜 20:00', '10:00～20:00', '10時〜20時', '10.00–20.00', '１０：００～２０：００']) {
+      expect(days(parseOpeningHours(text)), text).toEqual(Array(7).fill(open(r('10:00', '20:00'))))
+    }
+  })
+
+  test('the three real examples', () => {
+    expect(days(parseOpeningHours('10:00 - 21:00'))).toEqual(Array(7).fill(open(r('10:00', '21:00'))))
+    expect(days(parseOpeningHours('Open 24 hours'))).toEqual(Array(7).fill(open({ start: 0, end: 1440 })))
+    const h = days(parseOpeningHours('11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00'))
+    expect(h[MON]).toEqual(open(r('11:00', '23:00')))
+    expect(h[FRI]).toEqual(open(r('11:00', '23:00')))
+    expect(h[SAT]).toEqual(open(r('10:00', '23:00')))
+    expect(h[SUN]).toEqual(open(r('10:00', '22:00')))
+  })
+
+  test('several time ranges, and am/pm', () => {
+    expect(days(parseOpeningHours('11:30-14:00, 17:00-22:00'))[WED]).toEqual(open(r('11:30', '14:00'), r('17:00', '22:00')))
+    expect(days(parseOpeningHours('10am-8pm'))[WED]).toEqual(open(r('10:00', '20:00')))
+  })
+
+  test('weekday hours in English: ranges of days, weekdays/weekends, hours before or after the days', () => {
+    let h = days(parseOpeningHours('Mon–Fri 10:00–20:00, Sat–Sun 11:00–18:00'))
+    expect(h[MON]).toEqual(open(r('10:00', '20:00'))); expect(h[FRI]).toEqual(open(r('10:00', '20:00')))
+    expect(h[SAT]).toEqual(open(r('11:00', '18:00'))); expect(h[SUN]).toEqual(open(r('11:00', '18:00')))
+    h = days(parseOpeningHours('Weekdays 10:00-20:00 / Weekends 11:00-19:00'))
+    expect(h[TUE]).toEqual(open(r('10:00', '20:00'))); expect(h[SUN]).toEqual(open(r('11:00', '19:00')))
+    h = days(parseOpeningHours('10:00–20:00 weekdays, 11:00–18:00 weekends'))
+    expect(h[THU]).toEqual(open(r('10:00', '20:00'))); expect(h[SAT]).toEqual(open(r('11:00', '18:00')))
+    h = days(parseOpeningHours('Fri-Mon 12:00-20:00'))
+    expect(h[SAT]).toEqual(open(r('12:00', '20:00'))); expect(h[MON]).toEqual(open(r('12:00', '20:00'))); expect(h[TUE]).toBeNull()
+    h = days(parseOpeningHours('Mon-Sat 10:00-20:00, Sun & holidays 10:00-19:00'))
+    expect(h[SUN]).toEqual(open(r('10:00', '19:00')))
+  })
+
+  test('weekday hours in Japanese: 平日, 土日祝, 月〜金, 日曜', () => {
+    let h = days(parseOpeningHours('平日 11:00〜20:00 土日祝 10:00〜20:00'))
+    expect(h[WED]).toEqual(open(r('11:00', '20:00'))); expect(h[SAT]).toEqual(open(r('10:00', '20:00'))); expect(h[SUN]).toEqual(open(r('10:00', '20:00')))
+    h = days(parseOpeningHours('月〜金 10:00〜19:00 土 10:00〜17:00 日曜定休'))
+    expect(h[MON]).toEqual(open(r('10:00', '19:00'))); expect(h[SAT]).toEqual(open(r('10:00', '17:00'))); expect(h[SUN]).toEqual(CLOSED)
+    h = days(parseOpeningHours('土日 11:00-19:00'))
+    expect(h[SUN]).toEqual(open(r('11:00', '19:00'))); expect(h[MON]).toBeNull()
+  })
+
+  test('weekday hours and closed days in Norwegian; Døgnåpent', () => {
+    const h = days(parseOpeningHours('man–fre 10:00–20:00, lør 10:00–18:00, søn stengt'))
+    expect(h[MON]).toEqual(open(r('10:00', '20:00'))); expect(h[FRI]).toEqual(open(r('10:00', '20:00')))
+    expect(h[SAT]).toEqual(open(r('10:00', '18:00'))); expect(h[SUN]).toEqual(CLOSED)
+    expect(days(parseOpeningHours('Døgnåpent'))).toEqual(Array(7).fill(open({ start: 0, end: 1440 })))
+    const s = days(parseOpeningHours('10:00–20:00, stengt mandag'))
+    expect(s[MON]).toEqual(CLOSED); expect(s[TUE]).toEqual(open(r('10:00', '20:00')))
+    expect(days(parseOpeningHours('Hverdager 10:00-18:00, helg 11:00-16:00'))[SAT]).toEqual(open(r('11:00', '16:00')))
+  })
+
+  test('closed days: "closed Tue", "Tue closed", 定休日 火曜, 火曜定休, plurals, and hours after them', () => {
+    for (const text of ['10:00–20:00, closed Tue', '10:00–20:00 (Tue closed)', '10:00〜20:00 定休日 火曜', '10:00〜20:00 火曜定休', '10:00～20:00（定休日：火曜日）', '10:00-20:00, closed on Tuesdays']) {
+      const h = days(parseOpeningHours(text))
+      expect(h[TUE], text).toEqual(CLOSED)
+      expect(h[WED], text).toEqual(open(r('10:00', '20:00')))
+    }
+    const h = days(parseOpeningHours('11:00-20:00, closed Tue, Sat 10:00-18:00'))
+    expect(h[TUE]).toEqual(CLOSED); expect(h[SAT]).toEqual(open(r('10:00', '18:00'))); expect(h[MON]).toEqual(open(r('11:00', '20:00')))
+  })
+
+  test('irregular holidays: closed days unknown; 24時間営業; unparsed text', () => {
+    const irr = parseOpeningHours('11:00–20:00 (irregular holidays)')!
+    expect(irr.irregular).toBe(true)
+    expect(irr.days).toEqual(Array(7).fill(open(r('11:00', '20:00'))))
+    expect(parseOpeningHours('10:00〜20:00 不定休')!.irregular).toBe(true)
+    expect(days(parseOpeningHours('24時間営業'))[WED]).toEqual(open({ start: 0, end: 1440 }))
+    for (const text of ['By appointment only', 'Check the website', 'Varies']) {
+      expect(parseOpeningHours(text)!.unparsed, text).toBe(true)
+      expect(hoursUnderstood(text), text).toBe(false)
+    }
+    expect(parseOpeningHours('')).toBeNull()
+    expect(hoursUnderstood('closed Tue')).toBe(true)
+    expect(hoursUnderstood('10:00 - 21:00')).toBe(true)
+    // A floor number or a date is not a time range.
+    expect(parseOpeningHours('1-3F, see website')!.unparsed).toBe(true)
+  })
+
+  test('ranges past midnight', () => {
+    expect(days(parseOpeningHours('18:00-02:00'))[FRI]).toEqual(open({ start: t('18:00'), end: t('02:00') + 1440 }))
+    expect(days(parseOpeningHours('17:00～翌5:00'))[FRI]).toEqual(open({ start: t('17:00'), end: t('05:00') + 1440 }))
+    // Ending after 06:00 the next morning: a typo ("10:00 - 8:30" for 20:30), not understood.
+    expect(parseOpeningHours('10:00 - 8:30')!.unparsed).toBe(true)
+  })
+})
+
+test.describe('opening hours: a visit on a given weekday', () => {
+  // 1 December 2026 is a Tuesday; 5 December a Saturday; 6 December a Sunday.
+  test('the real examples: after closing, closing during the visit, after midnight', () => {
+    expect(warn('11:00–20:00', '2026-12-01', '22:13', '22:43')).toBe('Closes 20:00 (you arrive 22:13)') // Kamikaze Style
+    expect(warn('10:00–22:00', '2026-12-01', '21:28', '22:08')).toBe('Closes 22:00 (you leave 22:08)') // BicCamera AKIBA
+    expect(warn('10:00–22:00', '2026-12-02', '00:12', '00:42')).toBe('Closes 22:00 (you arrive 00:12)') // DAISO after midnight
+    expect(warn('10:00–23:30', '2026-12-02', '01:58', '02:58')).toBe('Closes 23:30 (you arrive 01:58)') // Takadanobaba Mikado
+  })
+
+  test('before opening, closed that weekday, weekend hours, fine', () => {
+    expect(warn('11:00–20:00', '2026-12-01', '09:00', '09:30')).toBe('Opens 11:00 (you arrive 09:00)')
+    expect(warn('10:00–20:00, closed Tue', '2026-12-01', '12:00', '13:00')).toBe('Closed on Tuesday')
+    expect(warn('10:00–20:00, closed Tue', '2026-12-02', '12:00', '13:00')).toBeNull()
+    expect(warn('11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00', '2026-12-05', '10:15', '11:00')).toBeNull() // Saturday: open at 10
+    expect(warn('11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00', '2026-12-04', '10:15', '11:00')).toBe('Opens 11:00 (you arrive 10:15)') // Friday
+    expect(warn('11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00', '2026-12-06', '21:30', '22:30')).toBe('Closes 22:00 (you leave 22:30)') // Sunday
+    expect(warn('Open 24 hours', '2026-12-01', '03:00', '04:00')).toBeNull()
+    expect(warn('18:00-02:00', '2026-12-04', '01:00', '01:45')).toBeNull() // still open past midnight
+    expect(warn('18:00-02:00', '2026-12-04', '01:30', '02:30')).toBe('Closes 02:00 (you leave 02:30)')
+    expect(warn('11:30-14:00, 17:00-22:00', '2026-12-01', '15:00', '16:00')).toBe('Opens 17:00 (you arrive 15:00)')
+    expect(warn('11:30-14:00, 17:00-22:00', '2026-12-01', '13:30', '14:30')).toBe('Closes 14:00 (you leave 14:30)')
+  })
+
+  test('unknown and unparsed: no warning, only the "Hours not understood" note', () => {
+    expect(checkHours('', 2, 600, 660)).toEqual({ kind: 'none' })
+    expect(visitWarning(checkHours('By appointment only', 2, 600, 660))).toEqual({ badge: 'Hours not understood', message: 'Hours not understood', note: true })
+    expect(checkHours('Sat 10:00-18:00', 2, 600, 660)).toEqual({ kind: 'unknown' }) // nothing for Tuesday
+    expect(checkHours('11:00–20:00 (irregular holidays)', 2, 720, 780)).toEqual({ kind: 'ok' })
+    // Without a date only hours that are the same every day count.
+    expect(checkVisit(parseOpeningHours('11:00-20:00'), null, 540, 570)).toMatchObject({ kind: 'before-open' })
+    expect(checkVisit(parseOpeningHours('Mon-Fri 11:00-20:00'), null, 540, 570)).toEqual({ kind: 'unknown' })
+  })
+
+  test('what Suggest route counts as closed on arrival', () => {
+    expect(closedOnArrival(checkHours('11:00-20:00', 2, 540, 570))).toBe(true) // before opening
+    expect(closedOnArrival(checkHours('11:00-20:00', 2, 1300, 1330))).toBe(true) // after closing
+    expect(closedOnArrival(checkHours('11:00-20:00, closed Tue', 2, 720, 780))).toBe(true) // closed that day
+    expect(closedOnArrival(checkHours('10:00-22:00', 2, 1288, 1328))).toBe(false) // only closes during the visit
+  })
+})

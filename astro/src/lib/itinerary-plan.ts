@@ -7,7 +7,8 @@
 // `window.__routeOptimizer` (see itinerary-list.astro).
 
 import { scheduleDay, type DaySchedule, type ScheduleStopInput } from './itinerary-schedule'
-import { extractNoteTravelMinutes, parseOpeningHours, looksClosed, type RoutePoint } from './route-optimizer'
+import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
+import { parseOpeningHours, looksClosed } from './opening-hours'
 
 export { parseOpeningHours, looksClosed }
 

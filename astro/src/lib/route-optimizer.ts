@@ -5,10 +5,9 @@
 // import it directly, so a tiny separate `<script type="module">` in that file imports
 // this and exposes it as `window.__routeOptimizer` for the inline script to call.
 //
-// Opening-hours parsing below is a deliberate, hand-kept-in-sync duplicate of
-// itinerary-list.astro's own parseOpeningHours/looksClosed (same reason shop-info.ts and
-// itinerary-review.ts each keep their own copy too) — see that file's comment for the
-// exact format rules this must match.
+// Opening hours come from lib/opening-hours.ts, the one parser every page uses.
+
+import { checkHours, closedOnArrival } from './opening-hours'
 
 export type RoutePoint = { lat: number | null; lng: number | null }
 
@@ -36,30 +35,6 @@ export type OptimizeResult = {
   current: RouteSchedule
   usedFirstStopAsStart: boolean
   improved: boolean // true if the suggested order scores strictly better than the current one
-}
-
-// ---- Opening hours (see itinerary-list.astro's parseOpeningHours for the authoritative copy) ----
-
-export function parseOpeningHours(text: string | null | undefined): { start: number; end: number } | null {
-  const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(String(text || ''))
-  if (!m) return null
-  const h1 = +m[1], min1 = +m[2], h2 = +m[3], min2 = +m[4]
-  if (h1 > 23 || h2 > 23 || min1 > 59 || min2 > 59) return null
-  const start = h1 * 60 + min1
-  let end = h2 * 60 + min2
-  if (end < start) {
-    if (end < 360) end += 1440
-    else return null
-  }
-  return { start, end }
-}
-
-export function looksClosed(hoursText: string | null | undefined, plannedMinutes: number): boolean {
-  const range = parseOpeningHours(hoursText)
-  if (!range) return false
-  const p = ((Math.round(plannedMinutes) % 1440) + 1440) % 1440
-  const isOpen = range.end > 1440 ? p >= range.start || p <= range.end - 1440 : p >= range.start && p <= range.end
-  return !isOpen
 }
 
 // ---- Travel time estimate ----
@@ -127,7 +102,7 @@ const CLOSED_PENALTY_MIN = 500
 // stop's own arrival is asserted (the clock jumps to it, no travel added to the total —
 // "stays at its time" per the feature's own rule); the stop AFTER it still travels
 // normally from its location.
-function computeSchedule(order: OptimizerStop[], startTime: number, start: RoutePoint): RouteSchedule {
+function computeSchedule(order: OptimizerStop[], startTime: number, start: RoutePoint, weekday: number | null = null): RouteSchedule {
   let clock = startTime
   let prevPoint: RoutePoint = start
   let travelMin = 0
@@ -144,9 +119,11 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       clock += travel
       travelMin += travel
     }
-    const range = parseOpeningHours(stop.openingHours)
-    if (range && clock < range.start) waitMin += range.start - clock
-    if (looksClosed(stop.openingHours, clock)) closedCount++
+    // Closed when you get there (closed that weekday, not open yet, or closed already): the
+    // large penalty. Not open yet also counts the wait (lib/opening-hours.ts).
+    const hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin)
+    if (hours.kind === 'before-open') waitMin += hours.opens - clock
+    if (closedOnArrival(hours)) closedCount++
     times.push(clock)
     clock += stop.durationMin
     prevPoint = { lat: stop.lat, lng: stop.lng }
@@ -173,7 +150,7 @@ const BRUTE_FORCE_LIMIT = 8
 // BRUTE_FORCE_LIMIT movable stops, every ordering is tried; beyond that, a nearest-
 // neighbour construction followed by 2-opt improvement is used instead, since the full
 // permutation space becomes impractically large.
-function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlotsOrder: number[], startTime: number, start: RoutePoint): number[] {
+function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlotsOrder: number[], startTime: number, start: RoutePoint, weekday: number | null): number[] {
   if (movableIdx.length === 0) return []
 
   function assembleFullOrder(movablePermutation: number[]): number[] {
@@ -187,7 +164,7 @@ function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlo
   }
   function scoreOf(movablePermutation: number[]): number {
     const full = assembleFullOrder(movablePermutation)
-    return computeSchedule(full.map((i) => stops[i]), startTime, start).score
+    return computeSchedule(full.map((i) => stops[i]), startTime, start, weekday).score
   }
 
   if (movableIdx.length <= BRUTE_FORCE_LIMIT) {
@@ -242,13 +219,15 @@ function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlo
 // `start` is the day's configured start location (e.g. the hotel/base); if it has no
 // coordinates, the first stop's own location is used instead and `usedFirstStopAsStart`
 // is set so the caller can say so.
-export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: RoutePoint | null): OptimizeResult {
+// `weekday`: the day's (0 = Sunday, lib/trip-dates.ts weekdayIndex), so closed days and weekday
+// hours count; null when the day has no date.
+export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: RoutePoint | null, weekday: number | null = null): OptimizeResult {
   const currentOrder = stops.map((_, i) => i)
   const hasStart = !!start && start.lat != null && start.lng != null
   const usedFirstStopAsStart = !hasStart && stops.length > 0
   const effectiveStart: RoutePoint = hasStart ? (start as RoutePoint) : stops.length > 0 ? { lat: stops[0].lat, lng: stops[0].lng } : { lat: null, lng: null }
 
-  const current = computeSchedule(stops, startTime, effectiveStart)
+  const current = computeSchedule(stops, startTime, effectiveStart, weekday)
 
   if (stops.length === 0) {
     return { order: [], currentOrder, suggested: current, current, usedFirstStopAsStart, improved: false }
@@ -256,7 +235,7 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
 
   const fixedIdx = currentOrder.filter((i) => stops[i].fixedTime != null)
   const movableIdx = currentOrder.filter((i) => stops[i].fixedTime == null)
-  const bestMovable = bestMovableOrder(stops, movableIdx, fixedIdx, startTime, effectiveStart)
+  const bestMovable = bestMovableOrder(stops, movableIdx, fixedIdx, startTime, effectiveStart, weekday)
 
   const order: number[] = new Array(stops.length)
   fixedIdx.forEach((i) => { order[i] = i })
@@ -265,7 +244,7 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
     if (order[pos] === undefined) order[pos] = bestMovable[m++]
   }
 
-  const suggested = computeSchedule(order.map((i) => stops[i]), startTime, effectiveStart)
+  const suggested = computeSchedule(order.map((i) => stops[i]), startTime, effectiveStart, weekday)
 
   return {
     order,

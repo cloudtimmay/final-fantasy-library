@@ -14,7 +14,6 @@ Kodebiter/identifikatorer er gjengitt på engelsk (som i kilden); løpende tekst
 
 ### Middels
 
-- **Åpningstid-parseren finnes i fire kopier som må holdes i sync for hånd** — se [Sporede saker](#sporede-saker-detaljer).
 - **`PEOPLE_LIST` må oppdateres for hånd sammen med `sanity/schemaTypes/peopleList.ts`** — fast synkroniseringsregel, se [Sporede saker](#sporede-saker-detaljer).
 - **Planlagt beløp dobbelttelles på `/spending`** når en planlagt `familyPurchase` og en planlagt `priceEntry` gjelder samme vare uten strekkode på begge sider. Bevisst akseptert — se spending-punktet under [Sporede saker](#sporede-saker-detaljer).
 - **Duplikat `checkDuplicate()` og foto-velger i `add.astro` vs. `add-item.astro`** — se 2.9. (Bildeforminskningen er gjort.)
@@ -197,8 +196,6 @@ Opprinnelig listet som punkt 2.5 («gjentatt kode»). Ved gjennomgang av markupe
   - **Bevisst utelatt (Lav):** forsidens nedtelling (`index.astro`) bruker fortsatt hardkodede JS-datoer (med klokkeslett for avgang/hjemreise) — `tripSettings.startDate`/`endDate` er kun dato, uten klokkeslett, så en fullverdig migrering krever enten å akseptere grovere presisjon eller å legge til egne tidspunkt-felt.
   - **Bevisst akseptert (Middels):** planlagt-beløpet dobbelttelles fortsatt i ett konkret, smalt tilfelle: en planlagt `familyPurchase` og en planlagt `priceEntry` for samme vare telles kun én gang HVIS de har identisk strekkode/JAN — uten strekkode på begge sider kan de ikke matches, og telles da på begge sider (se commit-melding for «Per-person spending cards»).
 
-- **Åpningstid-parseren (`parseOpeningHours`/`looksClosed`) er duplisert fire steder, og må holdes i sync for hånd (Middels).** Den finnes i `astro/src/pages/itinerary.astro` (den opprinnelige, autoritative kopien — brukes der til å vise «stengt?»-varsel per stopp), `astro/src/pages/api/shop-info.ts` (`parseOpeningHoursRange`, validerer AI-forslag til åpningstid før de godtas), `astro/src/pages/api/itinerary-review.ts` (sender åpningstid videre til AI-modellen, ingen egen parsing-bruk utover det) og `astro/src/lib/route-optimizer.ts` (brukes av «Suggest route»-optimizeren til å beregne venting/stengt-straff). Årsaken til duplikasjonen: itinerary.astro sitt hovedskript er bevisst holdt som `<script is:inline>` (for stort/skjørt til å trygt konverteres til en modul nå) og kan derfor ikke importere fra `src/lib`, så hver fil som trengte parsingen fikk sin egen kopi i stedet — samme mønster som `PEOPLE_LIST`-punktet over, bare med fire kopier i stedet for to.
-  - **Anbefalt fiks (etter turen):** flytt parseren til én delt modul i `src/lib` (f.eks. `src/lib/opening-hours.ts`), og la `itinerary.astro` sitt inline-skript få tilgang til den på samme måte som `window.__routeOptimizer` allerede gjør i dag — et lite, separat `<script>` (ikke `is:inline`, og uten eksplisitt `type="module"`, som viste seg å få Astro til å hoppe over sin egen import-bundling) som importerer funksjonen og henger den på `window`. De tre andre filene (`shop-info.ts`, `itinerary-review.ts`, `route-optimizer.ts`) kan da importere direkte fra den samme modulen som vanlig, siden de allerede er ordinære moduler uten `is:inline`-begrensningen.
 
 ---
 

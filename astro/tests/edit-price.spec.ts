@@ -581,3 +581,51 @@ test.describe('edit-price: "Add to" for the owner\'s purchases', () => {
     expect(after.createdItemType).toBe('familyItem')
   })
 })
+
+test.describe('edit-price opened from the timeline: Save and Delete go back to the same day', () => {
+  async function setup(sanity: any, trackDoc: (id: string) => void) {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Back Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    const entry = await sanity.create({
+      _type: 'priceEntry', productName: testName(`Back To Timeline ${Date.now()}`), jan: uniqueJan(), price: 1000, currency: 'JPY',
+      sourceType: 'online', sourceName: 'Example', condition: 'new', status: 'considering', seenAt: new Date().toISOString(),
+    })
+    trackDoc(entry._id)
+    return { trip, entry }
+  }
+  // The timeline autosaves the plan — never into the shared dataset from a test.
+  const mockPlanSave = (page: any) => page.route('**/api/itinerary-save', (route: any) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+
+  test('Save returns to that day on the timeline', async ({ page, sanity, trackDoc }) => {
+    const { trip, entry } = await setup(sanity, trackDoc)
+    await mockPlanSave(page)
+    await page.goto(`/edit-price?id=${entry._id}&from=timeline&day=2026-12-06&trip=${trip._id}`)
+    await page.locator('#p-note').fill('Saved from the timeline')
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(`/itinerary?day=2026-12-06&trip=${trip._id}`)
+    await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
+    expect(await sanity.fetch(`*[_id == $id][0].note`, { id: entry._id })).toBe('Saved from the timeline')
+  })
+
+  test('Delete returns to that day on the timeline', async ({ page, sanity, trackDoc }) => {
+    const { trip, entry } = await setup(sanity, trackDoc)
+    await mockPlanSave(page)
+    await page.goto(`/edit-price?id=${entry._id}&from=timeline&day=2026-12-06&trip=${trip._id}`)
+    page.once('dialog', (d) => d.accept())
+    await page.locator('#p-delete').click()
+    await expect(page).toHaveURL(`/itinerary?day=2026-12-06&trip=${trip._id}`)
+    await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
+    expect(await sanity.fetch(`*[_id == $id][0]._id`, { id: entry._id })).toBeNull()
+  })
+
+  test('opened from anywhere else, Save and Delete still go to /prices', async ({ page, sanity, trackDoc }) => {
+    const { entry } = await setup(sanity, trackDoc)
+    await page.goto(`/edit-price?id=${entry._id}&day=2026-12-06`) // no from=timeline
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices\?open=/)
+    await page.goto(`/edit-price?id=${entry._id}`)
+    page.once('dialog', (d) => d.accept())
+    await page.locator('#p-delete').click()
+    await expect(page).toHaveURL(/\/prices$/)
+  })
+})

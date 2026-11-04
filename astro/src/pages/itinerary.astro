@@ -290,7 +290,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       dayEl.replaceChildren()
       if (!day) return
       renderDayBar(day)
-      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const { sched, inputs, baseStart } = computeDayTimes(day, base, shopById)
       const range = timelineRange(sched)
       const px = ZOOM_LEVELS[zoomIndex]
       zoomOut.disabled = zoomIndex === 0
@@ -315,9 +315,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const layout = layoutTimeline(sched, range, px)
       layout.travel.forEach((tr) => {
         const el = document.createElement('div')
-        el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '')
-        el.setAttribute('role', 'button')
-        el.title = 'Travel time'
+        el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '') + (tr.back ? ' itl-travel-back' : '')
+        // The trip back to the base is an estimate, as on the list — not editable.
+        if (!tr.back) el.setAttribute('role', 'button')
+        el.title = tr.back ? 'Travel back to the base' : 'Travel time'
         el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
         el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
         el.dataset.index = String(tr.index)
@@ -384,6 +385,25 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}`
         grid.appendChild(el)
       })
+
+      // The base: where the day starts and ends — the same base and travel as the list
+      // (itinerary-schedule.ts: the first leg from the base, returnLeg back to it).
+      const flightLatest = flight && flight.date === day.day ? latestEndForFlight(flight) : null
+      if (day.stops.length) {
+        const startEl = document.createElement('div')
+        startEl.className = 'itl-base itl-base-start'
+        startEl.style.top = `${offsetFor(baseStart, range, px)}px`
+        startEl.textContent = `🏠 Start: base · ${formatClock(baseStart)}`
+        grid.appendChild(startEl)
+        const endEl = document.createElement('div')
+        // On the flight day, back at the base after the time to leave for the airport is a problem.
+        const late = flightLatest != null && sched.end > flightLatest
+        endEl.className = 'itl-base itl-base-end' + (late ? ' itl-base-late' : '')
+        endEl.style.top = `${offsetFor(sched.end, range, px)}px`
+        endEl.dataset.minutes = String(sched.end)
+        endEl.textContent = `🏠 Back at base ~${formatClock(sched.end)}` + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
+        grid.appendChild(endEl)
+      }
 
       // The flight home: the latest the day's last stop can end (lib/itinerary-review-helpers.ts).
       if (flight && flight.date === day.day) {
@@ -552,7 +572,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     dayEl.addEventListener('click', (e) => {
       const travel = (e.target as HTMLElement).closest('.itl-travel') as HTMLElement | null
-      if (travel) openTravelEditor(Number(travel.dataset.index))
+      if (travel && !travel.classList.contains('itl-travel-back')) openTravelEditor(Number(travel.dataset.index))
     })
 
     // --- Tap a block: the edit sheet ---------------------------------------------------------
@@ -963,6 +983,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-travel.itl-travel-chip {
       background: var(--surface); border: 1px solid var(--border); border-radius: 999px; line-height: 1;
     }
+    /* The base at the day's start and end: a label on a thin line, the start's above it, the end's below. */
+    .itl-base { position: absolute; left: 0; right: var(--itl-lane); border-top: 1px solid var(--muted); font-size: 0.72rem; font-weight: 600; color: var(--muted); padding-left: 0.4rem; pointer-events: none; z-index: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .itl-base-start { transform: translateY(-100%); border-top: none; border-bottom: 1px solid var(--muted); }
+    .itl-base-late { color: #e74c3c; border-color: #e74c3c; }
+    .itl-travel.itl-travel-back { cursor: default; }
     .itl-flight { position: absolute; left: 0; right: 0; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
     .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
     .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }

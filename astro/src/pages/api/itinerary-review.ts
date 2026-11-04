@@ -110,10 +110,12 @@ export const POST: APIRoute = async ({ request }) => {
 
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
-  const flightWarning = flight ? flightDeadlineWarning(stops, flight) : null
+  // … from when you're back at the base (the trip from the last stop included).
+  const flightWarning = flight ? flightDeadlineWarning(stops, flight, daySchedule ? daySchedule.end : null) : null
   const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length)
 
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [])
+  const backAtBase = daySchedule && daySchedule.returnLeg ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)

@@ -1323,3 +1323,67 @@ test.describe('/itinerary on a phone: opening hours on the day\'s weekday', () =
     await expect(card.locator('.hours-note')).toHaveText(['Hours not understood'])
   })
 })
+
+test.describe('/itinerary on a phone: the base at the start and end of the day', () => {
+  const BASE_POINT = { lat: 35.697999, lng: 139.770830 } // lib/itinerary-page-data.ts BASE
+  const YOKO = { lat: 35.464556, lng: 139.624649 }
+
+  test('"🏠 Start: base" at the start time, the trip to the first stop, the trip back and "🏠 Back at base" — the same as the list', async ({ page, sanity, trackDoc }) => {
+    const { trip } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Far Shop', hours: '', tag: '', slot: '', ...YOKO, dur: 60 },
+    ], {}, '10:00')
+    const toFirst = estimateLeg(BASE_POINT, YOKO)!.minutes
+    const back = estimateLeg(YOKO, BASE_POINT)!.minutes
+    const end = t('10:00') + toFirst + 60 + back
+    const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+
+    const grid = page.locator('.itl-grid')
+    const start = Number(await grid.getAttribute('data-start'))
+    const startLabel = page.locator('.itl-base-start')
+    await expect(startLabel).toHaveText('🏠 Start: base · 10:00')
+    await expect(startLabel).toHaveCSS('top', `${Math.round((t('10:00') - start) * PX_PER_MIN)}px`)
+    await expect(page.locator('.itl-travel:not(.itl-travel-back)')).toHaveText([`🚆 ${toFirst} min`])
+    const backLeg = page.locator('.itl-travel-back')
+    await expect(backLeg).toHaveText(`🚆 ${back} min`)
+    const endLabel = page.locator('.itl-base-end')
+    await expect(endLabel).toHaveText(`🏠 Back at base ~${hhmm(end)}`)
+    await expect(endLabel).toHaveCSS('top', `${Math.round((end - start) * PX_PER_MIN)}px`)
+    // The trip back isn't editable (an estimate, as on the list).
+    await backLeg.click({ force: true })
+    await expect(page.locator('#itl-travel-editor')).toBeHidden()
+
+    // The list: the same start and the same time back at the base.
+    const stops = await page.evaluate(() => (window as any).__itl.state[0].stops)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((s) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = s; state[0].startTime = '10:00'; render()
+    }, stops)
+    const baseRows = page.locator('.day-card').first().locator('.stop.is-base')
+    await expect(baseRows.first().locator('.stop-time')).toHaveText('10:00')
+    await expect(baseRows.last().locator('.stop-time')).toHaveText(hhmm(end))
+  })
+
+  test('on the flight day, back at the base after the time to leave for the airport is flagged; Check day counts the trip back', async ({ page, sanity, trackDoc }) => {
+    // Flight 23:00 from Narita: leave central Tokyo by 18:30. The last stop ends 18:10 near Yokohama, so you're back much later.
+    await openTimeline(page, sanity, trackDoc, [], { flightHomeTime: '23:00', flightHomeAirport: 'Narita', flightHomeTerminal: 'T1' })
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate((p) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Late Yokohama Shop', hours: '', tag: '', slot: '', ...p, dur: 60, fixedTime: '17:10' }]
+      itl.render()
+    }, YOKO)
+    const endLabel = page.locator('.itl-base-end')
+    await expect(endLabel).toHaveClass(/itl-base-late/)
+    await expect(endLabel).toContainText('⚠️ after 18:30, when you must leave for Narita')
+
+    const { flightDeadlineWarning } = await import('../src/lib/itinerary-review-helpers')
+    const lastStop = { name: 'Late Yokohama Shop', plannedTime: t('17:10'), durationMin: 60, lat: YOKO.lat, lng: YOKO.lng }
+    const backAt = t('18:10') + estimateLeg(YOKO, BASE_POINT)!.minutes
+    const flight = { time: '23:00', airport: 'Narita', terminal: 'T1' }
+    expect(flightDeadlineWarning([lastStop], flight)).toBeNull() // the stop alone ends 18:10 — fine
+    expect(flightDeadlineWarning([lastStop], flight, backAt)!.message).toContain('The day ends back at the base at')
+  })
+})

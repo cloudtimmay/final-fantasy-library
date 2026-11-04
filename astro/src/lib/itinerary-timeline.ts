@@ -18,13 +18,16 @@ export const MIN_BLOCK_PX = 30
 export type TimelineRange = { start: number; end: number }
 
 // 08:00–23:00, widened to whole hours when a trip or a visit falls outside.
+// Room for the "🏠 Start: base" and "🏠 Back at base" labels above and below the day.
+export const BASE_LABEL_MIN = 20
 export function timelineRange(sched: DaySchedule): TimelineRange {
   let start = AXIS_START_MIN
   let end = AXIS_END_MIN
-  sched.stops.forEach((x) => {
-    start = Math.min(start, x.arrival - x.travelIn.minutes, x.start)
+  sched.stops.forEach((x, i) => {
+    start = Math.min(start, x.arrival - x.travelIn.minutes - (i === 0 ? BASE_LABEL_MIN : 0), x.start)
     end = Math.max(end, x.end)
   })
+  if (sched.stops.length) end = Math.max(end, sched.end + BASE_LABEL_MIN) // back at the base
   return { start: Math.floor(start / 60) * 60, end: Math.ceil(end / 60) * 60 }
 }
 
@@ -33,7 +36,8 @@ export function offsetFor(minutes: number, range: TimelineRange, px: number = DE
 }
 
 export type TimelineItem =
-  | { kind: 'travel'; index: number; top: number; height: number; minutes: number; mode: 'walk' | 'train' | null }
+  // `back`: the trip from the last stop back to the base (index = the number of stops).
+  | { kind: 'travel'; index: number; top: number; height: number; minutes: number; mode: 'walk' | 'train' | null; back?: boolean }
   | { kind: 'stop'; index: number; top: number; height: number; start: number; end: number; arrival: number }
 
 // One "stop" item per visit (top at its start, height ∝ its duration) and one "travel" item for
@@ -48,6 +52,12 @@ export function timelineItems(sched: DaySchedule, range: TimelineRange, px: numb
     const top = offsetFor(x.start, range, px)
     items.push({ kind: 'stop', index: i, top, height: Math.max(MIN_BLOCK_PX, offsetFor(x.end, range, px) - top), start: x.start, end: x.end, arrival: x.arrival })
   })
+  // And back to the base after the last stop (itinerary-schedule.ts returnLeg, as on the list).
+  const last = sched.stops[sched.stops.length - 1]
+  if (last && sched.returnLeg && sched.returnLeg.minutes > 0) {
+    const top = offsetFor(last.end, range, px)
+    items.push({ kind: 'travel', index: sched.stops.length, top, height: Math.max(4, offsetFor(sched.end, range, px) - top), minutes: sched.returnLeg.minutes, mode: sched.returnLeg.mode, back: true })
+  }
   return items
 }
 

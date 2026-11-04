@@ -94,16 +94,18 @@ export function latestEndForFlight(flight: FlightHome): number {
 
 // A warning when the day's last stop (planned time + duration) ends after latestEndForFlight(),
 // else null — added by /api/itinerary-review itself rather than left to the model.
-export function flightDeadlineWarning(stops: ReviewStopInput[], flight: FlightHome) {
+// `backAtBase`: when the day really ends — back at the base after the trip from the last stop
+// (itinerary-schedule.ts DaySchedule.end); without it, the last stop's end.
+export function flightDeadlineWarning(stops: ReviewStopInput[], flight: FlightHome, backAtBase: number | null = null) {
   const last = stops[stops.length - 1]
   if (!last) return null
-  const end = last.plannedTime + last.durationMin
+  const end = backAtBase ?? last.plannedTime + last.durationMin
   const latest = latestEndForFlight(flight)
   if (end <= latest) return null
   return {
     severity: 'warning',
     stopIndex: stops.length - 1,
-    message: `The day ends at ${formatClock(end)}, but for the ${flight.time} flight from ${flight.airport} you should leave central Tokyo by ${formatClock(latest)} (at the airport 3 hours before, about ${AIRPORTS[flight.airport].minutesFromTokyo} min to get there).`,
+    message: `The day ends ${backAtBase != null ? 'back at the base ' : ''}at ${formatClock(end)}, but for the ${flight.time} flight from ${flight.airport} you should leave central Tokyo by ${formatClock(latest)} (at the airport 3 hours before, about ${AIRPORTS[flight.airport].minutesFromTokyo} min to get there).`,
     suggestion: `End the last stop by ${formatClock(latest)}.`,
   }
 }
@@ -163,7 +165,7 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
 
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be
 // imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
-export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = []): string {
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = [], backAtBase: { end: number; minutes: number } | null = null): string {
   const transitions = computeTransitions(stops)
   const lines: string[] = []
   lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
@@ -201,6 +203,7 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
     if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
     if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
   })
+  if (backAtBase) lines.push(`Back at the base: ~${formatClock(backAtBase.end)} (${backAtBase.minutes} min from the last stop).`)
   return lines.join('\n')
 }
 

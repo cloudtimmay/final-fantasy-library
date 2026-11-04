@@ -10,7 +10,9 @@ export const foundPricesQuery = (filter: string) => `
   *[_type == "priceEntry" && !(_id in path("drafts.**")) && ${filter}] {
     _id, productName, jan, price, currency, status, seenAt, _createdAt,
     "shopId": shop._ref,
-    "imageUrl": image.asset->url
+    "imageUrl": image.asset->url,
+    category, sourceType, sourceName, url, taxIncluded, extraCost, condition, note, buyer,
+    "tripId": trip._ref, "createdItemType": createdItem->_type
   }`
 
 // The family purchases from a store, without those made from a price entry.
@@ -33,6 +35,19 @@ export type FoundPriceDoc = {
   _createdAt?: string | null
   shopId?: string | null
   imageUrl?: string | null
+  // The rest of the entry, for the timeline's "✅ Bought" (/api/price-entry-update replaces
+  // every field, so it sends them all).
+  category?: string | null
+  sourceType?: string | null
+  sourceName?: string | null
+  url?: string | null
+  taxIncluded?: boolean | null
+  extraCost?: number | null
+  condition?: string | null
+  note?: string | null
+  buyer?: string | null
+  tripId?: string | null
+  createdItemType?: string | null
 }
 
 export type FoundPurchaseDoc = {
@@ -60,6 +75,24 @@ export type FoundItem = {
   date: string // ISO date or date-time ('' if none)
   href: string | null // a price opens /edit-price; a family purchase has no page of its own
   productKey: string // the same product grouping as /prices (price-products.ts productKey)
+  entry?: FoundPriceEntry // a price entry's own fields (for "✅ Bought" on the timeline)
+}
+
+export type FoundPriceEntry = {
+  price: number | null
+  currency: string | null
+  category: string | null
+  sourceType: string | null
+  shopId: string | null
+  sourceName: string | null
+  url: string | null
+  taxIncluded: boolean | null
+  extraCost: number | null
+  condition: string | null
+  note: string | null
+  buyer: string | null
+  tripId: string | null
+  createdItemType: string | null
 }
 
 // Newest first: a price by when it was seen, a purchase by its date (both fall back to when
@@ -80,6 +113,22 @@ export function foundItems(prices: FoundPriceDoc[], purchases: FoundPurchaseDoc[
       date: p.seenAt || p._createdAt || '',
       href: `/edit-price?id=${encodeURIComponent(p._id)}`,
       productKey: productKey(p.jan, name),
+      entry: {
+        price: typeof p.price === 'number' ? p.price : null,
+        currency: p.currency ?? null,
+        category: p.category ?? null,
+        sourceType: p.sourceType ?? null,
+        shopId: p.shopId ?? null,
+        sourceName: p.sourceName ?? null,
+        url: p.url ?? null,
+        taxIncluded: p.taxIncluded ?? null,
+        extraCost: typeof p.extraCost === 'number' ? p.extraCost : null,
+        condition: p.condition ?? null,
+        note: p.note ?? null,
+        buyer: p.buyer ?? null,
+        tripId: p.tripId ?? null,
+        createdItemType: p.createdItemType ?? null,
+      },
     })
   }
   for (const f of purchases) {

@@ -86,3 +86,9 @@
 .found-price { color: var(--text); }
 .found-status { font-weight: 600; color: var(--accent); }
 .found-status.found-bought { color: #2ecc71; }
+.found-link { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.found-buy {
+  margin-top: 0.2rem; align-self: flex-start; font-size: 0.7rem; font-weight: 600; cursor: pointer;
+  background: var(--bg); color: var(--text); border: 1px solid #2ecc71; border-radius: 6px; padding: 0.2rem 0.4rem; min-height: 28px;
+}
+.found-buy:disabled { opacity: 0.5; cursor: default; }

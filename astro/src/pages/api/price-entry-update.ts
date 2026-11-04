@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
 import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
-import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER, PEOPLE_LIST, ADD_TO, defaultAddTo } from '../../lib/price-entry-fields'
+import { SOURCE_TYPES, CURRENCIES, CONDITIONS, STATUSES, OWNER, PEOPLE_LIST, ADD_TO, defaultAddTo, boughtRecordsAmount, BOUGHT_CURRENCY_ERROR } from '../../lib/price-entry-fields'
 
 export const prerender = false
 
@@ -94,9 +94,9 @@ export const POST: APIRoute = async ({ request }) => {
   if (status === 'bought') {
     if (!buyer) return json(400, { error: 'Buyer is required to mark as Bought' })
 
-    const willCreateSomething = !!tripId || (buyer === OWNER && addTo === 'collection')
+    const willCreateSomething = boughtRecordsAmount(buyer, tripId, addTo)
     if (willCreateSomething && currency !== 'JPY' && currency !== 'NOK') {
-      return json(400, { error: 'Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.' })
+      return json(400, { error: BOUGHT_CURRENCY_ERROR })
     }
 
     if (tripId) {

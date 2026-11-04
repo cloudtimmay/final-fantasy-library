@@ -2,7 +2,8 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { fetchProducts, fetchShopGroups, fetchTrips, productKey } from '../lib/price-products'
-import { PEOPLE_LIST, OWNER, defaultAddTo } from '../lib/price-entry-fields'
+import { PEOPLE_LIST, OWNER, defaultAddTo, priceEntryFormValues } from '../lib/price-entry-fields'
+import { timelineBackUrl } from '../lib/timeline-back'
 import { cdnImage } from '../lib/image-url'
 
 type EntryDoc = {
@@ -32,6 +33,8 @@ type EntryDoc = {
 }
 
 const id = Astro.url.searchParams.get('id') || ''
+// Opened from the timeline's "Found here" strip: "← Back to timeline" to that day (lib/timeline-back.ts).
+const timelineBack = timelineBackUrl(Astro.url.searchParams)
 
 let entry: EntryDoc | null = null
 if (id) {
@@ -75,12 +78,16 @@ const sourceLabel =
   entry && entry.sourceType === 'japanStore'
     ? entry.shop?.shopName || 'a shop'
     : entry?.sourceName || (entry?.sourceType === 'norway' ? 'Norway' : 'Online')
+// How the form shows the stored source, currency, condition and tax (shared with the timeline's
+// "✅ Bought", which sends the same values).
+const form = priceEntryFormValues(entry || {})
 const initialAddTo = entry?.createdItemInfo
   ? entry.createdItemInfo._type === 'familyItem' ? 'other' : 'collection'
   : defaultAddTo(entry?.category)
 ---
 <Base title="Edit price">
   <div class="add-wrap">
+    {timelineBack && <a id="p-back-timeline" href={timelineBack} class="back-link back-top">← Back to timeline</a>}
     <h1>Edit price</h1>
 
     {notFound || !entry ? (
@@ -159,13 +166,13 @@ const initialAddTo = entry?.createdItemInfo
           <label>Source</label>
           <div class="radio-row">
             <label class="radio-opt">
-              <input type="radio" name="p-source" value="japanStore" checked={entry.sourceType !== 'online' && entry.sourceType !== 'norway'} /> 🇯🇵 Shop in Japan
+              <input type="radio" name="p-source" value="japanStore" checked={form.sourceType === 'japanStore'} /> 🇯🇵 Shop in Japan
             </label>
             <label class="radio-opt">
-              <input type="radio" name="p-source" value="online" checked={entry.sourceType === 'online'} /> 🌐 Online
+              <input type="radio" name="p-source" value="online" checked={form.sourceType === 'online'} /> 🌐 Online
             </label>
             <label class="radio-opt">
-              <input type="radio" name="p-source" value="norway" checked={entry.sourceType === 'norway'} /> 🇳🇴 Norway
+              <input type="radio" name="p-source" value="norway" checked={form.sourceType === 'norway'} /> 🇳🇴 Norway
             </label>
           </div>
         </div>
@@ -205,16 +212,16 @@ const initialAddTo = entry?.createdItemInfo
           <div class="field">
             <label>Currency</label>
             <select id="p-currency">
-              <option value="JPY" selected={entry.currency === 'JPY'}>JPY</option>
-              <option value="NOK" selected={entry.currency === 'NOK'}>NOK</option>
-              <option value="USD" selected={entry.currency === 'USD'}>USD</option>
-              <option value="EUR" selected={entry.currency === 'EUR'}>EUR</option>
+              <option value="JPY" selected={form.currency === 'JPY'}>JPY</option>
+              <option value="NOK" selected={form.currency === 'NOK'}>NOK</option>
+              <option value="USD" selected={form.currency === 'USD'}>USD</option>
+              <option value="EUR" selected={form.currency === 'EUR'}>EUR</option>
             </select>
           </div>
         </div>
 
         <div class="field checkbox-field" data-currency-for="JPY">
-          <label class="checkbox-label"><input id="p-tax" type="checkbox" checked={entry.taxIncluded !== false} /> Price includes consumption tax</label>
+          <label class="checkbox-label"><input id="p-tax" type="checkbox" checked={form.taxIncluded} /> Price includes consumption tax</label>
         </div>
 
         <div class="field">
@@ -225,9 +232,9 @@ const initialAddTo = entry?.createdItemInfo
         <div class="field">
           <label>Condition</label>
           <select id="p-condition">
-            <option value="new" selected={entry.condition !== 'used' && entry.condition !== 'used_complete'}>New</option>
-            <option value="used" selected={entry.condition === 'used'}>Used</option>
-            <option value="used_complete" selected={entry.condition === 'used_complete'}>Used, complete (box/obi)</option>
+            <option value="new" selected={form.condition === 'new'}>New</option>
+            <option value="used" selected={form.condition === 'used'}>Used</option>
+            <option value="used_complete" selected={form.condition === 'used_complete'}>Used, complete (box/obi)</option>
           </select>
         </div>
 
@@ -248,7 +255,9 @@ const initialAddTo = entry?.createdItemInfo
           <button id="p-delete" type="button" class="delete-btn">🗑 Delete this price entry</button>
         </div>
 
-        <a href="/prices" class="back-link">← Back to prices</a>
+        {timelineBack
+          ? <a href={timelineBack} class="back-link">← Back to timeline</a>
+          : <a href="/prices" class="back-link">← Back to prices</a>}
 
         <script
           type="application/json"
@@ -277,6 +286,7 @@ const initialAddTo = entry?.createdItemInfo
 
   <script>
     import { currencyForSource } from '../lib/identify-result'
+    import { boughtPreCheck, priceEntryUpdateBody } from '../lib/price-entry-fields'
 
     const dataEl = document.querySelector('#edit-price-data')
     if (dataEl) {
@@ -433,14 +443,10 @@ const initialAddTo = entry?.createdItemInfo
         const markingBought = statusSel.value === 'bought'
 
         if (markingBought) {
-          if (!buyerSel.value) return showMsg('Please choose who bought it.', false)
-          // Trip is optional — only a familyPurchase (needs a trip) or a collection item
-          // (owner only) actually records an amount, so only those cases need JPY/NOK.
-          // An owner purchase going to "other things" creates a familyItem, which records no amount.
-          const willCreateSomething = !!tripSel.value || (buyerSel.value === DATA.owner && addToSel.value === 'collection')
-          if (willCreateSomething && currencySel.value !== 'JPY' && currencySel.value !== 'NOK') {
-            return showMsg('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.', false)
-          }
+          // Buyer required; JPY/NOK only when an amount will be recorded (lib/price-entry-fields.ts,
+          // shared with the timeline's "✅ Bought").
+          const problem = boughtPreCheck({ buyer: buyerSel.value, tripId: tripSel.value, addTo: addToSel.value, currency: currencySel.value })
+          if (problem) return showMsg(problem, false)
         }
 
         saveBtn.disabled = true
@@ -450,24 +456,24 @@ const initialAddTo = entry?.createdItemInfo
           const res = await fetch('/api/price-entry-update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: JSON.stringify(priceEntryUpdateBody({
               id: DATA.id,
               status: statusSel.value,
-              buyer: buyerSel.value || undefined,
-              addTo: buyerSel.value === DATA.owner ? addToSel.value : undefined,
-              tripId: tripSel.value || undefined,
-              passportHolder: markingBought ? passportSel.value : undefined,
+              buyer: buyerSel.value,
+              addTo: addToSel.value,
+              tripId: tripSel.value,
+              passportHolder: passportSel.value,
               sourceType: source,
-              shopId: source === 'japanStore' ? (shopSel.value || undefined) : undefined,
-              sourceName: source !== 'japanStore' ? (sourceNameInput.value.trim() || undefined) : undefined,
-              url: source !== 'japanStore' ? (urlInput.value.trim() || undefined) : undefined,
+              shopId: shopSel.value,
+              sourceName: sourceNameInput.value,
+              url: urlInput.value,
               price: priceVal,
               currency: currencySel.value,
-              taxIncluded: currencySel.value === 'JPY' ? taxCheckbox.checked : undefined,
-              extraCost: extraInput.value || undefined,
+              taxIncluded: taxCheckbox.checked,
+              extraCost: extraInput.value,
               condition: conditionSel.value,
-              note: noteInput.value.trim() || undefined,
-            }),
+              note: noteInput.value,
+            })),
           })
           const data = await res.json()
           if (!res.ok) {
@@ -529,6 +535,7 @@ const initialAddTo = entry?.createdItemInfo
 
   <style>
     .add-wrap { max-width: 520px; }
+    .back-top { display: inline-block; margin: 0 0 0.25rem; }
     .hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1.5rem; }
     .field { margin-bottom: 1rem; }
     .field-row { display: flex; gap: 1rem; }

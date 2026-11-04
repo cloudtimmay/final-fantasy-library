@@ -1,6 +1,8 @@
 ---
 import Base from '../layouts/Base.astro'
 import { loadItineraryPageData, loadShopFinds } from '../lib/itinerary-page-data'
+import { fetchTrips } from '../lib/price-products'
+import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 import '../styles/itinerary-shared.css'
 import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 
@@ -10,6 +12,10 @@ import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
 // "Found here" per shop, for the edit sheet (the shop page's list).
 const { found, rate: foundRate } = await loadShopFinds()
+// "✅ Bought" in that strip: the same choices as /edit-price — who buys it, and the trips (with
+// who has a budget on each, for public/trip-select.js).
+let priceTrips: Awaited<ReturnType<typeof fetchTrips>> = []
+try { priceTrips = await fetchTrips() } catch (e) { priceTrips = [] }
 // ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
 const requestedDay = Astro.url.searchParams.get('day') || ''
 // ?now=YYYY-MM-DDTHH:MM (Tokyo time) stands in for the clock on this page — to try "I'm here
@@ -106,6 +112,35 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
       <div id="itl-ed-found" hidden></div>
       <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts). -->
+      <!-- "✅ Bought" on a price in the strip: /edit-price's choices with its defaults, then the
+           same /api/price-entry-update bought save (lib/price-entry-fields.ts). -->
+      <div id="itl-bought" class="itl-bought" hidden>
+        <p class="itl-bought-title">Mark <strong id="itl-bought-name"></strong> as bought</p>
+        <div class="itl-sheet-grid">
+          <label>Who buys it
+            <select id="itl-bought-buyer">{PEOPLE_LIST.map((p) => <option value={p}>{p}</option>)}</select>
+          </label>
+          <label>Trip <select id="itl-bought-trip"></select></label>
+          <label id="itl-bought-addto-field">Add to
+            <select id="itl-bought-addto">
+              <option value="collection">Final Fantasy collection</option>
+              <option value="other">Other things I own</option>
+            </select>
+          </label>
+          <label id="itl-bought-passport-field">Paid with passport
+            <select id="itl-bought-passport">
+              {PEOPLE_LIST.map((p) => <option value={p}>{p}</option>)}
+              <option value="none">No passport (not tax-free)</option>
+            </select>
+          </label>
+        </div>
+        <p id="itl-bought-no-trip" class="itl-bought-note" hidden></p>
+        <p id="itl-bought-msg" class="itl-bought-msg" hidden></p>
+        <div class="itl-sheet-row">
+          <button id="itl-bought-confirm" type="button" class="itl-bought-confirm">✅ Confirm bought</button>
+          <button id="itl-bought-cancel" type="button">Cancel</button>
+        </div>
+      </div>
       <a id="itl-ed-gmaps" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">📷 Photos on Google Maps</a>
       <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
         <button id="itl-ed-here" type="button">📍 I'm here now</button>
@@ -139,7 +174,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <div id="itl-day" class="itl-day"></div>
   </div>
 
-  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate })}></script>
+  <script is:inline src="/trip-select.js"></script>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '' })}></script>
 
   <script>
     import {
@@ -156,6 +192,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
+    import { fromTimelineQuery } from '../lib/timeline-back'
+    import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
@@ -519,15 +557,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     let sheetStop: PlanStop | null = null
     const sheetDay = () => currentDayPlan()
     const sheetIdx = () => (sheetStop ? sheetDay().stops.indexOf(sheetStop) : -1)
-    function closeSheet() { detail.hidden = true; sheetStop = null }
+    function closeSheet() { detail.hidden = true; sheetStop = null; (document.querySelector('#itl-bought') as HTMLElement).hidden = true }
     document.querySelector('#itl-detail-close')!.addEventListener('click', closeSheet)
 
-    // The shop's page (/edit-store), with "← Back to timeline" to this day (and trip).
+    // Pages opened from the sheet (the shop's /edit-store, a find's /edit-price) get "← Back to
+    // timeline" to this day and trip (lib/timeline-back.ts).
+    const backQuery = () => fromTimelineQuery(currentDay, new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '').get('trip'))
     function shopPageUrl(shopId: string, hash = '') {
-      const params = new URLSearchParams({ id: shopId, from: 'timeline', day: currentDay })
-      const trip = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '').get('trip')
-      if (trip) params.set('trip', trip)
-      return `/edit-store?${params.toString()}${hash}`
+      return `/edit-store?id=${encodeURIComponent(shopId)}&${backQuery()}${hash}`
     }
     function fillSheet() {
       const day = sheetDay()
@@ -559,7 +596,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       photosEl.hidden = !strip
       ;(document.querySelector('#itl-ed-photos-empty') as HTMLElement).hidden = !shop || !!strip
       if (shop) (document.querySelector('#itl-ed-photos-add') as HTMLAnchorElement).href = shopPageUrl(shop._id, '#shop-photos')
-      const foundStrip = shop ? foundStripHtml(foundByShop[shop._id], foundRate) : ''
+      const foundStrip = shop ? foundStripHtml(foundByShop[shop._id], foundRate, backQuery()) : ''
       const foundEl = document.querySelector('#itl-ed-found') as HTMLElement
       foundEl.innerHTML = foundStrip ? `<p class="itl-strip-title">🔎 Found here</p>${foundStrip}` : ''
       foundEl.hidden = !foundStrip
@@ -591,6 +628,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-detail-edit') as HTMLAnchorElement).href = `/itinerary-list?${params.toString()}`
     }
     function showDetails(idx: number) {
+      ;(document.querySelector('#itl-bought') as HTMLElement).hidden = true
       sheetStop = sheetDay().stops[idx] || null
       if (!sheetStop) return
       ;(document.querySelector('#itl-ed-coord-msg') as HTMLElement).hidden = true
@@ -632,6 +670,95 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     document.querySelector('#itl-ed-coord-fetch')!.addEventListener('click', withStop((s) => { fetchStopCoordsFromShop(s, coordCb()) }))
     ed('here').addEventListener('click', withStop((s, idx, day) => { markNow('here', day, idx); fillSheet() }))
     ed('leave').addEventListener('click', withStop((s, idx, day) => { markNow('leave', day, idx); fillSheet() }))
+    // --- "✅ Bought" on a find in the strip ---------------------------------------------------
+    // /edit-price's defaults: buyer the entry's (else the owner), trip the entry's, else the last
+    // one used (shared with /add-price and /edit-price), else this itinerary's trip — kept only
+    // if the buyer has a budget on it (public/trip-select.js); passport the owner's (Shop in Japan
+    // only); "Add to" from the category (owner only; fixed once something was created). Then
+    // the same checks and /api/price-entry-update bought save as /edit-price, with the entry's
+    // other fields unchanged. On success the find shows ✅ Bought; on an error it stays.
+    const PRICE_TRIPS = DATA.priceTrips || []
+    const LAST_TRIP_KEY = 'ff-last-trip' // the same as /add-price and /edit-price
+    const bought = document.querySelector('#itl-bought') as HTMLElement
+    const bEl = (id: string) => document.querySelector(`#itl-bought-${id}`) as HTMLSelectElement
+    let boughtItem: FoundItem | null = null
+    function boughtMsg(text: string) {
+      const m = document.querySelector('#itl-bought-msg') as HTMLElement
+      m.hidden = !text
+      m.textContent = text
+    }
+    function updateBoughtFields() {
+      ;(document.querySelector('#itl-bought-addto-field') as HTMLElement).hidden = bEl('buyer').value !== OWNER
+      ;(document.querySelector('#itl-bought-passport-field') as HTMLElement).hidden = priceEntryFormValues(boughtItem?.entry || {}).sourceType !== 'japanStore'
+    }
+    function openBought(item: FoundItem) {
+      const e = item.entry!
+      boughtItem = item
+      ;(document.querySelector('#itl-bought-name') as HTMLElement).textContent = item.name
+      bEl('buyer').value = e.buyer || OWNER
+      let lastTrip = ''
+      try { lastTrip = localStorage.getItem(LAST_TRIP_KEY) || '' } catch (err) {}
+      ;(window as any).applyBuyerTripFilter(bEl('trip'), PRICE_TRIPS, bEl('buyer').value, document.querySelector('#itl-bought-no-trip'), e.tripId || lastTrip || DATA.pageTripId || '')
+      bEl('addto').value = e.createdItemType ? (e.createdItemType === 'familyItem' ? 'other' : 'collection') : defaultAddTo(e.category)
+      bEl('addto').disabled = !!e.createdItemType
+      bEl('passport').value = OWNER
+      updateBoughtFields()
+      boughtMsg('')
+      bought.hidden = false
+      bought.scrollIntoView({ block: 'nearest' })
+    }
+    bEl('buyer').addEventListener('change', () => {
+      ;(window as any).applyBuyerTripFilter(bEl('trip'), PRICE_TRIPS, bEl('buyer').value, document.querySelector('#itl-bought-no-trip'))
+      updateBoughtFields()
+    })
+    document.querySelector('#itl-bought-cancel')!.addEventListener('click', () => { bought.hidden = true; boughtItem = null })
+    const confirmBtn = document.querySelector('#itl-bought-confirm') as HTMLButtonElement
+    confirmBtn.addEventListener('click', async () => {
+      const item = boughtItem
+      if (!item || !item.entry) return
+      const e = item.entry
+      const form = priceEntryFormValues(e)
+      const buyer = bEl('buyer').value
+      const tripId = bEl('trip').value
+      const addTo = bEl('addto').value
+      const problem = boughtPreCheck({ buyer, tripId, addTo, currency: form.currency })
+      if (problem) { boughtMsg(problem); return }
+      confirmBtn.disabled = true
+      try {
+        const res = await fetch('/api/price-entry-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(priceEntryUpdateBody({
+            id: item.id, status: 'bought', buyer, addTo, tripId, passportHolder: bEl('passport').value,
+            sourceType: form.sourceType, shopId: e.shopId, sourceName: e.sourceName, url: e.url,
+            price: e.price ?? '', currency: form.currency, taxIncluded: form.taxIncluded,
+            extraCost: e.extraCost, condition: form.condition, note: e.note,
+          })),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) { boughtMsg(data.error || 'Not saved.'); return }
+        try { localStorage.setItem(LAST_TRIP_KEY, tripId) } catch (err) {}
+        // This page's copy of the find, so the strip shows it bought without a reload.
+        item.status = 'bought'
+        e.buyer = buyer
+        e.tripId = tripId || null
+        bought.hidden = true
+        boughtItem = null
+        if (sheetStop) fillSheet()
+      } catch (err) {
+        boughtMsg('Network error — not saved.')
+      } finally {
+        confirmBtn.disabled = false
+      }
+    })
+    detail.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement).closest('.found-buy') as HTMLElement | null
+      if (!btn) return
+      const shopId = sheetStop?.shopId
+      const item = shopId ? (foundByShop[shopId] || []).find((f) => f.id === btn.dataset.id) : undefined
+      if (item && item.kind === 'price' && item.status === 'considering') openBought(item)
+    })
+
     document.querySelector('#itl-ed-delete')!.addEventListener('click', withStop((s, idx, day) => {
       if (!confirm(`Delete "${resolveStop(s, shopById).name}" from ${day.date}?`)) return
       removeStop(day, idx)
@@ -935,6 +1062,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-strip-title { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin: 0.4rem 0 0.1rem; }
     .itl-sheet-empty { font-size: 0.8rem; color: var(--muted); margin: 0.3rem 0; }
     .itl-sheet-empty a { color: var(--accent); }
+    .itl-bought { margin: 0.5rem 0; padding: 0.6rem 0.75rem; border: 1px solid #2ecc71; border-radius: 8px; background: rgba(46,204,113,0.06); }
+    .itl-bought[hidden] { display: none; }
+    .itl-bought-title { margin: 0 0 0.3rem; font-size: 0.85rem; }
+    .itl-bought-note, .itl-bought-msg { font-size: 0.8rem; margin: 0.3rem 0; }
+    .itl-bought-note { color: var(--muted); }
+    .itl-bought-msg { color: #e74c3c; font-weight: 600; }
+    .itl-sheet .itl-bought-confirm { border-color: #2ecc71; font-weight: 600; }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

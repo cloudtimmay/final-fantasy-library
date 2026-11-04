@@ -42,3 +42,77 @@ export function defaultAddTo(category: string | null | undefined): 'collection' 
 export function familyKeyFor(person: string): string {
   return person === OWNER ? OWNER_OTHER : person
 }
+
+// --- Marking a price Bought: /edit-price and the timeline's "Found here" strip --------------
+// The same checks and request on both, against /api/price-entry-update (which repeats the
+// checks on the server).
+
+// An amount is only recorded on a familyPurchase (needs a trip) or on the owner's collection
+// item — an owner purchase going to "other things" makes a familyItem, which has no price — so
+// only then must the price be in JPY or NOK.
+export function boughtRecordsAmount(buyer: string | null | undefined, tripId: string | null | undefined, addTo: string | null | undefined): boolean {
+  return !!tripId || (buyer === OWNER && addTo === 'collection')
+}
+export const BOUGHT_CURRENCY_ERROR = 'Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.'
+
+// The client's checks before a Bought save: the message to show, or null when it can go.
+export function boughtPreCheck(v: { buyer?: string | null; tripId?: string | null; addTo?: string | null; currency?: string | null }): string | null {
+  if (!v.buyer) return 'Please choose who bought it.'
+  if (boughtRecordsAmount(v.buyer, v.tripId, v.addTo) && v.currency !== 'JPY' && v.currency !== 'NOK') return BOUGHT_CURRENCY_ERROR
+  return null
+}
+
+// A stored priceEntry's values as /edit-price's form shows them: a missing source is Shop in
+// Japan, a missing currency JPY, a missing condition New, and tax is included unless it's
+// explicitly not. The timeline's strip sends exactly these, as /edit-price would.
+export function priceEntryFormValues(e: { sourceType?: string | null; currency?: string | null; condition?: string | null; taxIncluded?: boolean | null }) {
+  return {
+    sourceType: e.sourceType === 'online' || e.sourceType === 'norway' ? e.sourceType : 'japanStore',
+    currency: e.currency && CURRENCIES.includes(e.currency) ? e.currency : 'JPY',
+    condition: e.condition === 'used' || e.condition === 'used_complete' ? e.condition : 'new',
+    taxIncluded: e.taxIncluded !== false,
+  }
+}
+
+// The request body for /api/price-entry-update. It replaces every field of the entry (and
+// unsets what's missing), so every current value goes in — from /edit-price's form, or the
+// timeline's copy of the entry. Fields that don't apply are left out the same way on both.
+export type PriceEntryUpdate = {
+  id: string
+  status: string
+  buyer?: string | null
+  addTo?: string | null
+  tripId?: string | null
+  passportHolder?: string | null
+  sourceType: string
+  shopId?: string | null
+  sourceName?: string | null
+  url?: string | null
+  price: string | number
+  currency: string
+  taxIncluded?: boolean
+  extraCost?: string | number | null
+  condition: string
+  note?: string | null
+}
+export function priceEntryUpdateBody(f: PriceEntryUpdate) {
+  const japan = f.sourceType === 'japanStore'
+  return {
+    id: f.id,
+    status: f.status,
+    buyer: f.buyer || undefined,
+    addTo: f.buyer === OWNER ? f.addTo || undefined : undefined,
+    tripId: f.tripId || undefined,
+    passportHolder: f.status === 'bought' ? f.passportHolder || undefined : undefined,
+    sourceType: f.sourceType,
+    shopId: japan ? f.shopId || undefined : undefined,
+    sourceName: !japan ? (f.sourceName || '').trim() || undefined : undefined,
+    url: !japan ? (f.url || '').trim() || undefined : undefined,
+    price: f.price,
+    currency: f.currency,
+    taxIncluded: f.currency === 'JPY' ? f.taxIncluded : undefined,
+    extraCost: f.extraCost === '' || f.extraCost == null ? undefined : f.extraCost,
+    condition: f.condition,
+    note: (f.note || '').trim() || undefined,
+  }
+}

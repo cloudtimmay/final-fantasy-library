@@ -3,23 +3,15 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
 import { googleMapsPlaceUrl } from '../lib/shop-maps'
+import { timelineBackUrl } from '../lib/timeline-back'
 import { foundItems, foundPricesQuery, foundPurchasesQuery, formatFoundDate, FOUND_STATUS_LABELS, type FoundItem } from '../lib/shop-found'
 import { formatPriceNokFirst } from '../lib/price-display'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
 const id = (Astro.url.searchParams.get('id') || '').trim()
 
-// Opened from the timeline's edit sheet (?from=timeline&day=YYYY-MM-DD&trip=<id>): "← Back to
-// timeline" returns to that day (and trip).
-let timelineBack: string | null = null
-if (Astro.url.searchParams.get('from') === 'timeline') {
-  const back = new URLSearchParams()
-  const day = Astro.url.searchParams.get('day') || ''
-  const trip = Astro.url.searchParams.get('trip') || ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) back.set('day', day)
-  if (/^[\w.-]{1,100}$/.test(trip)) back.set('trip', trip)
-  timelineBack = `/itinerary${back.toString() ? `?${back.toString()}` : ''}`
-}
+// Opened from the timeline's edit sheet: "← Back to timeline" to that day (lib/timeline-back.ts).
+const timelineBack = timelineBackUrl(Astro.url.searchParams)
 
 let shop: any = null
 if (id) {

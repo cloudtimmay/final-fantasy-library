@@ -1092,3 +1092,146 @@ test.describe('the itinerary\'s addresses: /itinerary is the timeline, /itinerar
     for (const link of await plan.all()) await expect(link).toHaveClass(/active/)
   })
 })
+
+test.describe('/itinerary: "Found here" — the name opens the price, and "✅ Bought"', () => {
+  const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
+  const BUDGET = { childBudgets: [{ _key: 'kim', person: 'Kim', budgetNok: 5000, budgetYen: 50000 }] }
+  const shopStop = (shopId: string) => ({ name: 'Bought Shop Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId, travelMin: 0, travelFrom: '__base__' })
+  const item = (page: Page, name: string) => page.locator('#itl-ed-found .found-item').filter({ has: page.locator('.found-name', { hasText: name }) })
+  async function shopWith(sanity: any, trackDoc: (id: string) => void, prices: Record<string, unknown>[]) {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Bought Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    const docs = []
+    for (const p of prices) {
+      const d = await sanity.create({
+        _type: 'priceEntry', jan: uniqueJan(), currency: 'JPY', sourceType: 'japanStore', shop: ref(shop._id, true),
+        status: 'considering', seenAt: '2026-11-03T10:00:00Z', category: 'album', condition: 'new', ...p,
+      })
+      trackDoc(d._id)
+      docs.push(d)
+    }
+    return { shop, docs }
+  }
+  const openSheet = async (page: Page, shopName: string) => {
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: shopName }) }).click()
+    await expect(page.locator('#itl-ed-found')).toBeVisible()
+  }
+
+  test('the name opens /edit-price, whose "← Back to timeline" returns to the same day', async ({ page, sanity, trackDoc }) => {
+    const { shop, docs: [price] } = await shopWith(sanity, trackDoc, [{ productName: testName('Linked Find'), price: 1200 }])
+    const { trip } = await openTimeline(page, sanity, trackDoc, [])
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate((s) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl; itl.state[1].stops = [s]; itl.render()
+    }, shopStop(shop._id))
+    await openSheet(page, shop.shopName)
+    const link = item(page, price.productName).locator('a.found-link')
+    await expect(link).toHaveAttribute('href', `/edit-price?id=${price._id}&from=timeline&day=2026-12-06&trip=${trip._id}`)
+    await link.click()
+    await expect(page.getByRole('heading', { name: 'Edit price' })).toBeVisible()
+    const back = page.locator('#p-back-timeline')
+    await expect(back).toHaveText('← Back to timeline')
+    await expect(back).toHaveAttribute('href', `/itinerary?day=2026-12-06&trip=${trip._id}`)
+    await back.click()
+    await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
+  })
+
+  test('the panel\'s defaults, and Confirm marks it bought exactly like /edit-price — the strip updates without a reload', async ({ page, sanity, trackDoc }) => {
+    // Two identical prices: one bought here, the twin on /edit-price; the results must match.
+    const same = { price: 5980, extraCost: 500, condition: 'used', note: 'Signed copy', taxIncluded: true }
+    const { shop, docs: [here, twin] } = await shopWith(sanity, trackDoc, [
+      { productName: testName('Bought Here'), ...same },
+      { productName: testName('Bought Twin'), ...same, seenAt: '2026-11-02T10:00:00Z' },
+    ])
+    const { trip } = await openTimeline(page, sanity, trackDoc, [shopStop(shop._id)], BUDGET, '10:00')
+    await openSheet(page, shop.shopName)
+    await page.evaluate(() => { (window as any).__noReload = true })
+
+    await item(page, here.productName).locator('.found-buy').click()
+    const panel = page.locator('#itl-bought')
+    await expect(panel).toBeVisible()
+    await expect(page.locator('#itl-bought-name')).toHaveText(here.productName)
+    await expect(page.locator('#itl-bought-buyer')).toHaveValue('Kim')
+    await expect(page.locator('#itl-bought-trip')).toHaveValue(trip._id) // this itinerary's trip (no last-used trip yet)
+    await expect(page.locator('#itl-bought-addto')).toHaveValue('collection') // an album
+    await expect(page.locator('#itl-bought-passport')).toHaveValue('Kim')
+    await expect(page.locator('#itl-bought-passport-field')).toBeVisible() // Shop in Japan
+
+    await page.locator('#itl-bought-confirm').click()
+    await expect(panel).toBeHidden()
+    await expect(item(page, here.productName).locator('.found-status')).toHaveText('✅ Bought')
+    await expect(item(page, here.productName).locator('.found-buy')).toHaveCount(0)
+    expect(await page.evaluate(() => (window as any).__noReload)).toBe(true) // no reload
+
+    const created = async (id: string) => {
+      await expect.poll(async () => (await sanity.fetch(`*[_id == $id][0].status`, { id })), { timeout: 10000 }).toBe('bought')
+      const e = await sanity.fetch(`*[_id == $id][0]{ status, buyer, price, currency, extraCost, condition, note, taxIncluded, "shopId": shop._ref, "tripId": trip._ref, "fp": createdFamilyPurchase._ref, "item": createdItem._ref }`, { id })
+      trackDoc(e.fp); trackDoc(e.item)
+      const strip = (d: any) => { const { _id, _rev, _createdAt, _updatedAt, name, title, barcode, ...rest } = d; return rest }
+      return {
+        entry: { ...e, fp: !!e.fp, item: !!e.item },
+        fp: strip(await sanity.fetch(`*[_id == $id][0]`, { id: e.fp })),
+        item: strip(await sanity.fetch(`*[_id == $id][0]`, { id: e.item })),
+      }
+    }
+    const viaTimeline = await created(here._id)
+    expect(viaTimeline.entry).toMatchObject({ status: 'bought', buyer: 'Kim', tripId: trip._id, fp: true, item: true, note: 'Signed copy', extraCost: 500, condition: 'used', shopId: shop._id })
+    expect(viaTimeline.fp).toMatchObject({ _type: 'familyPurchase', person: 'Kim', status: 'bought', priceYen: 6480, passportHolder: 'Kim', store: { _ref: shop._id } })
+    expect(viaTimeline.item).toMatchObject({ _type: 'album', status: 'owned', purchasePriceYen: 6480 })
+
+    // The twin on /edit-price (its last-used trip is the one just used here).
+    await page.goto(`/edit-price?id=${twin._id}`)
+    await page.locator('#p-status').selectOption('bought')
+    await expect(page.locator('#p-trip')).toHaveValue(trip._id)
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices\?open=/)
+    const viaEditPrice = await created(twin._id)
+    expect(viaTimeline).toEqual(viaEditPrice)
+  })
+
+  test('the USD/EUR check: no request, the message, and it stays Considering; a server error is shown the same way', async ({ page, sanity, trackDoc }) => {
+    const { shop, docs: [usd, jpy] } = await shopWith(sanity, trackDoc, [
+      { productName: testName('Dollar Find'), price: 40, currency: 'USD', sourceType: 'online', sourceName: 'Example Store', shop: undefined, category: 'other' },
+      { productName: testName('Yen Find'), price: 1000 },
+    ])
+    // The online one isn't at the shop — put it there for the strip, as an online price with a shop can't be made in the app.
+    await sanity.patch(usd._id).set({ shop: ref(shop._id, true) }).commit()
+    let requests = 0
+    await page.route('**/api/price-entry-update', async (route) => {
+      requests++
+      await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Kim has no budget line on this trip' }) })
+    })
+    await openTimeline(page, sanity, trackDoc, [shopStop(shop._id)], BUDGET, '10:00')
+    await openSheet(page, shop.shopName)
+
+    await item(page, usd.productName).locator('.found-buy').click()
+    await expect(page.locator('#itl-bought-addto')).toHaveValue('other') // category "other"
+    await expect(page.locator('#itl-bought-passport-field')).toBeHidden() // online: never with a passport
+    await page.locator('#itl-bought-confirm').click()
+    await expect(page.locator('#itl-bought-msg')).toHaveText('Mark as Bought requires the price to be in JPY or NOK. Please enter the price in NOK.')
+    expect(requests).toBe(0)
+    await expect(item(page, usd.productName).locator('.found-status')).toHaveText('🤔 Considering')
+
+    await page.locator('#itl-bought-cancel').click()
+    await item(page, jpy.productName).locator('.found-buy').click()
+    await page.locator('#itl-bought-confirm').click()
+    await expect(page.locator('#itl-bought-msg')).toHaveText('Kim has no budget line on this trip')
+    expect(requests).toBe(1)
+    await expect(item(page, jpy.productName).locator('.found-status')).toHaveText('🤔 Considering')
+    await expect(item(page, jpy.productName).locator('.found-buy')).toBeVisible()
+    expect(await sanity.fetch(`*[_id == $id][0].status`, { id: jpy._id })).toBe('considering')
+  })
+
+  test('no button on what is already bought: a bought price and a family purchase', async ({ page, sanity, trackDoc }) => {
+    const { shop, docs: [boughtPrice] } = await shopWith(sanity, trackDoc, [{ productName: testName('Already Bought'), price: 900, status: 'bought' }])
+    const purchase = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName('Bought Keyring'), store: ref(shop._id), status: 'bought', purchaseDate: '2026-11-02', priceYen: 800 })
+    trackDoc(purchase._id)
+    await openTimeline(page, sanity, trackDoc, [shopStop(shop._id)], {}, '10:00')
+    await openSheet(page, shop.shopName)
+    await expect(item(page, boughtPrice.productName).locator('.found-status')).toHaveText('✅ Bought')
+    await expect(item(page, purchase.name).locator('.found-status')).toHaveText('✅ Bought')
+    await expect(page.locator('#itl-ed-found .found-buy')).toHaveCount(0)
+    await expect(item(page, purchase.name).locator('a')).toHaveCount(0) // a family purchase has no page
+  })
+})

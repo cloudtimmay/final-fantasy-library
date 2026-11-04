@@ -342,13 +342,23 @@ export function shopPhotoStripHtml(shop: PlanShop | null | undefined): string {
 
 // "Found here" at the linked shop (lib/shop-found.ts, the shop page's list) as a strip under its
 // photos: photo (lightbox on tap) or 📦, name, price in NOK with ≈ JPY, status. '' for none.
-export function foundStripHtml(items: FoundItem[] | null | undefined, rate: number | null): string {
+// `priceQuery`: added to a price's /edit-price link (the name), e.g. the way back to the
+// timeline; with it, a price still Considering also gets a "✅ Bought" button (data-id).
+export function foundStripHtml(items: FoundItem[] | null | undefined, rate: number | null, priceQuery?: string): string {
   if (!items || !items.length) return ''
-  return `<div class="found-strip" aria-label="Found here">${items.map((i) => `<figure class="found-item">${
-    i.imageUrl
-      ? `<img src="${esc(cdnImage(i.imageUrl, 160))}" data-lightbox="${esc(cdnImage(i.imageUrl, 2000))}" alt="${esc(i.name)}" loading="lazy" />`
-      : '<span class="found-none" aria-hidden="true">📦</span>'
-  }<figcaption><span class="found-name">${esc(i.name)}</span>${
-    i.price != null ? `<span class="found-price">${esc(formatPriceNokFirst(i.price, i.currency, rate))}</span>` : ''
-  }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span></figcaption></figure>`).join('')}</div>`
+  return `<div class="found-strip" aria-label="Found here">${items.map((i) => {
+    const name = i.href && priceQuery != null
+      ? `<a class="found-name found-link" href="${esc(`${i.href}${priceQuery ? `&${priceQuery}` : ''}`)}">${esc(i.name)}</a>`
+      : `<span class="found-name">${esc(i.name)}</span>`
+    const buy = priceQuery != null && i.kind === 'price' && i.status === 'considering'
+      ? `<button type="button" class="found-buy" data-id="${esc(i.id)}">✅ Bought</button>`
+      : ''
+    return `<figure class="found-item" data-id="${esc(i.id)}">${
+      i.imageUrl
+        ? `<img src="${esc(cdnImage(i.imageUrl, 160))}" data-lightbox="${esc(cdnImage(i.imageUrl, 2000))}" alt="${esc(i.name)}" loading="lazy" />`
+        : '<span class="found-none" aria-hidden="true">📦</span>'
+    }<figcaption>${name}${
+      i.price != null ? `<span class="found-price">${esc(formatPriceNokFirst(i.price, i.currency, rate))}</span>` : ''
+    }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span>${buy}</figcaption></figure>`
+  }).join('')}</div>`
 }

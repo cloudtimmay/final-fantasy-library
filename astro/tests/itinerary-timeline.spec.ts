@@ -1,7 +1,6 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { test, expect, testName } from './fixtures'
+import { test, expect, testName, uniqueJan } from './fixtures'
+import { uniquePng } from './helpers/unique-image'
 import { timelineRange, timelineItems, layoutTimeline, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
 import { scheduleDay } from '../src/lib/itinerary-schedule'
 import { estimateLeg } from '../src/lib/route-optimizer'
@@ -849,9 +848,8 @@ test.describe('/itinerary-timeline: "⏰ Reminder"', () => {
 })
 
 test.describe('itinerary: the linked shop\'s photos', () => {
-  const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
   async function shopWithPhotos(sanity: any, trackDoc: (id: string) => void, uploadedAssets: string[]) {
-    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'itinerary-strip-test.png' })
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'itinerary-strip-test.png' })
     uploadedAssets.push(asset._id)
     const photo = (key: string, caption?: string) => ({ _key: key, _type: 'image', asset: { _type: 'reference', _ref: asset._id }, ...(caption ? { caption } : {}) })
     const shop = await sanity.create({
@@ -956,5 +954,60 @@ test.describe('/itinerary-timeline: the edit sheet\'s shop link', () => {
     // A made-up day or trip never ends up in the link.
     await page.goto(`/edit-store?id=${shop._id}&from=timeline&day=tomorrow&trip=${encodeURIComponent('"><x')}`)
     await expect(page.locator('#s-back-timeline')).toHaveAttribute('href', '/itinerary-timeline')
+  })
+})
+
+test.describe('/itinerary-timeline: "Found here" in the edit sheet, and the empty states', () => {
+  const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const stop = (name: string, shopId?: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, ...(shopId ? { shopId } : {}) })
+
+  test('the shop\'s finds as a strip (photo, name, price, status; lightbox on the photo); "No shop photos yet" with a link; nothing for an unlinked stop', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'found-strip-test.png' })
+    uploadedAssets.push(asset._id)
+    const withFinds = await sanity.create({ _type: 'shopNote', shopName: testName(`Finds Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
+    const bare = await sanity.create({ _type: 'shopNote', shopName: testName(`Bare Strip Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
+    const price = await sanity.create({
+      _type: 'priceEntry', productName: testName('Strip Find'), jan: uniqueJan(), price: 5980, currency: 'JPY', sourceType: 'japanStore',
+      shop: ref(withFinds._id, true), status: 'considering', seenAt: '2026-11-03T10:00:00Z', image: { _type: 'image', asset: ref(asset._id) },
+    })
+    const planned = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName('Strip Planned'), store: ref(withFinds._id), status: 'planned', purchaseDate: '2026-11-01', priceYen: 1500 })
+    for (const d of [withFinds, bare, price, planned]) trackDoc(d._id)
+
+    const { trip } = await openTimeline(page, sanity, trackDoc, [stop('A', withFinds._id), stop('B', bare._id), stop('Unlinked Strip Stop')], {}, '10:00')
+
+    // The shop with finds (and no photos).
+    await block(page, withFinds.shopName).click()
+    const found = page.locator('#itl-ed-found')
+    await expect(found).toBeVisible()
+    await expect(found.locator('.itl-strip-title')).toHaveText('🔎 Found here')
+    await expect(found.locator('.found-name')).toHaveText([price.productName, planned.name]) // newest first
+    await expect(found.locator('.found-status')).toHaveText(['🤔 Considering', '🛒 Planned'])
+    await expect(found.locator('.found-item').first().locator('.found-price')).toHaveText(/¥5\s980/)
+    await expect(found.locator('.found-item').nth(1).locator('.found-none')).toBeVisible() // no photo
+    await found.locator('img').first().click()
+    await expect(page.locator('dialog.lb-dialog')).toBeVisible()
+    await expect(page.locator('.lb-img')).toHaveAttribute('src', /w=2000/)
+    await page.locator('.lb-close').click()
+    await expect(page.locator('#itl-ed-photos')).toBeHidden()
+    const empty = page.locator('#itl-ed-photos-empty')
+    await expect(empty).toBeVisible()
+    await expect(empty).toContainText('No shop photos yet')
+    await expect(empty.locator('a')).toHaveAttribute('href', `/edit-store?id=${withFinds._id}&from=timeline&day=2026-12-05&trip=${trip._id}#shop-photos`)
+    await page.locator('#itl-detail-close').click()
+
+    // A shop with nothing found: no "Found here" strip.
+    await block(page, bare.shopName).click()
+    await expect(page.locator('#itl-detail-name')).toHaveText(bare.shopName)
+    await expect(found).toBeHidden()
+    await expect(empty).toBeVisible()
+    await page.locator('#itl-detail-close').click()
+
+    // Not linked to a shop: none of it.
+    await block(page, 'Unlinked Strip Stop').click()
+    await expect(page.locator('#itl-detail-name')).toHaveText('Unlinked Strip Stop')
+    await expect(found).toBeHidden()
+    await expect(empty).toBeHidden()
+    await expect(page.locator('#itl-ed-photos')).toBeHidden()
   })
 })

@@ -1,12 +1,14 @@
 ---
 import Base from '../layouts/Base.astro'
-import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import { loadItineraryPageData, loadShopFinds } from '../lib/itinerary-page-data'
 import '../styles/itinerary-shared.css'
 import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 
 // A calendar-style day view of the same plan as /itinerary: the same data (loadItineraryPageData),
 // the same timetable (itinerary-plan.ts computeDayTimes) and the same saved format.
 const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
+// "Found here" per shop, for the edit sheet (the shop page's list).
+const { found, rate: foundRate } = await loadShopFinds()
 // ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
 const requestedDay = Astro.url.searchParams.get('day') || ''
 // ?now=YYYY-MM-DDTHH:MM (Tokyo time) stands in for the clock on this page — to try "I'm here
@@ -97,8 +99,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
       </div>
       <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
-      <!-- The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml). -->
+      <!-- The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml) — or, when it has none, a
+           link to add some on its page — and what was found there (foundStripHtml). -->
       <div id="itl-ed-photos" hidden></div>
+      <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
+      <div id="itl-ed-found" hidden></div>
       <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
         <button id="itl-ed-here" type="button">📍 I'm here now</button>
         <button id="itl-ed-leave" type="button">✅ Leaving now</button>
@@ -131,7 +136,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <div id="itl-day" class="itl-day"></div>
   </div>
 
-  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState })}></script>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate })}></script>
 
   <script>
     import {
@@ -144,8 +149,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
-      reminderLinkHtml, shopPhotoStripHtml,
+      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml,
     } from '../lib/itinerary-ui'
+    import type { FoundItem } from '../lib/shop-found'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
@@ -153,6 +159,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
     const { plan, days, labels, flight, base, shops, savedState } = DATA
+    const foundByShop: Record<string, FoundItem[]> = DATA.found || {}
+    const foundRate: number | null = DATA.foundRate ?? null
     const shopById = new Map<string, PlanShop>((shops || []).map((s: PlanShop) => [s._id, s]))
     const wrap = document.querySelector('.itl-wrap') as HTMLElement
     const dayEl = document.querySelector('#itl-day') as HTMLElement
@@ -538,10 +546,19 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const stopName = resolveStop(s, shopById).name
       if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
       else nameEl.textContent = stopName
-      const strip = shopPhotoStripHtml(s.shopId ? shopById.get(s.shopId) : null)
+      // The linked shop's photos and "Found here"; each strip only when it has something, and
+      // "No shop photos yet" (with a link to the shop page) for a linked shop without photos.
+      const shop = s.shopId ? shopById.get(s.shopId) : undefined
+      const strip = shopPhotoStripHtml(shop)
       const photosEl = document.querySelector('#itl-ed-photos') as HTMLElement
-      photosEl.innerHTML = strip
+      photosEl.innerHTML = strip ? `<p class="itl-strip-title">📷 Shop photos</p>${strip}` : ''
       photosEl.hidden = !strip
+      ;(document.querySelector('#itl-ed-photos-empty') as HTMLElement).hidden = !shop || !!strip
+      if (shop) (document.querySelector('#itl-ed-photos-add') as HTMLAnchorElement).href = shopPageUrl(shop._id, '#shop-photos')
+      const foundStrip = shop ? foundStripHtml(foundByShop[shop._id], foundRate) : ''
+      const foundEl = document.querySelector('#itl-ed-found') as HTMLElement
+      foundEl.innerHTML = foundStrip ? `<p class="itl-strip-title">🔎 Found here</p>${foundStrip}` : ''
+      foundEl.hidden = !foundStrip
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
       const now = nowButtons(day, x)
       ed('here').hidden = !now.here
@@ -901,5 +918,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
     .itl-detail-edit { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
     #itl-detail-shop { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .itl-strip-title { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin: 0.4rem 0 0.1rem; }
+    .itl-sheet-empty { font-size: 0.8rem; color: var(--muted); margin: 0.3rem 0; }
+    .itl-sheet-empty a { color: var(--accent); }
   </style>
 </Base>

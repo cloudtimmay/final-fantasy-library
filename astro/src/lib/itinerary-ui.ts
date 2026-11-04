@@ -8,6 +8,8 @@ import { transitRouteUrl, leaveReminderIcs, type TravelLeg } from './itinerary-s
 import { formatClock } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 import { cdnImage } from './image-url'
+import { FOUND_STATUS_LABELS, type FoundItem } from './shop-found'
+import { formatPriceNokFirst } from './price-display'
 
 declare global {
   interface Window { L?: any }
@@ -336,4 +338,17 @@ export function shopPhotoStripHtml(shop: PlanShop | null | undefined): string {
   return `<div class="shop-photo-strip" aria-label="Shop photos">${photos.map((p) =>
     `<figure class="shop-photo"><img src="${esc(cdnImage(p.url, 160))}" data-lightbox="${esc(cdnImage(p.url, 2000))}" alt="${esc(p.caption || `${name} photo`)}" loading="lazy" />${
       p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}</figure>`).join('')}</div>`
+}
+
+// "Found here" at the linked shop (lib/shop-found.ts, the shop page's list) as a strip under its
+// photos: photo (lightbox on tap) or 📦, name, price in NOK with ≈ JPY, status. '' for none.
+export function foundStripHtml(items: FoundItem[] | null | undefined, rate: number | null): string {
+  if (!items || !items.length) return ''
+  return `<div class="found-strip" aria-label="Found here">${items.map((i) => `<figure class="found-item">${
+    i.imageUrl
+      ? `<img src="${esc(cdnImage(i.imageUrl, 160))}" data-lightbox="${esc(cdnImage(i.imageUrl, 2000))}" alt="${esc(i.name)}" loading="lazy" />`
+      : '<span class="found-none" aria-hidden="true">📦</span>'
+  }<figcaption><span class="found-name">${esc(i.name)}</span>${
+    i.price != null ? `<span class="found-price">${esc(formatPriceNokFirst(i.price, i.currency, rate))}</span>` : ''
+  }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span></figcaption></figure>`).join('')}</div>`
 }

@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
-import { foundItems, foundPricesQuery, foundPurchasesQuery, formatFoundDate, type FoundItem } from '../lib/shop-found'
+import { foundItems, foundPricesQuery, foundPurchasesQuery, formatFoundDate, FOUND_STATUS_LABELS, type FoundItem } from '../lib/shop-found'
 import { formatPriceNokFirst } from '../lib/price-display'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
@@ -51,7 +51,6 @@ const photos: { _key: string; caption?: string; url: string }[] = (shop?.photos 
 // "Found here" (lib/shop-found.ts): this shop's prices and the family purchases from it that
 // didn't come from a price, newest first — prices in NOK with ≈ JPY at /prices' rate (the
 // default trip's, pickDefaultTrip()).
-const STATUS_LABELS: Record<FoundItem['status'], string> = { bought: '✅ Bought', planned: '🛒 Planned', considering: '🤔 Considering' }
 let found: FoundItem[] = []
 let rate: number | null = null
 if (shop) {
@@ -235,7 +234,7 @@ if (shop) {
                       <span class="fh-name">{item.name}</span>
                       {item.price != null && <span class="fh-price">{formatPriceNokFirst(item.price, item.currency, rate)}</span>}
                       <span class="fh-meta">
-                        <span class:list={['fh-status', `fh-${item.status}`]}>{STATUS_LABELS[item.status]}</span>
+                        <span class:list={['fh-status', `fh-${item.status}`]}>{FOUND_STATUS_LABELS[item.status]}</span>
                         {item.kind === 'purchase' && <span class="fh-kind">Family purchase</span>}
                         {item.date && <span class="fh-date">{formatFoundDate(item.date)}</span>}
                       </span>

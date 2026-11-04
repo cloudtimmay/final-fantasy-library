@@ -123,3 +123,10 @@ export function formatFoundDate(iso: string): string {
   if (isNaN(d.getTime())) return ''
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', ...(dateOnly ? { timeZone: 'UTC' } : {}) })
 }
+
+// How a status reads, on the shop page and in the timeline's "Found here" strip.
+export const FOUND_STATUS_LABELS: Record<FoundItem['status'], string> = {
+  bought: '✅ Bought',
+  planned: '🛒 Planned',
+  considering: '🤔 Considering',
+}

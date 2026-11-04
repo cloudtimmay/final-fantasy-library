@@ -5,6 +5,7 @@ import { sanity } from './sanity'
 import { formatDayLabel, dateRange, isIsoDate } from './trip-dates'
 import { fetchTripsForSpending, pickDefaultTrip } from './spending'
 import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from './itinerary-review-helpers'
+import { foundItems, foundPricesQuery, foundPurchasesQuery, type FoundItem, type FoundPriceDoc, type FoundPurchaseDoc } from './shop-found'
 
 export const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -170,4 +171,27 @@ export async function loadItineraryPageData(url: URL) {
   for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)]) labels[d] = formatDayLabel(d)
 
   return { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels }
+}
+
+// "Found here" for every shop (lib/shop-found.ts — the same list as the shop page), for the
+// timeline's edit sheet, and the rate its prices are shown with: the default trip's, like the
+// shop page and /prices. Only the timeline loads this. Empty when Sanity can't be reached.
+export async function loadShopFinds(): Promise<{ found: Record<string, FoundItem[]>; rate: number | null }> {
+  try {
+    const [prices, purchases, trips]: [FoundPriceDoc[], FoundPurchaseDoc[], Awaited<ReturnType<typeof fetchTripsForSpending>>] = await Promise.all([
+      sanity.fetch(foundPricesQuery('defined(shop._ref)')),
+      sanity.fetch(foundPurchasesQuery('defined(store._ref)')),
+      fetchTripsForSpending(),
+    ])
+    const byShop = new Map<string, { prices: FoundPriceDoc[]; purchases: FoundPurchaseDoc[] }>()
+    const entry = (id: string) => byShop.get(id) || (byShop.set(id, { prices: [], purchases: [] }), byShop.get(id)!)
+    for (const p of prices || []) if (p.shopId) entry(p.shopId).prices.push(p)
+    for (const p of purchases || []) if (p.shopId) entry(p.shopId).purchases.push(p)
+    const found: Record<string, FoundItem[]> = {}
+    for (const [id, e] of byShop) found[id] = foundItems(e.prices, e.purchases)
+    const rateTrip = pickDefaultTrip(trips)
+    return { found, rate: rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null }
+  } catch (e) {
+    return { found: {}, rate: null }
+  }
 }

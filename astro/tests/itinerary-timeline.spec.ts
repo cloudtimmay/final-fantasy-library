@@ -1011,3 +1011,40 @@ test.describe('/itinerary-timeline: "Found here" in the edit sheet, and the empt
     await expect(page.locator('#itl-ed-photos')).toBeHidden()
   })
 })
+
+test.describe('/itinerary-timeline: the edit sheet\'s size', () => {
+  async function openSheet(page: Page, sanity: any, trackDoc: (id: string) => void) {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await page.locator('.itl-block').first().click()
+    const sheet = page.locator('#itl-detail')
+    await expect(sheet).toBeVisible()
+    return sheet
+  }
+  const padding = (sheet: ReturnType<Page['locator']>) => sheet.evaluate((el) => {
+    const cs = getComputedStyle(el)
+    return { left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight) }
+  })
+
+  test.describe('on a desktop screen', () => {
+    test.use({ viewport: { width: 1280, height: 800 } })
+    test('at most 640 px wide, centred, with padding inside', async ({ page, sanity, trackDoc }) => {
+      const sheet = await openSheet(page, sanity, trackDoc)
+      const box = (await sheet.boundingBox())!
+      expect(box.width).toBe(640)
+      expect(Math.abs(box.x - (1280 - box.x - box.width))).toBeLessThanOrEqual(1) // as much room left as right
+      expect(box.x).toBeGreaterThan(300)
+      const pad = await padding(sheet)
+      expect(pad.left).toBeGreaterThanOrEqual(20)
+      expect(pad.right).toBeGreaterThanOrEqual(20)
+    })
+  })
+
+  test('on the phone: the full width, with padding inside', async ({ page, sanity, trackDoc }) => {
+    const sheet = await openSheet(page, sanity, trackDoc)
+    const box = (await sheet.boundingBox())!
+    const width = page.viewportSize()!.width
+    expect(box.x).toBe(0)
+    expect(box.width).toBe(width)
+    expect((await padding(sheet)).left).toBeGreaterThanOrEqual(16)
+  })
+})

@@ -880,9 +880,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-block.itl-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
     /* The edit sheet: fixed to the bottom of the screen, above the bottom nav (z-index 20), with
        room for the safe area; scrolls inside itself when taller than the screen allows. */
+    /* Full width on a phone; on a wide screen at most 640 px, centred (left/right 0 with auto
+       margins), so it doesn't start at the screen's left edge. */
     .itl-detail {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; box-sizing: border-box;
-      max-height: 80vh; overflow-y: auto; padding: 0.9rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      width: 100%; max-width: 640px; margin: 0 auto;
+      max-height: 80vh; overflow-y: auto; padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px));
       background: var(--surface); border-top: 1px solid var(--accent); border-radius: 14px 14px 0 0;
       box-shadow: 0 -6px 24px rgba(0,0,0,0.5);
     }
@@ -913,6 +916,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-sheet-foot { justify-content: space-between; }
     .itl-sheet .itl-sheet-delete { color: #e74c3c; border-color: #e74c3c; }
     .itl-detail[hidden] { display: none; }
+    @media (min-width: 641px) {
+      .itl-detail { border: 1px solid var(--accent); border-bottom: none; padding-left: 1.5rem; padding-right: 1.5rem; }
+    }
     .itl-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
     .itl-detail-head button, .itl-sheet .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
     .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }

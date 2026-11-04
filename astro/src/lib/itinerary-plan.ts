@@ -266,7 +266,7 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       note: stopNote(s, ctx.shopById),
     }
   })
-  return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day) }
+  return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day), date: isIsoDate(day.day) ? day.day : null }
 }
 
 // --- Editing a stop: the list's ⋯ menu, ▲▼ and ✕, and the timeline's edit sheet ---------------
@@ -371,12 +371,12 @@ const looksLikeHours = (text: string) => /\d{1,2}\s*[:：時.]\s*\d{0,2}|\d\s*[-
 // or the note "Hours not understood" (`note`). null when there's nothing to say.
 export function stopHoursWarning(s: PlanStop, shopById: Map<string, PlanShop>, dayIso: string, start: number, end: number): { badge: string; message: string; note?: boolean } | null {
   const { text, fromShop } = stopHoursText(s, shopById)
-  const w = visitWarning(checkHours(text, dayWeekday(dayIso), start, end))
+  const w = visitWarning(checkHours(text, dayWeekday(dayIso), start, end, isIsoDate(dayIso) ? dayIso : null))
   if (w?.note && !fromShop && !looksLikeHours(text)) return null
   return w
 }
 // The same for hours text not on a stop yet (adding one): the warning, or null.
 export function hoursWarningAt(text: string | null | undefined, dayIso: string, start: number, end: number) {
-  const c = checkHours(text, dayWeekday(dayIso), start, end)
+  const c = checkHours(text, dayWeekday(dayIso), start, end, isIsoDate(dayIso) ? dayIso : null)
   return closedOnArrival(c) || c.kind === 'closes-during' ? visitWarning(c) : null
 }

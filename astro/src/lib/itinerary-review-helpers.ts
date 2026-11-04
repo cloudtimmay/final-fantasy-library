@@ -210,13 +210,13 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
 // Opening-hour problems for Check day, computed (lib/opening-hours.ts, the same check as the
 // pages) rather than left to the model: one warning per stop that is closed that weekday, not
 // open yet, closed already, or closes before you leave.
-export function hoursReviewItems(names: string[], hours: Array<string | null>, weekday: number | null, visits: { start: number; end: number }[]) {
+export function hoursReviewItems(names: string[], hours: Array<string | null>, weekday: number | null, visits: { start: number; end: number }[], date: string | null = null) {
   const items: { severity: 'warning'; stopIndex: number; message: string; suggestion: string | null }[] = []
   names.forEach((name, i) => {
-    const c = checkHours(hours[i], weekday, visits[i].start, visits[i].end)
+    const c = checkHours(hours[i], weekday, visits[i].start, visits[i].end, date)
     if (!closedOnArrival(c) && c.kind !== 'closes-during') return
     const w = visitWarning(c)!
-    items.push({ severity: 'warning', stopIndex: i, message: `${name}: ${w.message}`, suggestion: c.kind === 'closed-day' ? 'Move it to another day.' : null })
+    items.push({ severity: 'warning', stopIndex: i, message: `${name}: ${w.message}`, suggestion: c.kind === 'closed-day' || c.kind === 'closed-date' ? 'Move it to another day.' : null })
   })
   return items
 }

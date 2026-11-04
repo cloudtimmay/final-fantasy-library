@@ -557,7 +557,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
       if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
       const input = LIB().optimizerInput(day, { base, shopById })
-      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start, input.weekday)
+      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
       LIB().renderRouteSuggestion(resultsEl, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
         fmt,

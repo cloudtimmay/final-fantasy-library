@@ -106,7 +106,7 @@ export const POST: APIRoute = async ({ request }) => {
   // Opening hours against the day's weekday and the visits (the timetable's, else the client's times).
   const weekday = isIsoDate(body.dayDate) ? weekdayIndex(body.dayDate) : null
   const visits = stops.map((s, i) => (daySchedule ? { start: daySchedule.stops[i].start, end: daySchedule.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
-  const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits)
+  const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits, isIsoDate(body.dayDate) ? body.dayDate : null)
   // A day running past 23:00 (back at the base) and trains after the last trains.
   const lateItems = daySchedule ? lateDayReviewItems(stops.map((s) => s.name), daySchedule) : []
 

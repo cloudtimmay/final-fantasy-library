@@ -10,7 +10,7 @@ const CLOSED = { closed: true, ranges: [] }
 const SUN = 0, MON = 1, TUE = 2, WED = 3, THU = 4, FRI = 5, SAT = 6
 const days = (h: OpeningHours | null) => h!.days
 const warn = (text: string, date: string, arrival: string, leave: string) =>
-  visitWarning(checkHours(text, weekdayIndex(date), t(arrival) + (t(arrival) < 360 ? 1440 : 0), t(leave) + (t(leave) < 360 ? 1440 : 0)))?.message ?? null
+  visitWarning(checkHours(text, weekdayIndex(date), t(arrival) + (t(arrival) < 360 ? 1440 : 0), t(leave) + (t(leave) < 360 ? 1440 : 0), date))?.message ?? null
 
 test.describe('opening hours (lib/opening-hours.ts): the formats', () => {
   test('dashes: hyphen, en dash, "~" and "〜", with or without spaces; 時; Norwegian dots', () => {
@@ -164,5 +164,68 @@ test.describe('opening hours in Check day and Suggest route', () => {
     const s = { lat: 35.7, lng: 139.77, durationMin: 60, fixedTime: null, openingHours: '10:00–20:00, closed Sat', note: null }
     expect(optimizeRoute([s], t('12:00'), { lat: 35.7, lng: 139.77 }, weekdayIndex('2026-12-05')).current.closedCount).toBe(1) // Saturday
     expect(optimizeRoute([s], t('12:00'), { lat: 35.7, lng: 139.77 }, weekdayIndex('2026-12-06')).current.closedCount).toBe(0) // Sunday
+  })
+})
+
+test.describe('opening hours: the real production texts', () => {
+  test('remarks in brackets and a floor\'s own hours never change the hours', () => {
+    // Darumanome Akihabara
+    let h = days(parseOpeningHours('11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00 (some listings show weekday opening at 10:30)'))
+    for (const d of [MON, TUE, WED, THU, FRI]) expect(h[d], `day ${d}`).toEqual(open(r('11:00', '23:00')))
+    expect(h[SAT]).toEqual(open(r('10:00', '23:00')))
+    expect(h[SUN]).toEqual(open(r('10:00', '22:00')))
+    // Akihabara Radio Kaikan: the main hours every day, not the B1 floor's
+    h = days(parseOpeningHours('10:00–20:00, varies by shop; B1 12:00–22:00 (closes 21:00 Sundays and holidays)'))
+    expect(h).toEqual(Array(7).fill(open(r('10:00', '20:00'))))
+    // Shizuoka Hobby Square
+    h = days(parseOpeningHours('11:00–18:00, weekends and holidays 10:00–18:00, closed Mon (open if Monday is a holiday, closed the next day)'))
+    for (const d of [TUE, WED, THU, FRI]) expect(h[d], `day ${d}`).toEqual(open(r('11:00', '18:00')))
+    expect(h[SAT]).toEqual(open(r('10:00', '18:00')))
+    expect(h[SUN]).toEqual(open(r('10:00', '18:00')))
+    expect(h[MON]).toEqual(CLOSED)
+    // BHCPDII MUSEUM (already right)
+    h = days(parseOpeningHours('09:00–17:30, closed Mon–Tue and national holidays; last admission 16:00; reservation required'))
+    expect(h[MON]).toEqual(CLOSED); expect(h[TUE]).toEqual(CLOSED)
+    for (const d of [WED, THU, FRI, SAT, SUN]) expect(h[d], `day ${d}`).toEqual(open(r('09:00', '17:30')))
+    // TAITO STATION Shinjuku GameWorld: open until 01:00 the next day
+    expect(days(parseOpeningHours('10:00 - 01:00'))).toEqual(Array(7).fill(open({ start: t('10:00'), end: t('01:00') + 1440 })))
+    expect(warn('10:00 - 01:00', '2026-12-02', '00:20', '00:50')).toBeNull()
+  })
+
+  test('Ōimachi Station Market: open 09:00–14:30 on 5 and 6 December only', () => {
+    const text = 'Market 5 / 6 dec 09:00 - 14:30'
+    expect(parseOpeningHours(text)!.dates).toEqual(['12-05', '12-06'])
+    expect(warn(text, '2026-12-05', '10:00', '11:00')).toBeNull()
+    expect(warn(text, '2026-12-06', '10:00', '11:00')).toBeNull()
+    expect(warn(text, '2026-12-06', '14:00', '15:00')).toBe('Closes 14:30 (you leave 15:00)')
+    expect(warn(text, '2026-12-04', '10:00', '11:00')).toBe('Open only on 5 Dec, 6 Dec')
+    expect(visitWarning(checkHours(text, weekdayIndex('2026-12-07'), 600, 660, '2026-12-07'))).toEqual({ badge: 'Closed', message: 'Open only on 5 Dec, 6 Dec' })
+    // No date: unknown, not closed.
+    expect(checkHours(text, null, 600, 660)).toEqual({ kind: 'unknown' })
+    expect(closedOnArrival(checkHours(text, weekdayIndex('2026-12-04'), 600, 660, '2026-12-04'))).toBe(true)
+  })
+
+  test('other ways of writing dates; "closed" dates are not opening dates', () => {
+    expect(parseOpeningHours('Dec 5–6 10:00–16:00')!.dates).toEqual(['12-05', '12-06'])
+    expect(parseOpeningHours('12/5, 12/6 10:00-16:00')!.dates).toEqual(['12-05', '12-06'])
+    expect(parseOpeningHours('12月5日・6日 10:00〜16:00')!.dates).toEqual(['12-05', '12-06'])
+    expect(parseOpeningHours('5. og 6. desember 10:00–16:00')!.dates).toEqual(['12-05', '12-06'])
+    expect(days(parseOpeningHours('Dec 5–6 10:00–16:00'))[SAT]).toEqual(open(r('10:00', '16:00')))
+    const yearEnd = parseOpeningHours('10:00–20:00, closed 12/31–1/3')!
+    expect(yearEnd.dates).toBeNull()
+    expect(yearEnd.days[WED]).toEqual(open(r('10:00', '20:00')))
+    // Not dates: 24/7 and times.
+    expect(parseOpeningHours('24/7')!.dates).toBeNull()
+    expect(parseOpeningHours('10:00 - 21:00')!.dates).toBeNull()
+  })
+
+  test('"Fill in from web": canonical hours parse; remarks in brackets come out for the note', async () => {
+    const { splitHoursRemarks } = await import('../src/lib/opening-hours')
+    expect(splitHoursRemarks('10:00–20:00 (closes 21:00 Sundays and holidays)')).toEqual({ hours: '10:00–20:00', remarks: ['closes 21:00 Sundays and holidays'] })
+    expect(splitHoursRemarks('Mon–Fri 11:00–23:00, Sat 10:00–23:00（L.O. 22:30）, Sun 10:00–22:00')).toEqual({ hours: 'Mon–Fri 11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00', remarks: ['L.O. 22:30'] })
+    expect(splitHoursRemarks('Daily 10:00–20:00')).toEqual({ hours: 'Daily 10:00–20:00', remarks: [] })
+    const canonical = days(parseOpeningHours('Mon–Fri 11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00, closed Tue'))
+    expect(canonical[MON]).toEqual(open(r('11:00', '23:00'))); expect(canonical[TUE]).toEqual(CLOSED); expect(canonical[SUN]).toEqual(open(r('10:00', '22:00')))
+    expect(days(parseOpeningHours('Daily 10:00–20:00'))).toEqual(Array(7).fill(open(r('10:00', '20:00'))))
   })
 })

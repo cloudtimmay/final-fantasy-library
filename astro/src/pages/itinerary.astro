@@ -571,7 +571,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const day = currentDayPlan()
       if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
       const input = optimizerInput(day, { base, shopById })
-      const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday)
+      const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
       renderRouteSuggestion(routePanel, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
         fmt: formatClock,

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { hoursUnderstood } from '../../lib/opening-hours'
+import { hoursUnderstood, splitHoursRemarks } from '../../lib/opening-hours'
 
 export const prerender = false
 
@@ -62,7 +62,8 @@ const SYSTEM_PROMPT = `You research real shops and places in Japan using web sea
 Search for the specific named place, using its name together with its area/neighborhood to disambiguate from similarly-named places elsewhere. If you cannot confidently identify the specific place from search results, prefer returning null fields over guessing.
 
 After searching, respond with ONLY a JSON object (no other text, no markdown code fences, no explanation) with exactly these fields:
-- openingHours: a short string whose FIRST part is a 24-hour time range in the exact format "HH:MM–HH:MM" (Japan time), optionally followed by notes, e.g. "10:00–20:00, closed Tue". Null if not confidently found.
+- openingHours: the hours in Japan time, 24-hour clock, in exactly this form and nothing else: "Daily 10:00–20:00" when every day is the same; otherwise days then hours, e.g. "Mon–Fri 11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00", with closed days at the end, e.g. "Daily 10:00–20:00, closed Tue". Days are written Mon, Tue, Wed, Thu, Fri, Sat, Sun. No remarks, floors, last orders, holiday exceptions or sources in it. Null if not confidently found.
+- hoursRemarks: anything about the hours that doesn't fit that form (e.g. "B1 12:00–22:00", "last admission 16:00", "closes 21:00 on holidays"), as one short string, or null.
 - address: the physical address in Japan, as a single string. Null if not found.
 - latitude: number (decimal degrees). Null if not found.
 - longitude: number (decimal degrees). Null if not found.
@@ -185,6 +186,14 @@ export const POST: APIRoute = async ({ request }) => {
 
   let openingHours: string | null =
     typeof parsed.openingHours === 'string' && parsed.openingHours.trim() ? parsed.openingHours.trim().slice(0, 200) : null
+  // Remarks never go in the hours: any the model left in brackets, and its hoursRemarks, go to
+  // the note suggestion instead.
+  const hoursRemarks: string[] = typeof parsed.hoursRemarks === 'string' && parsed.hoursRemarks.trim() ? [parsed.hoursRemarks.trim().slice(0, 200)] : []
+  if (openingHours) {
+    const split = splitHoursRemarks(openingHours)
+    openingHours = split.hours || null
+    hoursRemarks.unshift(...split.remarks)
+  }
   // Hours the itinerary can't understand (lib/opening-hours.ts, the same parser) would only show
   // "Hours not understood" there, so an AI suggestion like that is dropped here instead.
   if (openingHours && !hoursUnderstood(openingHours)) openingHours = null
@@ -217,7 +226,9 @@ export const POST: APIRoute = async ({ request }) => {
     if (hostname && seenHostnames.has(hostname)) website = url
   }
 
-  const note: string | null = typeof parsed.note === 'string' && parsed.note.trim() ? parsed.note.trim().slice(0, 300) : null
+  const noteText = typeof parsed.note === 'string' && parsed.note.trim() ? parsed.note.trim() : ''
+  const remarksText = hoursRemarks.length ? `Hours: ${hoursRemarks.join('; ')}.` : ''
+  const note: string | null = [noteText, remarksText].filter(Boolean).join(' ').slice(0, 400) || null
 
   return json(200, {
     ok: true,

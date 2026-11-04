@@ -310,9 +310,3 @@ export function checkHours(text: string | null | undefined, weekday: number | nu
   }
   return checkVisit(cache.get(key)!, weekday, arrival, leave)
 }
-
-// Not open at `plannedMinutes` on any day (weekday unknown): the old yes/no check, for the
-// places that don't have a date.
-export function looksClosed(text: string | null | undefined, plannedMinutes: number): boolean {
-  return closedOnArrival(checkHours(text, null, plannedMinutes, plannedMinutes))
-}

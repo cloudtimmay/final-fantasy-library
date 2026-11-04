@@ -2,6 +2,7 @@
 // (api/itinerary-review.ts). Kept separate from that endpoint file (rather than exported
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
+import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
 import { LEAVE_BUFFER_MIN, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
@@ -201,4 +202,18 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
     if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
   })
   return lines.join('\n')
+}
+
+// Opening-hour problems for Check day, computed (lib/opening-hours.ts, the same check as the
+// pages) rather than left to the model: one warning per stop that is closed that weekday, not
+// open yet, closed already, or closes before you leave.
+export function hoursReviewItems(names: string[], hours: Array<string | null>, weekday: number | null, visits: { start: number; end: number }[]) {
+  const items: { severity: 'warning'; stopIndex: number; message: string; suggestion: string | null }[] = []
+  names.forEach((name, i) => {
+    const c = checkHours(hours[i], weekday, visits[i].start, visits[i].end)
+    if (!closedOnArrival(c) && c.kind !== 'closes-during') return
+    const w = visitWarning(c)!
+    items.push({ severity: 'warning', stopIndex: i, message: `${name}: ${w.message}`, suggestion: c.kind === 'closed-day' ? 'Move it to another day.' : null })
+  })
+  return items
 }

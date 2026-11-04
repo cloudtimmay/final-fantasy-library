@@ -179,7 +179,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script>
     import {
-      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
+      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
@@ -338,11 +338,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const x = sched.stops[item.index]
         const s = day.stops[item.index]
         const r = resolveStop(s, shopById)
-        const closed = looksClosed(s.hours, x.start)
+        // Opening hours on the day's weekday (itinerary-plan.ts stopHoursWarning): a short badge
+        // ("Closed", "Opens 11:00", "Closes 22:00") and the coloured edge; "Hours not understood"
+        // is only a quiet note.
+        const hoursWarning = stopHoursWarning(s, shopById, day.day, x.start, x.end)
+        const closed = !!hoursWarning && !hoursWarning.note
         const warnings: string[] = []
         if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
         else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
-        if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
         el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
           + (checkMarks[item.index] ? ` itl-ir-${checkMarks[item.index]}` : '')
         if (checkMarks[item.index]) warnings.push(checkMarks[item.index] === 'warning' ? '🔍 See Check day' : '🔍 Tip in Check day')
@@ -369,12 +372,16 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
         // buttons above, the leave-by line, the opening hours, then any warnings.
+        // The warnings right under the first line, so a short block still shows them.
+        const badges = (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
+          + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${actions}
           ${leaveBy}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
-          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
+          ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}`
         grid.appendChild(el)
       })
 
@@ -501,7 +508,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const day = currentDayPlan()
       if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
       const input = optimizerInput(day, { base, shopById })
-      const result = optimizeRoute(input.stops, input.startTime, input.start)
+      const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday)
       renderRouteSuggestion(routePanel, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
         fmt: formatClock,
@@ -581,7 +588,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
-      if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+      const hoursWarning = stopHoursWarning(s, shopById, day.day, x.start, x.end)
+      if (hoursWarning) lines.push(hoursWarning.note ? hoursWarning.message : `⚠️ ${hoursWarning.message}`)
       // The name opens the linked shop's page, which links back to this day.
       const nameEl = document.querySelector('#itl-detail-name') as HTMLElement
       const stopName = resolveStop(s, shopById).name
@@ -937,6 +945,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
     .itl-leaveby .itn-reminder { margin-left: auto; padding: 0.05rem 0.35rem; }
     .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
+    /* One line, cut off with "…" — so in a short or narrow block the buttons below stay in view;
+       the edit sheet has every warning in full. */
+    .itl-badges { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.4rem; line-height: 1.3; min-width: 0; overflow: hidden; }
+    .itl-badges .itl-badge { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .itl-hours-badge {
+      font-size: 0.68rem; font-weight: 700; color: #1a1a1a; background: #e0a04c; border-radius: 4px; padding: 0 0.3rem; white-space: nowrap;
+    }
+    .itl-hours-note { font-size: 0.68rem; color: var(--muted); font-style: italic; }
     .itl-travel {
       position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;
       display: flex; align-items: center; justify-content: center; white-space: nowrap;

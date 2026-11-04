@@ -1,9 +1,9 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
 import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
-import { isIsoDate, formatDateLong } from '../../lib/trip-dates'
+import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
 
 export const prerender = false
 
@@ -23,7 +23,7 @@ const MAX_MODEL_ITEMS = 8
 const SYSTEM_PROMPT = `You are reviewing one day of a shopping itinerary in Tokyo, for problems worth flagging before the trip.
 
 Report CONCRETE problems only — things actually wrong with this specific plan, not generic travel advice:
-- A shop that is closed at its planned visit time, or (only if a weekday is given) closed on that weekday.
+- Opening hours are already checked against the day's weekday and the timetable (closed that day, before opening, after closing, closing during the visit) and listed first — don't repeat those. Do flag hours text that looks wrong or a shop type that is often closed at that time.
 - Unrealistic travel time for the straight-line distance given between two consecutive stops, by train or on foot.
 - Too many stops for the time actually available in the day.
 - No break for food over a long day.
@@ -103,11 +103,15 @@ export const POST: APIRoute = async ({ request }) => {
     ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
     : null
   const timetableItems = schedule ? scheduleReviewItems(stops.map((s) => s.name), schedule, daySchedule!.segments) : []
+  // Opening hours against the day's weekday and the visits (the timetable's, else the client's times).
+  const weekday = isIsoDate(body.dayDate) ? weekdayIndex(body.dayDate) : null
+  const visits = stops.map((s, i) => (daySchedule ? { start: daySchedule.stops[i].start, end: daySchedule.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
+  const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits)
 
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
   const flightWarning = flight ? flightDeadlineWarning(stops, flight) : null
-  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length)
+  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length)
 
   const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [])
 
@@ -193,7 +197,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (flightWarning) items.unshift(flightWarning)
-  items.unshift(...timetableItems)
+  items.unshift(...timetableItems, ...hoursItems)
 
   // Computed deterministically from the notes' own fares, not left to the model's
   // arithmetic — matches the project's convention (see computeTransitions above) of

@@ -8,9 +8,8 @@
 
 import { scheduleDay, type DaySchedule, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
-import { parseOpeningHours, looksClosed } from './opening-hours'
-
-export { parseOpeningHours, looksClosed }
+import { checkHours, visitWarning, closedOnArrival } from './opening-hours'
+import { isIsoDate, weekdayIndex } from './trip-dates'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -40,6 +39,7 @@ export type PlanDay = { day: string; date: string; area: string; note: string; s
 export type PlanTemplateDay = { day: string; date: string; area: string; note?: string; stops: PlanStop[] }
 export type PlanShop = {
   _id: string; shopName?: string; latitude?: number; longitude?: number; note?: string
+  openingHours?: string | null
   address?: string | null; area?: string | null
   photos?: { caption?: string | null; url: string }[] | null // shopNote.photos (floor guides …)
 }
@@ -228,7 +228,7 @@ export function checkDayRequestBody(
       durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
       lat: r.lat,
       lng: r.lng,
-      openingHours: s.hours || null,
+      openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
       fixedTime: s.fixedTime || null,
       arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
@@ -262,11 +262,11 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       lng: r.lng,
       durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
       fixedTime: s.fixedTime ? parseClock(s.fixedTime) : null,
-      openingHours: s.hours || null,
+      openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
     }
   })
-  return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start }
+  return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day) }
 }
 
 // --- Editing a stop: the list's ⋯ menu, ▲▼ and ✕, and the timeline's edit sheet ---------------
@@ -346,4 +346,37 @@ export function clearActualTimes(day: { stops: PlanStop[] }): void {
 }
 export function hasActualTimes(day: { stops: PlanStop[] }): boolean {
   return day.stops.some((s) => !!s.actualStart || !!s.actualEnd)
+}
+
+// --- Opening hours on a stop (lib/opening-hours.ts) -------------------------------------------
+// The hours a stop is checked against: its linked shop's (kept current on the shop's page),
+// else the text on the stop itself — for a stop written by hand that's often a note
+// ("Lunsj · kontant") rather than hours.
+export function stopHoursText(s: PlanStop, shopById: Map<string, PlanShop>): { text: string; fromShop: boolean } {
+  const shop = s.shopId ? shopById.get(s.shopId) : undefined
+  const shopHours = shop && typeof shop.openingHours === 'string' ? shop.openingHours.trim() : ''
+  if (shopHours) return { text: shopHours, fromShop: true }
+  return { text: typeof s.hours === 'string' ? s.hours.trim() : '', fromShop: false }
+}
+// The day's weekday (0 = Sunday), or null for a day without a date.
+export function dayWeekday(iso: unknown): number | null {
+  return isIsoDate(iso) ? weekdayIndex(iso) : null
+}
+// Text that is meant as opening hours: a shop's, or one with a time in it — so a hand-written
+// note doesn't get "Hours not understood".
+const looksLikeHours = (text: string) => /\d{1,2}\s*[:：時.]\s*\d{0,2}|\d\s*[-–~〜]\s*\d|24|døgn|closed|stengt|定休/i.test(text)
+
+// Visiting `s` from `start` to `end` on the day `dayIso`: "Closed on Tuesday", "Opens 11:00
+// (you arrive 09:00)", "Closes 22:00 (you leave 22:08)" … with a short badge for the timeline;
+// or the note "Hours not understood" (`note`). null when there's nothing to say.
+export function stopHoursWarning(s: PlanStop, shopById: Map<string, PlanShop>, dayIso: string, start: number, end: number): { badge: string; message: string; note?: boolean } | null {
+  const { text, fromShop } = stopHoursText(s, shopById)
+  const w = visitWarning(checkHours(text, dayWeekday(dayIso), start, end))
+  if (w?.note && !fromShop && !looksLikeHours(text)) return null
+  return w
+}
+// The same for hours text not on a stop yet (adding one): the warning, or null.
+export function hoursWarningAt(text: string | null | undefined, dayIso: string, start: number, end: number) {
+  const c = checkHours(text, dayWeekday(dayIso), start, end)
+  return closedOnArrival(c) || c.kind === 'closes-during' ? visitWarning(c) : null
 }

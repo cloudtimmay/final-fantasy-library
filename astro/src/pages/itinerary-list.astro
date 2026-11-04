@@ -182,7 +182,19 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     // Shared with the timeline, /itinerary (src/lib/itinerary-plan.ts): the stop's effective
     // name/coordinates (a linked shop's win), opening hours, and default visit lengths.
     function resolveStop(s) { return LIB().resolveStop(s, shopById) }
-    function looksClosed(hoursText, plannedMinutes) { return LIB().looksClosed(hoursText, plannedMinutes) }
+    // Opening hours on the day's weekday (src/lib/itinerary-plan.ts, the same as the timeline):
+    // closed that day, opens later, closes before you leave; "Hours not understood" as a note.
+    function stopHoursHtml(day, sched, si) {
+      const x = sched.stops[si]
+      const w = LIB().stopHoursWarning(day.stops[si], shopById, day.day, x.start, x.end)
+      if (!w) return ''
+      return w.note ? `<span class="hours-note">${esc(w.message)}</span>` : `<span class="closed-warn">⚠️ ${esc(w.message)}</span>`
+    }
+    // Adding a stop: closed when you'd get there (or closing before you'd leave)?
+    function closedOnAdd(di, stop, arrival) {
+      const w = LIB().hoursWarningAt(stop.hours, state[di].day, arrival, arrival + defaultDur(stop))
+      return w ? !confirm(`${w.message}. Legg til likevel?`) : false
+    }
     function defaultDur(s) { return LIB().defaultDurationMin(s) }
 
     function distM(a, b) {
@@ -404,7 +416,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
                 ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
                 ${slotBadge(s.slot)}
                 ${noCoord ? '<span class="nocoord">📍 mangler koordinater</span>' : ''}
-                ${looksClosed(s.hours, t) ? `<span class="closed-warn">⚠️ stengt ~${fmt(t)}?</span>` : ''}
+                ${stopHoursHtml(day, sched, si)}
                 ${scheduleLinesHtml(day, sched, si)}
               </span>
             </span>
@@ -535,7 +547,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
       if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
       const input = LIB().optimizerInput(day, { base, shopById })
-      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start)
+      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start, input.weekday)
       LIB().renderRouteSuggestion(resultsEl, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
         fmt,
@@ -629,7 +641,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
             if (!name) return
             const hours = form.querySelector('.af-hours').value.trim()
             const arrival = previewArrivalTime(di, { name, hours, tag: '', slot: '', lat: null, lng: null })
-            if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+            if (closedOnAdd(di, { name, hours, tag: '', slot: '' }, arrival)) return
             addCustomStop(di, name, hours)
           } else if (val !== '') {
             const shopIdx = +val
@@ -642,7 +654,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
                 lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
               }
               const arrival = previewArrivalTime(di, tentative)
-              if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+              if (closedOnAdd(di, tentative, arrival)) return
             }
             addShopStop(di, shopIdx)
           }
@@ -782,6 +794,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
       background: rgba(231,76,60,0.15); color: #ff9b8f;
     }
+    .hours-note { font-size: 0.72rem; color: var(--muted); font-style: italic; }
     .closed-warn {
       font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
       font-family: 'IBM Plex Mono', monospace; white-space: nowrap;

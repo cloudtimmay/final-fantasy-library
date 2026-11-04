@@ -101,7 +101,7 @@ test.describe('/itinerary: the day view', () => {
     ], {}, '09:00')
     const block = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Early Shop' }) })
     await expect(block).toHaveClass(/itl-warn-closed/)
-    await expect(block.locator('.itl-badge')).toHaveText('⚠️ Closed ~09:00?')
+    await expect(block.locator('.itl-hours-badge')).toHaveText('Opens 11:00')
   })
 
   test('the flight deadline is a line on the flight day', async ({ page, sanity, trackDoc }) => {
@@ -1233,5 +1233,93 @@ test.describe('/itinerary: "Found here" — the name opens the price, and "✅ B
     await expect(item(page, purchase.name).locator('.found-status')).toHaveText('✅ Bought')
     await expect(page.locator('#itl-ed-found .found-buy')).toHaveCount(0)
     await expect(item(page, purchase.name).locator('a')).toHaveCount(0) // a family purchase has no page
+  })
+})
+
+test.describe('/itinerary on a phone: opening hours on the day\'s weekday', () => {
+  // 5 December 2026 (the test trip's first day) is a Saturday, 6 December a Sunday.
+  const at = (name: string, hours: string, fixedTime: string, dur: number, extra: Record<string, unknown> = {}) =>
+    ({ name, hours, tag: '', slot: '', lat: 35.7, lng: 139.77, dur, fixedTime, ...extra })
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const sheetLines = async (page: Page, name: string) => {
+    await block(page, name).click()
+    await expect(page.locator('#itl-detail')).toBeVisible()
+    const lines = await page.locator('#itl-detail-lines li').allTextContents()
+    await page.locator('#itl-detail-close').click()
+    return lines
+  }
+  // The badge is inside the block's visible box (a short block cuts off what overflows it).
+  async function expectBadgeShown(page: Page, name: string, text: string) {
+    const b = block(page, name)
+    await expect(b).toHaveClass(/itl-warn-/) // a coloured edge (a timing warning's red wins over the hours' orange)
+    const badge = b.locator('.itl-hours-badge')
+    await expect(badge).toHaveText(text)
+    const box = (await b.boundingBox())!, r = (await badge.boundingBox())!
+    expect(r.y + r.height).toBeLessThanOrEqual(box.y + box.height + 0.5)
+  }
+
+  test('arriving before opening, closing during the visit, after closing: badge on the block, full message in the sheet', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      at('Early Shop', '11:00–20:00', '09:00', 30),
+      at('BicCamera AKIBA', '10:00 - 22:00', '21:28', 40), // the real example
+      at('Kamikaze Style Akihabara', '11:00–20:00', '22:13', 30), // the real example
+    ], {}, '08:30')
+    await expectBadgeShown(page, 'Early Shop', 'Opens 11:00')
+    await expectBadgeShown(page, 'BicCamera AKIBA', 'Closes 22:00')
+    await expectBadgeShown(page, 'Kamikaze Style', 'Closes 20:00')
+    expect(await sheetLines(page, 'Early Shop')).toContain('⚠️ Opens 11:00 (you arrive 09:00)')
+    expect(await sheetLines(page, 'BicCamera AKIBA')).toContain('⚠️ Closes 22:00 (you leave 22:08)')
+    expect(await sheetLines(page, 'Kamikaze Style')).toContain('⚠️ Closes 20:00 (you arrive 22:13)')
+    await expect(page.locator('.itl-block', { hasText: '~' })).toHaveCount(0) // no "Closed ~HH:MM?" any more
+  })
+
+  test('closed that weekday (English and Norwegian), and fine on another day', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      at('Closed Saturdays', '10:00–20:00, closed Sat', '12:00', 45),
+      at('Norsk Butikk', 'man–fre 10:00–20:00, lør stengt', '14:00', 30),
+    ], {}, '11:00')
+    await expectBadgeShown(page, 'Closed Saturdays', 'Closed')
+    await expectBadgeShown(page, 'Norsk Butikk', 'Closed')
+    expect(await sheetLines(page, 'Closed Saturdays')).toContain('⚠️ Closed on Saturday')
+    // The same stop on Sunday: open.
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Sunday Shop', hours: '10:00–20:00, closed Sat', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 45, fixedTime: '12:00' }]
+      itl.render()
+    })
+    await expect(block(page, 'Sunday Shop')).not.toHaveClass(/itl-warn-closed/)
+    await expect(block(page, 'Sunday Shop').locator('.itl-hours-badge')).toHaveCount(0)
+  })
+
+  test('a linked shop\'s hours win over the stop\'s note; "Hours not understood" only for text meant as hours', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Hours Shop ${Date.now()}`), openingHours: '11:00 - 20:00', latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    await openTimeline(page, sanity, trackDoc, [
+      at('Linked', 'Lunsj · kontant', '09:00', 30, { shopId: shop._id }),
+      at('Typo Hours', '10:00 - 8:30', '12:00', 30),
+      at('Lunch Note', 'Lunsj · kontant', '13:00', 30),
+    ], {}, '08:30')
+    await expectBadgeShown(page, shop.shopName, 'Opens 11:00') // the shop's hours, not the note
+    await expect(block(page, 'Typo Hours').locator('.itl-hours-note')).toHaveText('Hours not understood')
+    await expect(block(page, 'Typo Hours')).not.toHaveClass(/itl-warn-closed/)
+    await expect(block(page, 'Lunch Note').locator('.itl-hours-note')).toHaveCount(0)
+    expect(await sheetLines(page, 'Typo Hours')).toContain('Hours not understood')
+  })
+
+  test('/itinerary-list shows the same messages', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Hours List Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((stops) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = stops; state[0].startTime = '08:30'; render()
+    }, [at('BicCamera AKIBA', '10:00 - 22:00', '21:28', 40), at('Closed Saturdays', '10:00–20:00, closed Sat', '12:00', 45), at('Typo Hours', '10:00 - 8:30', '14:00', 30)])
+    const card = page.locator('.day-card').first()
+    await expect(card.locator('.closed-warn')).toHaveText(['⚠️ Closes 22:00 (you leave 22:08)', '⚠️ Closed on Saturday'])
+    await expect(card.locator('.hours-note')).toHaveText(['Hours not understood'])
   })
 })

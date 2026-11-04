@@ -142,3 +142,27 @@ test.describe('opening hours: a visit on a given weekday', () => {
     expect(closedOnArrival(checkHours('10:00-22:00', 2, 1288, 1328))).toBe(false) // only closes during the visit
   })
 })
+
+test.describe('opening hours in Check day and Suggest route', () => {
+  test('Check day lists the computed hours problems for the day\'s weekday', async () => {
+    const { hoursReviewItems } = await import('../src/lib/itinerary-review-helpers')
+    const items = hoursReviewItems(
+      ['Kamikaze Style', 'BicCamera AKIBA', 'Closed Saturdays', 'Fine', 'Unknown'],
+      ['11:00–20:00', '10:00 - 22:00', '10:00–20:00, closed Sat', '10:00–20:00', 'Lunsj · kontant'],
+      weekdayIndex('2026-12-05'), // Saturday
+      [{ start: t('22:13'), end: t('22:43') }, { start: t('21:28'), end: t('22:08') }, { start: t('12:00'), end: t('12:45') }, { start: t('12:00'), end: t('13:00') }, { start: t('12:00'), end: t('13:00') }],
+    )
+    expect(items).toEqual([
+      { severity: 'warning', stopIndex: 0, message: 'Kamikaze Style: Closes 20:00 (you arrive 22:13)', suggestion: null },
+      { severity: 'warning', stopIndex: 1, message: 'BicCamera AKIBA: Closes 22:00 (you leave 22:08)', suggestion: null },
+      { severity: 'warning', stopIndex: 2, message: 'Closed Saturdays: Closed on Saturday', suggestion: 'Move it to another day.' },
+    ])
+  })
+
+  test('Suggest route counts a shop closed on the day\'s weekday as closed', async () => {
+    const { optimizeRoute } = await import('../src/lib/route-optimizer')
+    const s = { lat: 35.7, lng: 139.77, durationMin: 60, fixedTime: null, openingHours: '10:00–20:00, closed Sat', note: null }
+    expect(optimizeRoute([s], t('12:00'), { lat: 35.7, lng: 139.77 }, weekdayIndex('2026-12-05')).current.closedCount).toBe(1) // Saturday
+    expect(optimizeRoute([s], t('12:00'), { lat: 35.7, lng: 139.77 }, weekdayIndex('2026-12-06')).current.closedCount).toBe(0) // Sunday
+  })
+})

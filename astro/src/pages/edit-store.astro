@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
+import { googleMapsPlaceUrl } from '../lib/shop-maps'
 import { foundItems, foundPricesQuery, foundPurchasesQuery, formatFoundDate, FOUND_STATUS_LABELS, type FoundItem } from '../lib/shop-found'
 import { formatPriceNokFirst } from '../lib/price-display'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
@@ -189,6 +190,10 @@ if (shop) {
         <section id="shop-photos" class="sp-section" data-shop-id={shop._id}>
           <h2 class="sp-title">📷 Shop photos</h2>
           <p class="sp-hint">Floor guides, shelves, the entrance … saved straight away. Tap a photo to enlarge it.</p>
+          <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts) — from
+               the saved name, coordinates and address. -->
+          <a id="s-gmaps-photos" class="sp-gmaps" target="_blank" rel="noopener"
+             href={googleMapsPlaceUrl({ name: shop.shopName, lat: shop.latitude, lng: shop.longitude, address: shop.address, area: shop.area })}>📷 Photos on Google Maps</a>
           <ul id="sp-list" class="sp-list">
             {photos.map((p, i) => (
               <li class="sp-item" data-key={p._key}>
@@ -781,6 +786,7 @@ if (shop) {
     .sp-status[hidden] { display: none; }
     .sp-empty { font-size: 0.9rem; color: var(--muted); margin: 0; }
     .sp-empty[hidden] { display: none; }
+    .sp-gmaps { display: inline-block; margin: 0 0 0.75rem; color: var(--accent); font-weight: 600; font-size: 0.9rem; text-decoration: none; }
     .sp-add { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
     .sp-add-btn {
       display: inline-block; background: var(--surface); color: var(--text); border: 1px solid var(--accent);

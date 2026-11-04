@@ -39,6 +39,7 @@ export type PlanDay = { day: string; date: string; area: string; note: string; s
 export type PlanTemplateDay = { day: string; date: string; area: string; note?: string; stops: PlanStop[] }
 export type PlanShop = {
   _id: string; shopName?: string; latitude?: number; longitude?: number; note?: string
+  address?: string | null; area?: string | null
   photos?: { caption?: string | null; url: string }[] | null // shopNote.photos (floor guides …)
 }
 export type SavedDays = Record<string, { startTime?: string; stops?: PlanStop[] }>

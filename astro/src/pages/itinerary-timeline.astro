@@ -104,6 +104,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div id="itl-ed-photos" hidden></div>
       <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
       <div id="itl-ed-found" hidden></div>
+      <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts). -->
+      <a id="itl-ed-gmaps" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">📷 Photos on Google Maps</a>
       <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
         <button id="itl-ed-here" type="button">📍 I'm here now</button>
         <button id="itl-ed-leave" type="button">✅ Leaving now</button>
@@ -152,6 +154,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       reminderLinkHtml, shopPhotoStripHtml, foundStripHtml,
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
+    import { googleMapsPlaceUrl } from '../lib/shop-maps'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
@@ -559,6 +562,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const foundEl = document.querySelector('#itl-ed-found') as HTMLElement
       foundEl.innerHTML = foundStrip ? `<p class="itl-strip-title">🔎 Found here</p>${foundStrip}` : ''
       foundEl.hidden = !foundStrip
+      const place = resolveStop(s, shopById)
+      ;(document.querySelector('#itl-ed-gmaps') as HTMLAnchorElement).href = googleMapsPlaceUrl({
+        name: place.name, lat: place.lat, lng: place.lng, address: shop?.address, area: shop?.area,
+      })
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
       const now = nowButtons(day, x)
       ed('here').hidden = !now.here
@@ -927,5 +934,6 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-strip-title { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin: 0.4rem 0 0.1rem; }
     .itl-sheet-empty { font-size: 0.8rem; color: var(--muted); margin: 0.3rem 0; }
     .itl-sheet-empty a { color: var(--accent); }
+    .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

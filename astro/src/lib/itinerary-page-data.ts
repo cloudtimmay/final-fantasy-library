@@ -113,7 +113,7 @@ export async function loadItineraryPageData(url: URL) {
   try {
     shops = await sanity.fetch(`
       *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
-        _id, shopName, area, placeType, openingHours, latitude, longitude, note,
+        _id, shopName, area, placeType, openingHours, latitude, longitude, note, address,
         "photos": photos[defined(asset)]{ caption, "url": asset->url }
       } | order(area asc, shopName asc)
     `)

@@ -3,7 +3,7 @@
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
-import { LEAVE_BUFFER_MIN, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
+import { LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
   name: string
@@ -218,5 +218,26 @@ export function hoursReviewItems(names: string[], hours: Array<string | null>, w
     const w = visitWarning(c)!
     items.push({ severity: 'warning', stopIndex: i, message: `${name}: ${w.message}`, suggestion: c.kind === 'closed-day' ? 'Move it to another day.' : null })
   })
+  return items
+}
+
+// A day that runs too late, and trains after the last trains, for Check day — the same rules
+// as the timeline (itinerary-schedule.ts lateDay / lastTrainLegs), computed, not left to the model.
+export function lateDayReviewItems(names: string[], sched: DaySchedule) {
+  const items: { severity: 'warning'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
+  const late = lateDay(sched)
+  if (late) {
+    const after = late.lateStops.map((i) => `${names[i]} ${formatClock(sched.stops[i].start)}`).join(', ')
+    items.push({ severity: 'warning', stopIndex: null, message: lateDayMessage(late) + (after ? ` (${after})` : ''), suggestion: 'Move the late stops to a day with room.' })
+  }
+  for (const leg of lastTrainLegs(sched)) {
+    const back = leg.index >= names.length
+    items.push({
+      severity: 'warning',
+      stopIndex: back ? names.length - 1 : leg.index,
+      message: `${back ? 'The train back to the base' : `The train to ${names[leg.index]}`} at ${formatClock(leg.departs)}: ${LAST_TRAIN_MESSAGE}.`,
+      suggestion: 'End the day earlier, or plan a taxi.',
+    })
+  }
   return items
 }

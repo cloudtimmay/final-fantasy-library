@@ -40,10 +40,10 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
        "itinerary-lib-ready" event this one sends. -->
   <script>
     import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
-    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
+    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
     import * as itineraryPlan from '../lib/itinerary-plan'
     import * as itineraryUi from '../lib/itinerary-ui'
-    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
+    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE }
     // The inline script's first render waits for this (see itineraryLibReady there).
     window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
@@ -246,20 +246,29 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     // "Next: leave <stop> by HH:MM (in N min)" during the trip — today's next leave-by time in
     // Tokyo (src/lib/itinerary-schedule.ts nextLeave), refreshed by render() and every minute.
     const nextEl = document.querySelector('#itn-next')
+    // A day ending after 23:00 (src/lib/itinerary-schedule.ts lateDay — the same rule as the
+    // timeline, where its stops can be moved to another day in one go).
+    function lateDayHtml(sched) {
+      const late = LIB().lateDay(sched)
+      return late ? `<div class="day-late">⚠️ ${esc(LIB().lateDayMessage(late))}</div>` : ''
+    }
     function updateNextBanner() {
       if (!nextEl || !window.__routeOptimizer) return
       const entries = []
       state.forEach((day) => {
         if (!day.day) return
         const { sched } = computeTimes(day)
+        // A train leg after the last trains (the same rule as the timeline and Check day).
+        const lateTrains = new Set(LIB().lastTrainLegs(sched).map((l) => l.index))
         sched.stops.forEach((x, si) => {
           if (x.leaveBy == null || !day.stops[si + 1]) return
-          entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy })
+          entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy, lastTrain: lateTrains.has(si + 1) })
         })
       })
       const next = window.__routeOptimizer.nextLeave(entries)
       nextEl.hidden = !next
       if (next) nextEl.textContent = `Next: leave ${next.from} by ${fmt(next.leaveBy)} (${next.inMin === 0 ? 'now' : `in ${next.inMin} min`})`
+        + (next.lastTrain ? ` — 🚆 ${LIB().LAST_TRAIN_MESSAGE}` : '')
     }
     // Refreshed just after each minute starts (Japan's offset is whole hours, so the phone's
     // minutes are Tokyo's minutes) — a plain 60 s interval could lag the clock by up to a minute.
@@ -356,6 +365,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
               ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
+              ${lateDayHtml(sched)}
             </div>
             <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
           </div>
@@ -733,6 +743,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
     }
     .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
+    .day-late { font-size: 0.85rem; font-weight: 600; color: #e74c3c; margin-top: 0.3rem; }
     .day-flight { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-top: 0.3rem; }
     .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; line-height: 1.5; }
     .day-startrow { margin-bottom: 0.7rem; }

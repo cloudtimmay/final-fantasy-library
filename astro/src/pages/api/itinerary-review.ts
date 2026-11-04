@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, lateDayReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
 import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
@@ -107,12 +107,14 @@ export const POST: APIRoute = async ({ request }) => {
   const weekday = isIsoDate(body.dayDate) ? weekdayIndex(body.dayDate) : null
   const visits = stops.map((s, i) => (daySchedule ? { start: daySchedule.stops[i].start, end: daySchedule.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
   const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits)
+  // A day running past 23:00 (back at the base) and trains after the last trains.
+  const lateItems = daySchedule ? lateDayReviewItems(stops.map((s) => s.name), daySchedule) : []
 
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
   // … from when you're back at the base (the trip from the last stop included).
   const flightWarning = flight ? flightDeadlineWarning(stops, flight, daySchedule ? daySchedule.end : null) : null
-  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length)
+  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length - lateItems.length)
 
   const backAtBase = daySchedule && daySchedule.returnLeg ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
   const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase)
@@ -199,7 +201,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (flightWarning) items.unshift(flightWarning)
-  items.unshift(...timetableItems, ...hoursItems)
+  items.unshift(...lateItems, ...timetableItems, ...hoursItems)
 
   // Computed deterministically from the notes' own fares, not left to the model's
   // arithmetic — matches the project's convention (see computeTransitions above) of

@@ -32,7 +32,7 @@
 //   none itself.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
-import { tokyoNow } from './trip-dates'
+import { tokyoNow, addDays } from './trip-dates'
 
 // Slack before a fixed-time stop: missing it costs a reservation, a session or a flight.
 export const LEAVE_BUFFER_MIN = 10
@@ -273,11 +273,54 @@ function foldLine(line: string): string {
 // The next leave-by time today, by the clock in Tokyo (whatever timezone the phone is set to):
 // the earliest leg on today's date whose leave-by hasn't passed. null when there's none —
 // before or after the trip, or when today's last leave-by has gone.
-export type LeaveEntry = { date: string; from: string; to: string; leaveBy: number }
+// `lastTrain`: the leg is a train leaving after the last trains (lastTrainLegs).
+export type LeaveEntry = { date: string; from: string; to: string; leaveBy: number; lastTrain?: boolean }
 export function nextLeave(entries: LeaveEntry[], now: Date = new Date()): (LeaveEntry & { inMin: number }) | null {
   const t = tokyoNow(now)
-  const next = entries
+  // A leave-by after midnight (past 24:00 on its day) is on the next calendar day.
+  const onItsDate = entries.map((e) => (e.leaveBy >= 1440 ? { ...e, date: addDays(e.date, Math.floor(e.leaveBy / 1440)), leaveBy: e.leaveBy % 1440 } : e))
+  const next = onItsDate
     .filter((e) => e.date === t.date && e.leaveBy >= t.minutes)
     .sort((a, b) => a.leaveBy - b.leaveBy)[0]
   return next ? { ...next, inMin: next.leaveBy - t.minutes } : null
+}
+
+// --- A day that runs too late (the timeline's day warning, the list, Check day) -------------
+// A day should be over — back at the base — by DAY_LATEST_END_MIN; after midnight shops are
+// mostly closed and the last trains (around midnight) may have gone.
+export const DAY_LATEST_END_MIN = 23 * 60
+export const LAST_TRAIN_MIN = 24 * 60 // a train leg leaving at or after this may not run
+export const LAST_TRAIN_MESSAGE = 'Trains may not run (last trains around midnight)'
+
+const clock = (m: number) => {
+  const v = ((Math.round(m) % 1440) + 1440) % 1440
+  return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`
+}
+
+// The day ends (back at the base) after `latest`: when, and the stops that start after it.
+export function lateDay(sched: DaySchedule, latest: number = DAY_LATEST_END_MIN): { end: number; latest: number; lateStops: number[] } | null {
+  if (!sched.stops.length || sched.end <= latest) return null
+  return { end: sched.end, latest, lateStops: sched.stops.map((x, i) => (x.start > latest ? i : -1)).filter((i) => i >= 0) }
+}
+// "This day ends at 03:48. 3 stops start after 23:00. Move some to another day."
+export function lateDayMessage(l: { end: number; latest: number; lateStops: number[] }): string {
+  const n = l.lateStops.length
+  return n
+    ? `This day ends at ${clock(l.end)}. ${n} stop${n === 1 ? ' starts' : 's start'} after ${clock(l.latest)}. Move some to another day.`
+    : `This day ends at ${clock(l.end)}, after ${clock(l.latest)}. Move some stops to another day.`
+}
+// A visit that starts after midnight (the day's own date, minutes past 24:00).
+export const afterMidnight = (x: ScheduledStop) => x.start >= 1440
+
+// Train legs leaving at or after LAST_TRAIN_MIN: the leg into stop `index`, or (index = the
+// number of stops) the trip back to the base. A leg with a typed-in time has no known mode.
+export function lastTrainLegs(sched: DaySchedule): { index: number; departs: number }[] {
+  const out: { index: number; departs: number }[] = []
+  sched.stops.forEach((x, i) => {
+    const departs = x.arrival - x.travelIn.minutes
+    if (x.travelIn.mode === 'train' && departs >= LAST_TRAIN_MIN) out.push({ index: i, departs })
+  })
+  const last = sched.stops[sched.stops.length - 1]
+  if (last && sched.returnLeg?.mode === 'train' && last.end >= LAST_TRAIN_MIN) out.push({ index: sched.stops.length, departs: last.end })
+  return out
 }

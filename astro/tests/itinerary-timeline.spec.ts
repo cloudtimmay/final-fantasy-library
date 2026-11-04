@@ -1387,3 +1387,87 @@ test.describe('/itinerary on a phone: the base at the start and end of the day',
     expect(flightDeadlineWarning([lastStop], flight, backAt)!.message).toContain('The day ends back at the base at')
   })
 })
+
+test.describe('/itinerary on a phone: a day that runs too late', () => {
+  // The real example: stops at 00:12 (DAISO, 10:00–22:00), 01:58 (Takadanobaba Mikado,
+  // 10:00–23:30) and 03:03, back at the base at 03:48. No coordinates, so no travel time between
+  // them — the times are exactly these.
+  const LATE_DAY = [
+    { name: 'Evening Stop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 132 },
+    { name: 'DAISO', hours: '10:00–22:00', tag: '', slot: '', lat: null, lng: null, dur: 106 },
+    { name: 'Takadanobaba Mikado', hours: '10:00–23:30', tag: '', slot: '', lat: null, lng: null, dur: 65 },
+    { name: 'Last Stop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 45 },
+  ]
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+
+  test('the day warning with the end time and count, "After midnight" and closed badges, and moving a late stop away', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, LATE_DAY, {}, '22:00')
+    // The other day, with one stop ending 11:00.
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Morning Stop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 60 }]
+      itl.state[1].startTime = '10:00'
+      itl.render()
+    })
+    const late = page.locator('#itl-late')
+    await expect(late.locator('.itl-late-msg')).toHaveText('⚠️ This day ends at 03:48. 3 stops start after 23:00. Move some to another day.')
+    await expect(late.locator('.itl-late-name')).toHaveText(['DAISO · 00:12', 'Takadanobaba Mikado · 01:58', 'Last Stop · 03:03'])
+    await expect(late.locator('.itl-late-move').first().locator('option')).toHaveText(['Move to…', 'Sun 6 Dec, ends 11:00'])
+
+    await expect(block(page, 'DAISO').locator('.itl-late-badge')).toHaveText('After midnight')
+    await expect(block(page, 'DAISO').locator('.itl-hours-badge')).toHaveText('Closes 22:00')
+    await expect(block(page, 'Takadanobaba Mikado').locator('.itl-late-badge')).toHaveText('After midnight')
+    await expect(block(page, 'Takadanobaba Mikado').locator('.itl-hours-badge')).toHaveText('Closes 23:30')
+    await expect(block(page, 'Evening Stop').locator('.itl-late-badge')).toHaveCount(0) // starts 22:00
+    await expect(page.locator('.itl-base-end')).toHaveText('🏠 Back at base ~03:48')
+
+    // Move DAISO to Sunday: it leaves the warning, the day ends earlier, and it's saved there.
+    await late.locator('.itl-late-item', { hasText: 'DAISO' }).locator('select').selectOption('2026-12-06')
+    await expect(late.locator('.itl-late-msg')).toHaveText('⚠️ This day ends at 02:02. 2 stops start after 23:00. Move some to another day.')
+    await expect(late.locator('.itl-late-name')).toHaveText(['Takadanobaba Mikado · 00:12', 'Last Stop · 01:17'])
+    await expect(block(page, 'DAISO')).toHaveCount(0)
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].stops.some((s: any) => s.name === 'DAISO'), { timeout: 10000 }).toBe(true)
+    expect(saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Evening Stop', 'Takadanobaba Mikado', 'Last Stop'])
+  })
+
+  test('the last-train warning: a train after midnight, to a stop and back to the base', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Near Base', hours: '', tag: '', slot: '', lat: 35.697999, lng: 139.770830, dur: 40 },
+      { name: 'Yokohama Night', hours: '', tag: '', slot: '', lat: 35.464556, lng: 139.624649, dur: 30 },
+    ], {}, '23:30')
+    await expect(block(page, 'Yokohama Night').locator('.itl-late-badge', { hasText: 'Last trains' })).toBeVisible()
+    await expect(block(page, 'Near Base').locator('.itl-late-badge', { hasText: 'Last trains' })).toHaveCount(0) // a walk
+    await expect(page.locator('.itl-base-end')).toContainText('🚆 Trains may not run (last trains around midnight)')
+    await block(page, 'Yokohama Night').click()
+    const lines = await page.locator('#itl-detail-lines li').allTextContents()
+    expect(lines.some((l) => /^⚠️ The train here at 00:\d\d: Trains may not run \(last trains around midnight\)$/.test(l))).toBe(true)
+    expect(lines.some((l) => l.startsWith('⚠️ The train back to the base at'))).toBe(true)
+  })
+
+  test('the same rules in Check day, the list and the "Next" banner', async ({ page, sanity, trackDoc }) => {
+    const { lateDayReviewItems } = await import('../src/lib/itinerary-review-helpers')
+    const { scheduleDay, nextLeave } = await import('../src/lib/itinerary-schedule')
+    const inputs = LATE_DAY.map((s) => ({ name: s.name, lat: null, lng: null, durationMin: s.dur, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null }))
+    const sched = scheduleDay(inputs, t('22:00'), BASE)
+    expect(lateDayReviewItems(LATE_DAY.map((s) => s.name), sched)).toEqual([{
+      severity: 'warning', stopIndex: null,
+      message: 'This day ends at 03:48. 3 stops start after 23:00. Move some to another day. (DAISO 00:12, Takadanobaba Mikado 01:58, Last Stop 03:03)',
+      suggestion: 'Move the late stops to a day with room.',
+    }])
+    // A leave-by after midnight is on the next date; a late train is passed on to the banner.
+    const next = nextLeave([{ date: '2026-12-05', from: 'A', to: 'B', leaveBy: t('00:20') + 1440, lastTrain: true }], new Date('2026-12-06T00:10:00+09:00'))
+    expect(next).toMatchObject({ date: '2026-12-06', leaveBy: t('00:20'), inMin: 10, lastTrain: true })
+
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Late List Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((stops) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = stops; state[0].startTime = '22:00'; render()
+    }, LATE_DAY)
+    await expect(page.locator('.day-card').first().locator('.day-late')).toHaveText('⚠️ This day ends at 03:48. 3 stops start after 23:00. Move some to another day.')
+  })
+})

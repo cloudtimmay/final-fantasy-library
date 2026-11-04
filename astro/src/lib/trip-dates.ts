@@ -100,3 +100,12 @@ export function parseTokyoDateTime(s: unknown): { date: string; minutes: number 
   if (!m || !isIsoDate(m[1])) return null
   return { date: m[1], minutes: +m[2] * 60 + +m[3] }
 }
+
+// "Thu 3 Dec" — short, in English (the timeline's "Move to…" list).
+const WEEKDAYS_EN_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS_EN_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export function formatDayShortEn(iso: string): string {
+  const p = parseIsoDate(iso)
+  if (!p) return iso
+  return `${WEEKDAYS_EN_SHORT[weekdayIndex(iso)]} ${p.d} ${MONTHS_EN_SHORT[p.m - 1]}`
+}

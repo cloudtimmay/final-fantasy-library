@@ -1,9 +1,7 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, testName, uniqueJan } from './fixtures'
+import { uniquePng } from './helpers/unique-image'
 
-const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
 const card = (page: Page, name: string) => page.locator('.note-card').filter({ has: page.locator('.note-name', { hasText: name }) })
 
@@ -13,7 +11,7 @@ test.describe('/notes: what was found at each shop', () => {
     trackDoc(shop._id)
     const bare = await sanity.create({ _type: 'shopNote', shopName: testName(`Bare Shop ${Date.now()}`), placeType: 'shop' })
     trackDoc(bare._id)
-    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'notes-found-test.png' })
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'notes-found-test.png' })
     uploadedAssets.push(asset._id)
 
     // Five products seen on 1–5 November (the newest with a photo), one of them twice, plus a

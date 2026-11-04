@@ -1,9 +1,7 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
+import { uniquePng, uniquePngFile } from './helpers/unique-image'
 
-const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 const items = (page: Page) => page.locator('#sp-list .sp-item')
 // The captions in order, as the page shows them.
 const captions = (page: Page) => items(page).locator('.sp-caption').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
@@ -22,7 +20,7 @@ test.describe('/edit-store: shop photos', () => {
 
     await page.goto(`/edit-store?id=${shop._id}`)
     await expect(page.locator('#sp-empty')).toBeVisible()
-    await page.locator('#sp-gallery').setInputFiles(PHOTO)
+    await page.locator('#sp-gallery').setInputFiles(uniquePngFile())
     const item = items(page).first()
     await expect(item.locator('.sp-status')).toHaveText('Added ✓', { timeout: 20000 })
     await expect(page.locator('#sp-empty')).toBeHidden()
@@ -45,7 +43,7 @@ test.describe('/edit-store: shop photos', () => {
   })
 
   test('▲▼ reorder and Remove (after a confirmation) are saved in the shop', async ({ page, sanity, trackDoc, uploadedAssets }) => {
-    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'shop-photo-test.png' })
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'shop-photo-test.png' })
     uploadedAssets.push(asset._id) // deleted after the shop
     const photo = (key: string, caption: string) => ({ _key: key, _type: 'image', asset: { _type: 'reference', _ref: asset._id }, caption })
     const shop = await sanity.create({
@@ -91,7 +89,7 @@ test.describe('/edit-store: shop photos', () => {
     expect(action.status()).toBe(400)
     // A shop has photos only — no main image.
     const image = await request.post('/api/upload-image', {
-      multipart: { file: { name: 'x.png', mimeType: 'image/png', buffer: fs.readFileSync(PHOTO) }, docId: shop._id, field: 'image' },
+      multipart: { file: { name: 'x.png', mimeType: 'image/png', buffer: uniquePng() }, docId: shop._id, field: 'image' },
       headers: { Origin: 'http://localhost:4321' }, // a form post from the site itself
     })
     expect(image.status()).toBe(400)

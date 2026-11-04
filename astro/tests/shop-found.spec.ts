@@ -1,9 +1,7 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { test, expect, testName, uniqueJan } from './fixtures'
+import { uniquePng } from './helpers/unique-image'
 import { foundItems, foundThumbs, formatFoundDate } from '../src/lib/shop-found'
 
-const PHOTO = path.join(__dirname, '..', 'public', 'icons', 'album.png')
 const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
 
 test.describe('shop-found (lib/shop-found.ts)', () => {
@@ -38,7 +36,7 @@ test.describe('/edit-store: "Found here"', () => {
     trackDoc(shop._id)
     const other = await sanity.create({ _type: 'shopNote', shopName: testName(`Other Shop ${Date.now()}`) })
     trackDoc(other._id)
-    const asset = await sanity.assets.upload('image', fs.readFileSync(PHOTO), { filename: 'found-here-test.png' })
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'found-here-test.png' })
     uploadedAssets.push(asset._id)
 
     const fromPrice = await sanity.create({ _type: 'familyPurchase', person: 'Kim', name: testName('Bought From Price'), store: ref(shop._id), status: 'bought', purchaseDate: '2026-11-03', priceYen: 5500 })

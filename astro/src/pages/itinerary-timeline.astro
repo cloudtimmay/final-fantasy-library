@@ -510,6 +510,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     function closeSheet() { detail.hidden = true; sheetStop = null }
     document.querySelector('#itl-detail-close')!.addEventListener('click', closeSheet)
 
+    // The shop's page (/edit-store), with "← Back to timeline" to this day (and trip).
+    function shopPageUrl(shopId: string, hash = '') {
+      const params = new URLSearchParams({ id: shopId, from: 'timeline', day: currentDay })
+      const trip = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '').get('trip')
+      if (trip) params.set('trip', trip)
+      return `/edit-store?${params.toString()}${hash}`
+    }
     function fillSheet() {
       const day = sheetDay()
       const idx = sheetIdx()
@@ -526,7 +533,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
       if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
-      ;(document.querySelector('#itl-detail-name') as HTMLElement).textContent = resolveStop(s, shopById).name
+      // The name opens the linked shop's page, which links back to this day.
+      const nameEl = document.querySelector('#itl-detail-name') as HTMLElement
+      const stopName = resolveStop(s, shopById).name
+      if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
+      else nameEl.textContent = stopName
       const strip = shopPhotoStripHtml(s.shopId ? shopById.get(s.shopId) : null)
       const photosEl = document.querySelector('#itl-ed-photos') as HTMLElement
       photosEl.innerHTML = strip
@@ -889,5 +900,6 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-detail-head button, .itl-sheet .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
     .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
     .itl-detail-edit { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
+    #itl-detail-shop { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   </style>
 </Base>

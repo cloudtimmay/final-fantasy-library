@@ -8,6 +8,18 @@ import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 
 const id = (Astro.url.searchParams.get('id') || '').trim()
 
+// Opened from the timeline's edit sheet (?from=timeline&day=YYYY-MM-DD&trip=<id>): "← Back to
+// timeline" returns to that day (and trip).
+let timelineBack: string | null = null
+if (Astro.url.searchParams.get('from') === 'timeline') {
+  const back = new URLSearchParams()
+  const day = Astro.url.searchParams.get('day') || ''
+  const trip = Astro.url.searchParams.get('trip') || ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) back.set('day', day)
+  if (/^[\w.-]{1,100}$/.test(trip)) back.set('trip', trip)
+  timelineBack = `/itinerary-timeline${back.toString() ? `?${back.toString()}` : ''}`
+}
+
 let shop: any = null
 if (id) {
   shop = await sanity.fetch(
@@ -62,6 +74,7 @@ if (shop) {
       </>
     ) : (
       <>
+        {timelineBack && <a id="s-back-timeline" href={timelineBack} class="back-link back-top">← Back to timeline</a>}
         <h1>Edit shop</h1>
         <p class="hint">Update the details for this shop.</p>
 
@@ -239,7 +252,9 @@ if (shop) {
           )}
         </section>
 
-        <a href="/notes" class="back-link">← Back to notes</a>
+        {timelineBack
+          ? <a href={timelineBack} class="back-link">← Back to timeline</a>
+          : <a href="/notes" class="back-link">← Back to notes</a>}
       </>
     )}
   </div>
@@ -707,6 +722,7 @@ if (shop) {
     .fh-considering, .fh-planned { color: var(--accent); }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+    .back-top { margin: 0 0 0.25rem; }
 
     .ai-fill-btn {
       width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--accent);

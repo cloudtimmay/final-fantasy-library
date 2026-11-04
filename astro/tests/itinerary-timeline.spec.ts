@@ -911,3 +911,50 @@ test.describe('itinerary: the linked shop\'s photos', () => {
     await expect(card.locator('.mc-panel.open').nth(1).locator('.shop-photo-strip')).toHaveCount(0)
   })
 })
+
+test.describe('/itinerary-timeline: the edit sheet\'s shop link', () => {
+  test('the linked shop\'s name opens its page, whose "← Back to timeline" returns to the same day; an unlinked stop has no link', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Sheet Link Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    const { trip } = await openTimeline(page, sanity, trackDoc, [])
+    // The second day, so "the same day" isn't just the first one.
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate((shopId) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [
+        { name: 'Linked', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId, travelMin: 0, travelFrom: '__base__' },
+        { name: 'Not Linked Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60 },
+      ]
+      itl.render()
+    }, shop._id)
+
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Not Linked Stop' }) }).click()
+    await expect(page.locator('#itl-detail-name')).toHaveText('Not Linked Stop')
+    await expect(page.locator('#itl-detail-shop')).toHaveCount(0)
+    await page.locator('#itl-detail-close').click()
+
+    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: shop.shopName }) }).click()
+    const link = page.locator('#itl-detail-shop')
+    await expect(link).toHaveText(shop.shopName)
+    await expect(link).toHaveAttribute('href', `/edit-store?id=${shop._id}&from=timeline&day=2026-12-06&trip=${trip._id}`)
+    await link.click()
+    await expect(page.getByRole('heading', { name: 'Edit shop' })).toBeVisible()
+    const back = page.locator('#s-back-timeline')
+    await expect(back).toHaveText('← Back to timeline')
+    await expect(back).toHaveAttribute('href', `/itinerary-timeline?day=2026-12-06&trip=${trip._id}`)
+    await back.click()
+    await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
+  })
+
+  test('the shop page without ?from=timeline keeps "← Back to notes" only', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`No Back Shop ${Date.now()}`) })
+    trackDoc(shop._id)
+    await page.goto(`/edit-store?id=${shop._id}&day=2026-12-06`)
+    await expect(page.locator('#s-back-timeline')).toHaveCount(0)
+    await expect(page.locator('a.back-link')).toHaveText('← Back to notes')
+    // A made-up day or trip never ends up in the link.
+    await page.goto(`/edit-store?id=${shop._id}&from=timeline&day=tomorrow&trip=${encodeURIComponent('"><x')}`)
+    await expect(page.locator('#s-back-timeline')).toHaveAttribute('href', '/itinerary-timeline')
+  })
+})

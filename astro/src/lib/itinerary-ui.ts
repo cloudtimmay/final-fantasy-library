@@ -1,4 +1,4 @@
-// The itinerary's interactive parts, shared by /itinerary (the list) and /itinerary-timeline:
+// The itinerary's interactive parts, shared by /itinerary-list (the list) and /itinerary (the timeline):
 // the Leaflet map, the per-leg travel time editor, the "Check day" results and the "Suggest
 // route" preview with Apply/Undo. They build the same elements and classes on both pages (styled
 // by src/styles/itinerary-shared.css). Changing the plan is always left to the page, through the

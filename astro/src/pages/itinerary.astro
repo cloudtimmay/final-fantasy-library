@@ -1,902 +1,940 @@
 ---
 import Base from '../layouts/Base.astro'
-import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import { loadItineraryPageData, loadShopFinds } from '../lib/itinerary-page-data'
 import '../styles/itinerary-shared.css'
+import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 
-// The default plan, the trip and its days, the flight home, the shops and the saved plan —
-// shared with /itinerary-timeline (src/lib/itinerary-page-data.ts).
-const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels } = await loadItineraryPageData(Astro.url)
-const tripParam = Astro.url.searchParams.get('trip')
-const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
+// The itinerary: a calendar-style day view of the plan. The same plan as the list
+// (/itinerary-list): the same data (loadItineraryPageData),
+// the same timetable (itinerary-plan.ts computeDayTimes) and the same saved format.
+const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
+// "Found here" per shop, for the edit sheet (the shop page's list).
+const { found, rate: foundRate } = await loadShopFinds()
+// ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
+const requestedDay = Astro.url.searchParams.get('day') || ''
+// ?now=YYYY-MM-DDTHH:MM (Tokyo time) stands in for the clock on this page — to try "I'm here
+// now" before the trip. Shown as "Test time" whenever it's used.
+const testNow = parseTokyoDateTime(Astro.url.searchParams.get('now'))
+const today = (testNow || tokyoNow()).date
+const initialDay = days.includes(requestedDay) ? requestedDay : days.includes(today) ? today : days[0]
+const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURIComponent(Astro.url.searchParams.get('trip')!)}` : ''
 ---
-<Base title="Itinerary">
-  <div class="page-header">
-    <h1>Shopping-plan</h1>
-    <span class="count">{rangeLabel} · base Akihabara</span>
-    <a id="itn-timeline-link" class="itn-timeline-link" href={`/itinerary-timeline${tripQuery}`}>🗓️ Timeline (beta)</a>
-  </div>
-  {!usingTripDays && (
-    <p class="plan-days-hint">Days from the plan's own dates. Set "First day in Tokyo" and "Last day in Tokyo" in Trip Settings{trip?.label ? ` (${trip.label})` : ''} to show the trip's days.</p>
-  )}
-
-  <div class="plan-tip">
-    <span>Endringer lagres automatisk og synkes mellom enhetene dine. Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
-    <div class="tip-actions">
-      <span id="save-status" class="save-status"></span>
-      <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
+<Base title="Timeline">
+  <div class="itl-wrap" data-initial-day={initialDay} data-trip-query={tripQuery}>
+    <div class="itl-nav">
+      <a id="itl-list-link" href={`/itinerary-list${tripQuery}`} class="itl-nav-link">📋 List view</a>
+      <span id="itl-save-status" class="itl-save-status"></span>
     </div>
+    <h1>Timeline <span class="itl-beta">beta</span></h1>
+    <!-- Shown while a test time is set (?now=, or the "🧪 Test time" control below). -->
+    <p id="itl-test-time" class="itl-test-time" data-date={testNow ? testNow.date : ''} data-minutes={testNow ? testNow.minutes : ''} hidden={!testNow}>
+      🧪 Test time: <span id="itl-test-time-text">{testNow ? `${testNow.date} ${String(Math.floor(testNow.minutes / 60)).padStart(2, '0')}:${String(testNow.minutes % 60).padStart(2, '0')}` : ''}</span> (Tokyo) — "Clear test time" to use the real clock
+    </p>
+
+    <div class="itl-tabs" id="itl-tabs" role="tablist">
+      {days.map((d) => (
+        <button type="button" role="tab" class:list={['itl-tab', { active: d === initialDay }]} data-day={d} aria-selected={d === initialDay ? 'true' : 'false'}>{labels[d]}</button>
+      ))}
+    </div>
+
+    <div class="itl-toolbar">
+      <p class="itl-hint">Tap an empty spot to add a stop there.</p>
+      <div class="itl-zoom" role="group" aria-label="Zoom">
+        <button id="itl-zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="itl-zoom-in" type="button" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="itl-daybar">
+      <label class="itl-start">🕗 Start <input id="itl-start" type="time" /></label>
+      <button id="itl-check-btn" type="button" class="itl-daybtn">🔍 Check day</button>
+      <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
+      <span id="itl-dayroute" class="itl-dayroute"></span>
+      <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
+      <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
+      <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
+    </div>
+    <!-- "🧪 Test time": pretend it's this date and time in Tokyo — the same as ?now=. -->
+    <form id="itl-test-form" class="itl-test-form" hidden>
+      <select id="itl-test-date" aria-label="Test date">
+        {days.map((d) => <option value={d}>{labels[d]}</option>)}
+      </select>
+      <input id="itl-test-clock" type="time" aria-label="Test time of day" required />
+      <button id="itl-test-set" type="submit" class="itl-daybtn">Set</button>
+      <button id="itl-test-cancel" type="button" class="itl-daybtn">Cancel</button>
+    </form>
+    <details id="itl-map-section" class="itl-map-section">
+      <summary>🗺️ Map</summary>
+      <div id="itl-map" class="day-map itl-map"></div>
+    </details>
+    <div id="itl-check-results" class="itl-panel" hidden></div>
+    <div id="itl-route-results" class="itl-panel" hidden></div>
+    <div id="itl-travel-editor" class="itl-travel-editor" hidden>
+      <div class="itl-travel-editor-head">
+        <strong id="itl-travel-editor-title"></strong>
+        <button id="itl-travel-editor-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <div id="itl-travel-edit" class="itn-travel-edit"></div>
+    </div>
+
+    <form id="itl-add" class="itl-add" hidden>
+      <p class="itl-add-title">Add a stop around <strong id="itl-add-time"></strong></p>
+      <select id="itl-add-shop" aria-label="Shop"></select>
+      <div id="itl-add-custom" class="itl-add-custom" hidden>
+        <input id="itl-add-name" type="text" placeholder="Name *" />
+        <input id="itl-add-hours" type="text" placeholder="Info (optional)" />
+      </div>
+      <label class="itl-add-dur">Duration <input id="itl-add-dur" type="number" min="5" step="5" value="45" /> min</label>
+      <p class="itl-add-note">It goes after the stops that start before this time; the day is recalculated, so its time may move.</p>
+      <div class="itl-add-actions">
+        <button id="itl-add-save" type="submit">Add</button>
+        <button id="itl-add-cancel" type="button">Cancel</button>
+      </div>
+    </form>
+
+    <!-- Tap a block: this bottom sheet, with everything the list's ⋯ menu offers (plus tag and
+         note). Fixed to the bottom of the screen above the nav; no sticky, no backdrop-filter. -->
+    <div id="itl-detail" class="itl-detail itl-sheet" role="dialog" aria-label="Edit stop" hidden>
+      <div class="itl-detail-head">
+        <strong id="itl-detail-name"></strong>
+        <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
+      <!-- The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml) — or, when it has none, a
+           link to add some on its page — and what was found there (foundStripHtml). -->
+      <div id="itl-ed-photos" hidden></div>
+      <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
+      <div id="itl-ed-found" hidden></div>
+      <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts). -->
+      <a id="itl-ed-gmaps" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">📷 Photos on Google Maps</a>
+      <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
+        <button id="itl-ed-here" type="button">📍 I'm here now</button>
+        <button id="itl-ed-leave" type="button">✅ Leaving now</button>
+      </div>
+      <div class="itl-sheet-grid">
+        <label>⏱ Duration <span><input id="itl-ed-dur" type="number" min="5" step="5" /> min</span></label>
+        <label>🕐 Fixed time <input id="itl-ed-time" type="time" /></label>
+        <label id="itl-ed-early-label">Arrive early <span><input id="itl-ed-early" type="number" min="0" step="5" /> min</span></label>
+        <label>Tag <input id="itl-ed-tag" type="text" list="itl-tag-options" placeholder="MUST, mat …" /></label>
+      </div>
+      <datalist id="itl-tag-options"><option value="MUST"></option><option value="mat"></option><option value="sett av tid"></option></datalist>
+      <label class="itl-sheet-note">Note <textarea id="itl-ed-note" rows="2"></textarea></label>
+      <div class="itl-sheet-row">
+        <button id="itl-ed-up" type="button">▲ Up</button>
+        <button id="itl-ed-down" type="button">▼ Down</button>
+        <label>Move to <select id="itl-ed-move"></select></label>
+      </div>
+      <div class="itl-sheet-row">
+        <input id="itl-ed-coord" type="text" placeholder="lat, lng (from Google Maps)" aria-label="Coordinates" />
+        <button id="itl-ed-coord-save" type="button">Save</button>
+        <button id="itl-ed-coord-fetch" type="button">🔄 From the shop</button>
+      </div>
+      <p id="itl-ed-coord-msg" class="itl-sheet-msg" hidden></p>
+      <div class="itl-sheet-row itl-sheet-foot">
+        <button id="itl-ed-delete" type="button" class="itl-sheet-delete">🗑️ Delete</button>
+        <a id="itl-detail-edit" class="itl-detail-edit" href="/itinerary-list">Edit in list →</a>
+      </div>
+    </div>
+
+    <div id="itl-day" class="itl-day"></div>
   </div>
 
-  <p id="itn-next" class="itn-next" role="status" hidden></p>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate })}></script>
 
-  <div id="days"></div>
-
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, flight, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
-
-  <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
-       safely convert to a module) and so can't use `import`. This tiny module script
-       imports the shared itinerary code from src/lib and exposes it on window for that
-       script; module scripts run after it, so its first render waits for the
-       "itinerary-lib-ready" event this one sends. -->
   <script>
-    import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
-    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
-    import * as itineraryPlan from '../lib/itinerary-plan'
-    import * as itineraryUi from '../lib/itinerary-ui'
-    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
-    // The inline script's first render waits for this (see itineraryLibReady there).
-    window.dispatchEvent(new Event('itinerary-lib-ready'))
-  </script>
+    import {
+      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, looksClosed,
+      shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
+      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
+      type PlanDay, type PlanShop, type PlanStop,
+    } from '../lib/itinerary-plan'
+    import {
+      loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
+      renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
+      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml,
+    } from '../lib/itinerary-ui'
+    import type { FoundItem } from '../lib/shop-found'
+    import { googleMapsPlaceUrl } from '../lib/shop-maps'
+    import { optimizeRoute } from '../lib/route-optimizer'
+    import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
+    import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
+    import { tokyoNow } from '../lib/trip-dates'
 
-  <script is:inline>
+    const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
+    const { plan, days, labels, flight, base, shops, savedState } = DATA
+    const foundByShop: Record<string, FoundItem[]> = DATA.found || {}
+    const foundRate: number | null = DATA.foundRate ?? null
+    const shopById = new Map<string, PlanShop>((shops || []).map((s: PlanShop) => [s._id, s]))
+    const wrap = document.querySelector('.itl-wrap') as HTMLElement
+    const dayEl = document.querySelector('#itl-day') as HTMLElement
+    const esc = (s: unknown) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
-    const STORE_KEY = 'ff-itinerary-v12'
-    const DEFAULT_START = '08:00'
-    const raw = document.querySelector('#plan-data')?.textContent || '{}'
-    // `days`: the dates shown, in order; `labels`: "1. des (tir)" for every date the page knows
-    // (computed on the server by lib/trip-dates.ts — this script never works out a weekday).
-    const { plan, days, labels, flight, areaMin, base, shops, savedState } = JSON.parse(raw)
-    const templateByDay = new Map(plan.map((d) => [d.day, d]))
-    const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
-    const daysEl = document.querySelector('#days')
-    const resetBtn = document.querySelector('#reset-btn')
-    const saveStatusEl = document.querySelector('#save-status')
-
-    let mapInstances = []
-    let leafletOk = false
-    // Per-day previous stop order, kept only in memory (not saved/synced) — lets "Undo"
-    // restore the order from right before the most recent "Apply", until the page reloads.
-    let undoByDay = {}
-
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
-    }
-
-    // The shop picker: shops grouped by area (src/lib/itinerary-plan.ts, shared with the timeline).
-    // Built at startup, once that module has loaded.
-    function buildShopOptions() {
-      if (!shops || !shops.length) return ''
-      let html = ''
-      window.__routeOptimizer.shopOptionGroups(shops).forEach(({ area, items }) => {
-        html += `<optgroup label="${esc(area)}">`
-        items.forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
-        html += `</optgroup>`
-      })
-      return html
-    }
-    let SHOP_OPTIONS = ''
-
-    // The saved plan, as { "YYYY-MM-DD": { startTime, stops } }. Saved as { v: 2, days }; an
-    // older save is an array with one entry per plan day in the plan's order (1.–7. des), so
-    // entry i is read as the plan's i-th date.
-    // The plan's load/save rules live in src/lib/itinerary-plan.ts (shared with /itinerary-timeline).
-    const LIB = () => window.__routeOptimizer
-    function normalizeSaved(p) { return LIB().normalizeSavedPlan(p, plan) }
-    // Prefer server-synced state; fall back to local cache.
+    // The same load as the list (/itinerary-list): the server's saved plan, else this browser's copy.
+    const STORE_KEY = 'ff-itinerary-v12' // must match itinerary-list.astro
     function loadSaved() {
-      if (savedState) { try { const p = normalizeSaved(JSON.parse(savedState)); if (p) return p } catch (e) {} }
-      try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSaved(JSON.parse(s)) : null } catch { return null }
+      if (savedState) { try { const p = normalizeSavedPlan(JSON.parse(savedState), plan); if (p) return p } catch (e) {} }
+      try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSavedPlan(JSON.parse(s), plan) : null } catch { return null }
     }
+    const built = buildPlanState(plan, days, labels, loadSaved() || {})
+    let state: PlanDay[] = built.state
+    const extraDays = built.extraDays
+    let currentDay: string = wrap.dataset.initialDay || days[0]
 
-    function setStatus(text, color) {
-      if (!saveStatusEl) return
-      saveStatusEl.textContent = text
-      saveStatusEl.style.color = color || 'var(--muted)'
+    // Zoom (pixels per minute), remembered in this browser — storage can be unavailable (private
+    // mode, blocked), so every access is guarded and the default is used then.
+    const ZOOM_KEY = 'ff-timeline-zoom'
+    let zoomIndex = DEFAULT_ZOOM_INDEX
+    try {
+      const saved = Number(localStorage.getItem(ZOOM_KEY))
+      if (Number.isInteger(saved) && saved >= 0 && saved < ZOOM_LEVELS.length && localStorage.getItem(ZOOM_KEY) !== null) zoomIndex = saved
+    } catch (e) {}
+    const zoomOut = document.querySelector('#itl-zoom-out') as HTMLButtonElement
+    const zoomIn = document.querySelector('#itl-zoom-in') as HTMLButtonElement
+    function setZoom(i: number) {
+      zoomIndex = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, i))
+      try { localStorage.setItem(ZOOM_KEY, String(zoomIndex)) } catch (e) {}
+      render()
     }
+    zoomOut.addEventListener('click', () => setZoom(zoomIndex - 1))
+    zoomIn.addEventListener('click', () => setZoom(zoomIndex + 1))
 
-    let saveTimer = null
-    function scheduleRemoteSave(payload) {
-      setStatus('Lagrer…', 'var(--muted)')
+    // Saving: the same as the list — the whole plan in its { v: 2, days } form
+    // (serializePlan), in this browser and, a second later, to /api/itinerary-save.
+    const saveStatus = document.querySelector('#itl-save-status') as HTMLElement
+    let saveTimer: ReturnType<typeof setTimeout> | undefined
+    function saveState() {
+      const payload = serializePlan(state, extraDays)
+      try { localStorage.setItem(STORE_KEY, payload) } catch {}
+      saveStatus.textContent = 'Lagrer…'
       clearTimeout(saveTimer)
       saveTimer = setTimeout(async () => {
         try {
-          const res = await fetch('/api/itinerary-save', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: payload }),
-          })
-          setStatus(res.ok ? 'Lagret ✓' : 'Lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
+          const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload }) })
+          saveStatus.textContent = res.ok ? 'Lagret ✓' : 'Lagring feilet'
         } catch (e) {
-          setStatus('Lagret lokalt (ingen nett)', '#e0a04c')
+          saveStatus.textContent = 'Lagret lokalt (ingen nett)'
         }
       }, 1000)
     }
 
-    // Saves every date, the "Not scheduled" ones (extraDays) included — a stop is only ever
-    // removed by the user, never by the trip's days changing.
-    function saveState() {
-      const payload = LIB().serializePlan(state, extraDays)
-      try { localStorage.setItem(STORE_KEY, payload) } catch {}
-      scheduleRemoteSave(payload)
-    }
+    // The clock in Tokyo — or the ?now= test time (see the frontmatter), which stays put.
+    const testTimeEl = document.querySelector('#itl-test-time') as HTMLElement
+    const nowTokyo = () => !testTimeEl.hidden
+      ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
+      : tokyoNow()
 
-    // One date's day: its saved version, else the plan's default for that date, else empty.
-    function dayEntry(iso, s) { return LIB().planDayEntry(iso, s, templateByDay, labels) }
-    // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
-    // default) — their stops are shown under "Not scheduled" until moved to a day. Built once the
-    // shared module has loaded (see the startup at the end), before the first render.
-    let extraDays = {}
-    function buildState() {
-      const built = LIB().buildPlanState(plan, days, labels, loadSaved() || {})
-      extraDays = built.extraDays
-      return built.state
+    // Which of "I'm here now" / "Leaving now" a stop offers — only on today's day in Tokyo:
+    // "I'm here now" until you've got there, "Leaving now" until you've left. The same on the
+    // block and in its edit sheet.
+    const nowButtons = (day: PlanDay, x: { actual: boolean; visited: boolean }) => {
+      const isToday = day.day === nowTokyo().date
+      return { here: isToday && !x.actual, leave: isToday && !x.visited }
     }
-    let state = []
-
-    function moveUnscheduled(iso, idx, dj) {
-      const [s] = extraDays[iso].stops.splice(idx, 1)
-      if (s) state[dj].stops.push(s)
+    // Pressing one: stored on the stop as actualStart/actualEnd ("HH:MM"); the timetable runs on
+    // from them (src/lib/itinerary-schedule.ts).
+    function markNow(kind: 'here' | 'leave', day: PlanDay, idx: number) {
+      const stop = day.stops[idx]
+      const now = nowTokyo().minutes
+      if (kind === 'here') markHereNow(stop, now)
+      else markLeavingNow(stop, now, computeDayTimes(day, base, shopById).sched.stops[idx].start)
+      checkMarks = {}
       saveState(); render()
     }
 
-    function renderUnscheduled() {
-      const unscheduled = Object.values(extraDays).filter((d) => d.stops.length).sort((a, b) => a.day.localeCompare(b.day))
-      if (!unscheduled.length) return
-      const card = document.createElement('div')
-      card.className = 'day-card unscheduled-card'
-      const options = state.map((d, dj) => `<option value="${dj}">${esc(d.date)}</option>`).join('')
-      card.innerHTML = `
-        <div class="day-head"><div><div class="day-title">Not scheduled</div>
-        <div class="day-area">Stops from a day that isn't in the trip any more. Nothing is deleted — move them to a day.</div></div></div>
-        <ul class="unscheduled-list"></ul>`
-      const ul = card.querySelector('.unscheduled-list')
-      unscheduled.forEach((d) => d.stops.forEach((s, si) => {
-        const li = document.createElement('li')
-        li.className = 'unscheduled-stop'
-        li.innerHTML = `
-          <span class="stop-body"><span class="stop-name">${esc(resolveStop(s).name)}</span>
-          <span class="stop-sub">from ${esc(d.date)}</span></span>
-          <select class="us-move" data-key="${esc(d.day)}" data-idx="${si}" aria-label="Move to day"><option value="">Move to day…</option>${options}</select>`
-        ul.appendChild(li)
-      }))
-      ul.querySelectorAll('.us-move').forEach((sel) => sel.addEventListener('change', () => {
-        if (sel.value !== '') moveUnscheduled(sel.dataset.key, +sel.dataset.idx, +sel.value)
-      }))
-      daysEl.appendChild(card)
-    }
+    // Stops the last "Check day" had something to say about: index -> 'warning' | 'tip'. Cleared
+    // when the day or the plan changes (indices would no longer match).
+    let checkMarks: Record<number, string> = {}
 
-    const pad = (n) => String(n).padStart(2, '0')
-    function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
-    function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
+    function render() {
+      const di = state.findIndex((d) => d.day === currentDay)
+      const day = state[di]
+      dayEl.replaceChildren()
+      if (!day) return
+      renderDayBar(day)
+      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const range = timelineRange(sched)
+      const px = ZOOM_LEVELS[zoomIndex]
+      zoomOut.disabled = zoomIndex === 0
+      zoomIn.disabled = zoomIndex === ZOOM_LEVELS.length - 1
+      const grid = document.createElement('div')
+      grid.className = 'itl-grid'
+      grid.style.height = `${offsetFor(range.end, range, px)}px`
+      grid.dataset.start = String(range.start)
+      grid.dataset.px = String(px)
+      grid.dataset.end = String(range.end)
 
+      for (let m = range.start; m <= range.end; m += 60) {
+        const hour = document.createElement('div')
+        hour.className = 'itl-hour'
+        hour.style.top = `${offsetFor(m, range, px)}px`
+        hour.textContent = formatClock(m)
+        grid.appendChild(hour)
+      }
 
-    // Shared with /itinerary-timeline (src/lib/itinerary-plan.ts): the stop's effective
-    // name/coordinates (a linked shop's win), opening hours, and default visit lengths.
-    function resolveStop(s) { return LIB().resolveStop(s, shopById) }
-    function parseOpeningHours(text) { return LIB().parseOpeningHours(text) }
-    function looksClosed(hoursText, plannedMinutes) { return LIB().looksClosed(hoursText, plannedMinutes) }
-    function defaultDur(s) { return LIB().defaultDurationMin(s) }
-
-    function distM(a, b) {
-      const R = 6371000, toRad = (d) => d * Math.PI / 180
-      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng)
-      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2
-      return 2 * R * Math.asin(Math.sqrt(x))
-    }
-    // Travel between two points: the shared estimate (src/lib/route-optimizer.ts estimateLeg —
-    // walking for short hops, a Tokyo-rail train estimate beyond that).
-    function walkMin(a, b) {
-      if (!a || !b) return 0
-      const leg = window.__routeOptimizer.estimateLeg(a, b)
-      return leg ? leg.minutes : 0
-    }
-    function walkText(a, b) {
-      if (!a || !b) return ''
-      const leg = window.__routeOptimizer.estimateLeg(a, b)
-      if (!leg) return ''
-      if (leg.mode === 'train') return `🚃 ~${leg.minutes} min (estimate)`
-      return `🚶 ~${leg.minutes} min · ${Math.round(distM(a, b) * 1.4)} m`
-    }
-    function travelBadge(area) {
-      const key = Object.keys(areaMin).find((k) => area.includes(k))
-      const min = key != null ? areaMin[key] : null
-      if (min == null) return ''
-      if (min === 0) return '🏠 base'
-      return `🚃 ~${min} min fra base`
-    }
-
-    // The leg's own travel time (only while it's still the same leg) and the day's timetable —
-    // src/lib/itinerary-plan.ts, the same code /itinerary-timeline uses.
-    function legFromKey(day, si) { return LIB().legFromKey(day, si, shopById) }
-    function manualTravelFor(day, si) { return LIB().manualTravelFor(day, si, shopById) }
-    function computeTimes(day) { return LIB().computeDayTimes(day, base, shopById) }
-
-    // The travel line into stop si, tappable: "🚃 ~45 min (estimate)" etc., opening an editor
-    // for the leg's own minutes and a Google Maps transit link.
-    function travelRowHtml(di, si, day, sched) {
-      const leg = sched.stops[si].travelIn
-      const from = si === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[si - 1])
-      const to = resolveStop(day.stops[si])
-      const text = LIB().travelLegText(leg)
-      const editor = LIB().travelEditorInnerHtml({ manual: manualTravelFor(day, si), placeholder: leg.minutes, from, to })
-      return `<li class="walk-row"><button type="button" class="itn-travel" data-day="${di}" data-idx="${si}">${esc(text)} →</button></li>
-        <li class="itn-travel-edit" data-day="${di}" data-idx="${si}" hidden>${editor}</li>`
-    }
-
-    // "Next: leave <stop> by HH:MM (in N min)" during the trip — today's next leave-by time in
-    // Tokyo (src/lib/itinerary-schedule.ts nextLeave), refreshed by render() and every minute.
-    const nextEl = document.querySelector('#itn-next')
-    function updateNextBanner() {
-      if (!nextEl || !window.__routeOptimizer) return
-      const entries = []
-      state.forEach((day) => {
-        if (!day.day) return
-        const { sched } = computeTimes(day)
-        sched.stops.forEach((x, si) => {
-          if (x.leaveBy == null || !day.stops[si + 1]) return
-          entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy })
-        })
+      // Travel in its own lane on the right (lib/itinerary-timeline.ts layoutTimeline): a striped
+      // band with the label inside, or a small chip when the leg is too short for it.
+      const layout = layoutTimeline(sched, range, px)
+      layout.travel.forEach((tr) => {
+        const el = document.createElement('div')
+        el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '')
+        el.setAttribute('role', 'button')
+        el.title = 'Travel time'
+        el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
+        el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
+        el.dataset.index = String(tr.index)
+        el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
+        grid.appendChild(el)
       })
-      const next = window.__routeOptimizer.nextLeave(entries)
-      nextEl.hidden = !next
-      if (next) nextEl.textContent = `Next: leave ${next.from} by ${fmt(next.leaveBy)} (${next.inMin === 0 ? 'now' : `in ${next.inMin} min`})`
+
+      // Stops: side by side in columns where they overlap (layoutTimeline).
+      layout.stops.forEach((item) => {
+        const el = document.createElement('div')
+        el.style.top = `${item.top}px`
+        el.style.height = `${item.height}px`
+        el.style.left = `calc(var(--itl-gap) + var(--itl-cols-w) * ${item.col} / ${item.cols})`
+        el.style.width = `calc(var(--itl-cols-w) / ${item.cols} - var(--itl-gap))`
+        el.dataset.index = String(item.index)
+        el.dataset.col = String(item.col)
+        el.dataset.cols = String(item.cols)
+        const x = sched.stops[item.index]
+        const s = day.stops[item.index]
+        const r = resolveStop(s, shopById)
+        const closed = looksClosed(s.hours, x.start)
+        const warnings: string[] = []
+        if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
+        else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+        if (closed) warnings.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+        el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : closed ? ' itl-warn-closed' : '')
+          + (checkMarks[item.index] ? ` itl-ir-${checkMarks[item.index]}` : '')
+        if (checkMarks[item.index]) warnings.push(checkMarks[item.index] === 'warning' ? '🔍 See Check day' : '🔍 Tip in Check day')
+        el.dataset.start = String(item.start)
+        el.dataset.dur = String(inputs[item.index].durationMin)
+        const time = x.visited
+          ? `✓ ${formatClock(x.start)}–${formatClock(x.end)}`
+          : x.actual
+            ? `📍 since ${formatClock(x.start)}`
+            : x.fixed
+              ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
+              : `${formatClock(x.start)}–${formatClock(x.end)}`
+        if (x.visited) el.classList.add('itl-visited')
+        // Today in Tokyo (nowButtons): "I'm here now" / "Leaving now" right under the first line,
+        // so a short block doesn't cut them off; just the icons where blocks share the width (the
+        // edit sheet has them in full).
+        const now = nowButtons(day, x)
+        const narrow = item.cols > 1
+        const here = now.here ? `<button type="button" class="itl-here" aria-label="I'm here now" title="I'm here now">📍${narrow ? '' : ' I\'m here now'}</button>` : ''
+        const leave = now.leave ? `<button type="button" class="itl-leave" aria-label="Leaving now" title="Leaving now">✅${narrow ? '' : ' Leaving now'}</button>` : ''
+        const actions = here || leave ? `<span class="itl-actions">${here}${leave}</span>` : ''
+        // "Leave by HH:MM" with the list's "⏰ Reminder" (.ics) link (itinerary-ui.ts reminderLinkHtml),
+        // just "⏰" where blocks share the width — so a tap on the block mostly misses it.
+        const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
+        // First line "name · time" (the name only ever shortens with an ellipsis), then the
+        // buttons above, the leave-by line, the opening hours, then any warnings.
+        el.innerHTML = `
+          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          ${actions}
+          ${leaveBy}
+          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
+          ${warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')}`
+        grid.appendChild(el)
+      })
+
+      // The flight home: the latest the day's last stop can end (lib/itinerary-review-helpers.ts).
+      if (flight && flight.date === day.day) {
+        const latest = latestEndForFlight(flight)
+        const line = document.createElement('div')
+        line.className = 'itl-flight'
+        line.style.top = `${offsetFor(latest, range, px)}px`
+        line.textContent = `✈️ Leave for ${flight.airport} by ${formatClock(latest)} (${flight.line.replace('✈️ ', '')})`
+        grid.appendChild(line)
+      }
+
+      const now = document.createElement('div')
+      now.className = 'itl-now'
+      now.hidden = true
+      grid.appendChild(now)
+      dayEl.appendChild(grid)
+      // Room at the end so the last hour scrolls fully into view above the fixed bottom nav on
+      // mobile: the nav's own height (0 where it's hidden, on wider screens) plus the safe area.
+      const end = document.createElement('div')
+      end.className = 'itl-end'
+      const nav = document.querySelector('.bottom-nav') as HTMLElement | null
+      end.style.setProperty('--itl-nav-h', `${nav ? nav.offsetHeight : 0}px`)
+      dayEl.appendChild(end)
+      updateNow()
     }
-    // Refreshed just after each minute starts (Japan's offset is whole hours, so the phone's
-    // minutes are Tokyo's minutes) — a plain 60 s interval could lag the clock by up to a minute.
+
+    // The red "now" line: Tokyo time (lib/trip-dates.ts tokyoNow), whatever the phone's timezone;
+    // shown only on today's date in Tokyo, moved just after each minute starts.
+    function updateNow() {
+      const line = dayEl.querySelector('.itl-now') as HTMLElement | null
+      const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
+      if (!line || !grid) return
+      const t = nowTokyo()
+      const start = Number(grid.dataset.start)
+      const top = (t.minutes - start) * Number(grid.dataset.px)
+      const show = t.date === currentDay && top >= 0 && top <= grid.offsetHeight
+      line.hidden = !show
+      if (show) { line.style.top = `${Math.round(top)}px`; line.dataset.minutes = String(t.minutes) }
+    }
     function tickEveryMinute() {
-      setTimeout(() => { updateNextBanner(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
+      setTimeout(() => { updateNow(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
     }
     tickEveryMinute()
 
-    // "⏰ Reminder": an .ics calendar event at the leave-by time (src/lib/itinerary-ui.ts
-    // reminderLinkHtml — the same link as on the timeline).
-    function reminderLinkHtml(day, si, leaveBy) { return LIB().reminderLinkHtml(day, si, leaveBy, shopById) }
-
-    // Once per segment that runs over, just above the travel line into its anchor: how much
-    // too long the stops before it are, and the longest visits that could give.
-    function segmentHtml(day, sched, anchorIdx) {
-      const seg = sched.segments.find((g) => g.anchorIndex === anchorIdx)
-      if (!seg) return ''
-      const anchorName = resolveStop(day.stops[anchorIdx]).name
-      const tips = seg.suggestions.length
-        ? `<span class="itn-segment-tips">Longest visits: ${seg.suggestions.map((g) => `${esc(g.name)} (${g.durationMin} min)`).join(', ')}</span>`
-        : ''
-      return `<li class="itn-segment">⚠️ The stops before ${esc(anchorName)} ${fmt(seg.anchorTime)} need ${seg.overrunMin} min more than available. Shorten a visit or remove a stop.${tips}</li>`
-    }
-
-    // Under a stop: when to leave it, and any timing problem.
-    function scheduleLinesHtml(day, sched, si) {
-      const x = sched.stops[si]
-      const lines = []
-      if (x.doesntFit) {
-        const anchorName = resolveStop(day.stops[x.doesntFit.anchorIndex]).name
-        lines.push(`<span class="itn-warn">⚠️ Doesn't fit before ${esc(anchorName)} ${fmt(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)</span>`)
-      } else if (x.leaveEarlierMin) {
-        lines.push(`<span class="itn-warn">⚠️ Leave ${x.leaveEarlierMin} min earlier</span>`)
-      }
-      if (x.stayUntil != null) lines.push(`<span class="itn-stay">You can stay until ${fmt(x.stayUntil)}</span>`)
-      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}${reminderLinkHtml(day, si, x.leaveBy)}</span>`)
-      return lines.length ? `<span class="itn-lines">${lines.join('')}</span>` : ''
-    }
-
-    // What time would a not-yet-added stop land at, if appended to the end of this day?
-    // Reuses computeTimes itself (on a throwaway copy of the day) rather than
-    // re-deriving the arrival-time math separately.
-    function previewArrivalTime(di, tentativeStop) {
-      const day = state[di]
-      const projected = { ...day, stops: [...day.stops, tentativeStop] }
-      const { times } = computeTimes(projected)
-      return times[times.length - 1]
-    }
-
-
-    function dayRouteUrls(day) { return LIB().dayRouteUrls(day.stops.map(resolveStop), base) }
-    function baseRow(label, time) {
-      return `<li class="stop is-base"><span class="stop-time">${time}</span><div class="move-col"><span class="base-icon">🏠</span></div>
-        <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
-    }
-    function dayOptions(exceptDi) {
-      return state.map((d, dj) => dj === exceptDi ? '' : `<option value="${dj}">${d.date}</option>`).join('')
-    }
-    function slotBadge(slot) {
-      if (slot === 'kveld') return '<span class="slot-badge kveld">🌙 kveld</span>'
-      if (slot === 'dagtid') return '<span class="slot-badge dagtid">☀️ dagtid</span>'
-      return ''
-    }
-
-    function initMap(di, day) {
-      if (!leafletOk || !window.L) return
-      const el = document.getElementById(`map-${di}`)
-      if (!el) return
-      const map = LIB().drawDayMap(el, day, base, shopById)
-      if (map) mapInstances.push(map)
-    }
-
-    function render() {
-      mapInstances.forEach((m) => { try { m.remove() } catch {} })
-      mapInstances = []
-      daysEl.innerHTML = ''
-
-      state.forEach((day, di) => {
-        const { baseStart, times, baseEnd, sched } = computeTimes(day)
-        const card = document.createElement('div')
-        card.className = 'day-card'
-        const urls = dayRouteUrls(day)
-        let routeBtns = ''
-        if (urls.length === 1) routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
-        else if (urls.length > 1) routeBtns = '<div class="route-parts">' + urls.map((u, i) => `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
-
-        const shopSelectHtml = SHOP_OPTIONS
-          ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`
-          : `<select class="af-shop"><option value="__custom__" selected>✏️ Skriv selv</option></select>`
-
-        card.innerHTML = `
-          <div class="day-head">
-            <div>
-              <div class="day-title">${day.date}</div>
-              <div class="day-area">${day.area}</div>
-              ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
-            </div>
-            <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
-          </div>
-          <div class="day-check-row">
-            <button class="day-check-btn" data-day="${di}" type="button">🔍 Check day</button>
-            <button class="day-route-btn" data-day="${di}" type="button">🧭 Suggest route</button>
-            <div class="day-check-results" data-day="${di}" hidden></div>
-            <div class="day-route-results" data-day="${di}" hidden></div>
-          </div>
-          <div class="day-startrow">
-            <label>🕗 Dagen starter <input type="time" class="day-start-input" data-day="${di}" value="${day.startTime}" /></label>
-          </div>
-          ${day.note ? `<div class="day-note">${day.note}</div>` : ''}
-          ${leafletOk ? `<div id="map-${di}" class="day-map"></div>` : ''}
-          ${routeBtns}
-          <ul class="stop-list" data-day="${di}"></ul>
-          <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
-          <div class="add-form" data-day="${di}" hidden>
-            ${shopSelectHtml}
-            <div class="af-custom" hidden>
-              <input class="af-name" type="text" placeholder="Navn på stopp *" />
-              <input class="af-hours" type="text" placeholder="Info (valgfritt)" />
-            </div>
-            <div class="af-row"><button class="af-save" type="button">Legg til</button><button class="af-cancel" type="button">Avbryt</button></div>
-          </div>
-        `
-        const ul = card.querySelector('.stop-list')
-        ul.insertAdjacentHTML('beforeend', baseRow('Start: base', fmt(baseStart)))
-        if (day.stops[0]) ul.insertAdjacentHTML('beforeend', travelRowHtml(di, 0, day, sched))
-
-        day.stops.forEach((s, si) => {
-          const r = resolveStop(s)
-          const t = times[si]
-          const noCoord = (r.lat == null || r.lng == null)
-          const li = document.createElement('li')
-          li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
-          li.dataset.day = di
-          li.dataset.idx = si
-          const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
-          const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
-          const gmap = (r.lat != null) ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : ''
-          const editUrl = s.shopId ? `/edit-store?id=${esc(encodeURIComponent(s.shopId))}` : ''
-          const durVal = (s.dur != null ? s.dur : defaultDur(s))
-          li.innerHTML = `
-            <span class="stop-time">${fmt(t)}${s.fixedTime ? ' 📌' : ''}${sched.stops[si].arrival !== sched.stops[si].start ? `<span class="itn-arrive">(arrive ${fmt(sched.stops[si].arrival)})</span>` : ''}</span>
-            <div class="move-col">
-              <button class="mv up" data-day="${di}" data-idx="${si}" ${si === 0 ? 'disabled' : ''} title="Opp">▲</button>
-              <span class="stop-num">${si + 1}</span>
-              <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
-            </div>
-            <span class="stop-body">
-              <span class="stop-name">${
-                editUrl ? `<a href="${editUrl}">${r.name}</a>`
-                : gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${r.name}</a>`
-                : r.name
-              }</span>
-              <span class="stop-sub">
-                ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
-                ${slotBadge(s.slot)}
-                ${noCoord ? '<span class="nocoord">📍 mangler koordinater</span>' : ''}
-                ${looksClosed(s.hours, t) ? `<span class="closed-warn">⚠️ stengt ~${fmt(t)}?</span>` : ''}
-                ${scheduleLinesHtml(day, sched, si)}
-              </span>
-            </span>
-            ${tagHtml}
-            <div class="stop-actions">
-              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Tid / koordinater / flytt / kopier">⋯</button>
-              <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
-            </div>
-          `
-          ul.appendChild(li)
-          const panel = document.createElement('li')
-          panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si
-          // The linked shop's photos first (src/lib/itinerary-ui.ts shopPhotoStripHtml).
-          panel.innerHTML = `
-            ${s.shopId ? LIB().shopPhotoStripHtml(shopById.get(s.shopId)) : ''}
-            ${noCoord ? `
-              <div class="mc-coord-row">
-                <label>📍 Koordinater <input type="text" class="mc-coord" placeholder="lat, lng (fra Google Maps)" /></label>
-                <button class="mc-coord-save" type="button">Lagre</button>
-                ${s.shopId ? `<button class="mc-coord-fetch" type="button">🔄 Hent koordinater fra butikken</button>` : ''}
-              </div>
-              <p class="mc-coord-msg" hidden></p>
-            ` : ''}
-            <div class="mc-time-row">
-              <label>🕐 Tid <input type="time" class="mc-time" value="${s.fixedTime || ''}" /></label>
-              <label>⏱ Varighet <input type="number" class="mc-dur" min="5" step="5" value="${durVal}" /> min</label>
-              <label class="mc-early-label" ${s.fixedTime ? '' : 'hidden'}>Arrive <input type="number" class="mc-early" min="0" step="5" value="${typeof s.arriveEarly === 'number' ? s.arriveEarly : ''}" /> min early</label>
-            </div>
-            <label>Flytt til <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
-            <label>Kopier til <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
-          `
-          ul.appendChild(panel)
-
-          if (day.stops[si + 1]) ul.insertAdjacentHTML('beforeend', segmentHtml(day, sched, si + 1) + travelRowHtml(di, si + 1, day, sched))
-        })
-
-        const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1]) : null
-        if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
-        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base', fmt(baseEnd)))
-        daysEl.appendChild(card)
-      })
-
-      renderUnscheduled()
-      updateNextBanner()
-      state.forEach((day, di) => initMap(di, day))
-      state.forEach((day, di) => renderUndoAffordance(di))
-      attachEvents()
-    }
-
-    // The ⋯ menu's actions, ▲▼ and ✕: src/lib/itinerary-plan.ts (shared with the timeline's edit
-    // sheet); this page then saves and re-renders as before.
-    function move(di, idx, delta) {
-      if (!LIB().moveStopBy(state[di], idx, delta)) return
-      saveState(); render()
-    }
-    function moveToDay(di, idx, dj) { LIB().moveStopToDay(state[di], idx, state[dj]); saveState(); render() }
-    function copyToDay(di, idx, dj) { LIB().copyStopToDay(state[di], idx, state[dj]); saveState(); render() }
-
-    function addShopStop(di, shopIdx) {
-      const shop = shops[shopIdx]
-      if (!shop) return
-      state[di].stops.push(LIB().shopStopFrom(shop)) // the same shape the timeline adds
-      saveState(); render()
-    }
-    function addCustomStop(di, name, hours) {
-      state[di].stops.push(LIB().customStopFrom(name, hours))
-      saveState(); render()
-    }
-
-    function coordMsg(el, text, color) { el.hidden = false; el.textContent = text; el.style.color = color }
-
-    // Coordinates: src/lib/itinerary-ui.ts (shared with the timeline's edit sheet).
-    function coordCallbacks(panel) {
-      const msg = panel.querySelector('.mc-coord-msg')
-      return { save: saveState, msg: (text, color) => coordMsg(msg, text, color), done: render }
-    }
-    async function saveCoords(di, idx, panel) {
-      await LIB().saveStopCoords(state[di].stops[idx], panel.querySelector('.mc-coord').value, coordCallbacks(panel))
-    }
-    async function fetchShopCoords(di, idx, panel) {
-      await LIB().fetchStopCoordsFromShop(state[di].stops[idx], coordCallbacks(panel))
-    }
-
-    // --- "Check day" AI review — read-only: never touches state/saveState, so the plan
-    // itself is never changed by a review, only ever read to build the request. ---
-    function stopNote(s) { return LIB().stopNote(s, shopById) }
-
-    // Request and results: src/lib/itinerary-plan.ts checkDayRequestBody and itinerary-ui.ts
-    // runCheckDay (shared with the timeline). A stop's item links to its row here.
-    async function checkDay(di, btn) {
-      const day = state[di]
-      const resultsEl = daysEl.querySelector(`.day-check-results[data-day="${di}"]`)
-      const stopLi = (i) => daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${i}"]`)
-      await LIB().runCheckDay(btn, resultsEl, LIB().checkDayRequestBody(day, { base, shopById, flight }), {
-        stopName: (i) => {
-          const nameEl = stopLi(i) ? stopLi(i).querySelector('.stop-name') : null
-          return nameEl ? nameEl.textContent : `Stop ${i + 1}`
-        },
-        onStopClick: (i) => {
-          const li = stopLi(i)
-          if (!li) return
-          li.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          li.classList.add('ir-highlight')
-          setTimeout(() => li.classList.remove('ir-highlight'), 1600)
-        },
-      })
-    }
-
-    // --- "Suggest route" — a deterministic optimizer (src/lib/route-optimizer.ts via
-    // window.__routeOptimizer), never the AI. Computing/showing a suggestion never
-    // touches state/saveState; only clicking "Apply" does, through the same
-    // state[di].stops/saveState()/render() path every other edit on this page uses, so it
-    // behaves exactly like a manual reorder for sync/undo-on-reload purposes alike. ---
-    function renderUndoAffordance(di) {
-      const el = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
-      if (!el || undoByDay[di] === undefined) return
-      LIB().renderRouteApplied(el, () => {
-        state[di].stops = undoByDay[di]
-        delete undoByDay[di]
-        saveState(); render()
-      })
-    }
-
-    // Input and preview: src/lib/itinerary-plan.ts optimizerInput and itinerary-ui.ts
-    // renderRouteSuggestion (shared with the timeline).
-    function suggestRoute(di) {
-      const day = state[di]
-      const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
-      if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
-      const input = LIB().optimizerInput(day, { base, shopById })
-      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start)
-      LIB().renderRouteSuggestion(resultsEl, result, {
-        stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
-        fmt,
-        onApply: () => {
-          undoByDay[di] = day.stops.slice()
-          state[di].stops = result.order.map((i) => day.stops[i])
-          saveState(); render()
-        },
-      })
-    }
-
-    function attachEvents() {
-      document.querySelectorAll('.day-check-btn').forEach((btn) => btn.addEventListener('click', () => checkDay(+btn.dataset.day, btn)))
-      document.querySelectorAll('.day-route-btn').forEach((btn) => btn.addEventListener('click', () => suggestRoute(+btn.dataset.day)))
-      document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
-        state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
-      }))
-      document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
-      document.querySelectorAll('.mv.down').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
-      document.querySelectorAll('.remove-btn').forEach((btn) => btn.addEventListener('click', () => {
-        LIB().removeStop(state[+btn.dataset.day], +btn.dataset.idx); saveState(); render()
-      }))
-      document.querySelectorAll('.more-btn').forEach((btn) => btn.addEventListener('click', () => {
-        const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
-        if (panel) panel.classList.toggle('open')
-      }))
-      document.querySelectorAll('.mc-coord-save').forEach((btn) => btn.addEventListener('click', () => {
-        const panel = btn.closest('.mc-panel')
-        saveCoords(+panel.dataset.day, +panel.dataset.idx, panel)
-      }))
-      document.querySelectorAll('.mc-coord-fetch').forEach((btn) => btn.addEventListener('click', () => {
-        const panel = btn.closest('.mc-panel')
-        fetchShopCoords(+panel.dataset.day, +panel.dataset.idx, panel)
-      }))
-      document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
-        const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
-        LIB().setFixedTime(state[di], +panel.dataset.idx, inp.value, base, shopById)
-        saveState(); render()
-      }))
-      // Arrive early (fixed-time stops): the anchor for travel becomes time − minutes.
-      document.querySelectorAll('.mc-early').forEach((inp) => inp.addEventListener('change', () => {
-        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
-        LIB().setArriveEarly(s, inp.value)
-        saveState(); render()
-      }))
-      // The travel line: tap to enter minutes for this leg, or go back to the estimate.
-      document.querySelectorAll('.itn-travel').forEach((btn) => btn.addEventListener('click', () => {
-        const ed = daysEl.querySelector(`.itn-travel-edit[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
-        if (ed) ed.hidden = !ed.hidden
-      }))
-      document.querySelectorAll('.itn-travel-edit').forEach((ed) => {
-        const di = +ed.dataset.day, si = +ed.dataset.idx
-        LIB().bindTravelEditor(ed, (minutes) => {
-          const s = state[di].stops[si]
-          if (minutes == null) { delete s.travelMin; delete s.travelFrom }
-          else { s.travelMin = minutes; s.travelFrom = legFromKey(state[di], si) }
-          saveState(); render()
-        })
-      })
-      document.querySelectorAll('.mc-dur').forEach((inp) => inp.addEventListener('change', () => {
-        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
-        LIB().setStopDuration(s, inp.value); saveState(); render()
-      }))
-      document.querySelectorAll('.mc-move').forEach((sel) => sel.addEventListener('change', () => {
-        const panel = sel.closest('.mc-panel')
-        if (sel.value !== '') moveToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
-      }))
-      document.querySelectorAll('.mc-copy').forEach((sel) => sel.addEventListener('change', () => {
-        const panel = sel.closest('.mc-panel')
-        if (sel.value !== '') copyToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
-      }))
-      document.querySelectorAll('.add-stop-btn').forEach((btn) => btn.addEventListener('click', () => {
-        const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
-        if (form) { form.hidden = false; const sel = form.querySelector('.af-shop'); if (sel) sel.focus() }
-      }))
-      document.querySelectorAll('.add-form').forEach((form) => {
-        const di = +form.dataset.day
-        const shopSel = form.querySelector('.af-shop')
-        const custom = form.querySelector('.af-custom')
-        function syncCustom() { custom.hidden = shopSel.value !== '__custom__' }
-        shopSel.addEventListener('change', syncCustom)
-        syncCustom()
-        form.querySelector('.af-cancel').addEventListener('click', () => {
-          form.hidden = true; shopSel.value = ''; custom.hidden = true
-          form.querySelector('.af-name').value = ''; form.querySelector('.af-hours').value = ''
-        })
-        form.querySelector('.af-save').addEventListener('click', () => {
-          const val = shopSel.value
-          if (val === '__custom__') {
-            const name = form.querySelector('.af-name').value.trim()
-            if (!name) return
-            const hours = form.querySelector('.af-hours').value.trim()
-            const arrival = previewArrivalTime(di, { name, hours, tag: '', slot: '', lat: null, lng: null })
-            if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
-            addCustomStop(di, name, hours)
-          } else if (val !== '') {
-            const shopIdx = +val
-            const shop = shops[shopIdx]
-            if (shop) {
-              const hours = shop.openingHours || ''
-              const tentative = {
-                name: shop.shopName, hours, tag: shop.placeType === 'restaurant' ? 'mat' : '', slot: '',
-                lat: (typeof shop.latitude === 'number') ? shop.latitude : null,
-                lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
-              }
-              const arrival = previewArrivalTime(di, tentative)
-              if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
-            }
-            addShopStop(di, shopIdx)
-          }
-        })
-      })
-    }
-
-    resetBtn.addEventListener('click', () => {
-      if (!confirm('Tilbakestille hele planen på alle enheter? Dine endringer forsvinner.')) return
-      // Back to the plan's defaults. A date that only exists in the saved plan (not in the
-      // default plan) keeps its stops under "Not scheduled" — they're not the plan's to reset.
-      state = days.map((iso) => dayEntry(iso, null))
-      const keep = {}
-      Object.keys(extraDays).forEach((iso) => { if (!templateByDay.has(iso)) keep[iso] = extraDays[iso] })
-      plan.forEach((t) => { if (!days.includes(t.day)) keep[t.day] = dayEntry(t.day, null) })
-      extraDays = keep
+    // --- The day toolbar: start time, Check day, Suggest route, the day's route ----------------
+    const startInput = document.querySelector('#itl-start') as HTMLInputElement
+    const checkBtn = document.querySelector('#itl-check-btn') as HTMLButtonElement
+    const routeBtn = document.querySelector('#itl-route-btn') as HTMLButtonElement
+    const dayRouteEl = document.querySelector('#itl-dayroute') as HTMLElement
+    const checkPanel = document.querySelector('#itl-check-results') as HTMLElement
+    const routePanel = document.querySelector('#itl-route-results') as HTMLElement
+    const mapSection = document.querySelector('#itl-map-section') as HTMLDetailsElement
+    const mapEl = document.querySelector('#itl-map') as HTMLElement
+    let mapInstance: any = null
+    const currentDayPlan = () => state.find((d) => d.day === currentDay)!
+    // "↺ Reset day": back to the planned times (shown once the day has actual times).
+    const resetDayBtn = document.querySelector('#itl-reset-day') as HTMLButtonElement
+    resetDayBtn.addEventListener('click', () => {
+      const day = currentDayPlan()
+      if (!confirm(`Reset the actual times for ${day.date}? The planned times are used again.`)) return
+      clearActualTimes(day)
+      checkMarks = {}
       saveState(); render()
     })
 
-    // The travel estimate and schedule live in src/lib, reached through the module script above
-    // (window.__routeOptimizer); module scripts run after this one, so the first render waits.
-    const itineraryLibReady = window.__routeOptimizer
-      ? Promise.resolve()
-      : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
-    itineraryLibReady.then(() => window.__routeOptimizer.loadLeaflet()).then((ok) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render(); focusFromUrl() })
-
-    // ?day=<date>&stop=<n> (the timeline's "Edit in list"): that stop in view, highlighted.
-    function focusFromUrl() {
-      const params = new URLSearchParams(window.location.search)
-      const di = state.findIndex((d) => d.day === params.get('day'))
-      const idx = params.get('stop')
-      if (di < 0 || idx == null) return
-      const li = daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${+idx}"]`)
-      if (!li) return
-      li.classList.add('itn-focus')
-      li.scrollIntoView({ block: 'center' })
+    // "🗺️ Route for the day": Google Maps through the stops in order, base first and last
+    // (itinerary-plan.ts dayRouteUrls — the list's own links; more than 10 points come in parts).
+    function renderDayBar(day: PlanDay) {
+      startInput.value = day.startTime
+      const urls = dayRouteUrls(day.stops.map((s) => resolveStop(s, shopById)), base)
+      dayRouteEl.innerHTML = urls
+        .map((u, i) => `<a class="itl-dayroute-link" href="${esc(u)}" target="_blank" rel="noopener">🗺️ ${urls.length > 1 ? `Route part ${i + 1}` : 'Route for the day'}</a>`)
+        .join('')
+      if (mapSection.open) drawMap(day)
+      resetDayBtn.hidden = !hasActualTimes(day)
     }
+
+    // The map (closed by default): the same as the list's (itinerary-ui.ts drawDayMap).
+    function drawMap(day: PlanDay) {
+      if (mapInstance) { try { mapInstance.remove() } catch (e) {} mapInstance = null }
+      loadLeaflet().then((ok) => {
+        if (!ok || !mapSection.open || currentDayPlan() !== day) return
+        if (mapInstance) { try { mapInstance.remove() } catch (e) {} }
+        mapInstance = drawDayMap(mapEl, day, base, shopById)
+      })
+    }
+    mapSection.addEventListener('toggle', () => { if (mapSection.open) drawMap(currentDayPlan()) })
+
+    startInput.addEventListener('change', () => {
+      currentDayPlan().startTime = startInput.value || DEFAULT_START
+      checkMarks = {}
+      saveState(); render()
+    })
+
+    // "🔍 Check day": the same request and results as the list (itinerary-ui.ts runCheckDay);
+    // a stop's item also marks its block, and tapping the item scrolls to it.
+    function scrollToBlock(i: number) {
+      const block = dayEl.querySelector(`.itl-block[data-index="${i}"]`) as HTMLElement | null
+      if (!block) return
+      block.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      block.classList.add('itl-flash')
+      setTimeout(() => block.classList.remove('itl-flash'), 1600)
+    }
+    checkBtn.addEventListener('click', async () => {
+      const day = currentDayPlan()
+      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base, shopById, flight }), {
+        stopName: (i) => (day.stops[i] ? resolveStop(day.stops[i], shopById).name : `Stop ${i + 1}`),
+        onStopClick: (i) => scrollToBlock(i),
+      })
+      checkMarks = {}
+      ;(items || []).forEach((it) => {
+        if (typeof it.stopIndex !== 'number') return
+        if (checkMarks[it.stopIndex] !== 'warning') checkMarks[it.stopIndex] = it.severity === 'warning' ? 'warning' : 'tip'
+      })
+      render()
+    })
+
+    // "🧭 Suggest route": the same optimizer and preview as the list; Apply and Undo save the
+    // same way (state -> saveState -> render).
+    const undoByDay: Record<string, PlanDay['stops']> = {}
+    routeBtn.addEventListener('click', () => {
+      const day = currentDayPlan()
+      if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
+      const input = optimizerInput(day, { base, shopById })
+      const result = optimizeRoute(input.stops, input.startTime, input.start)
+      renderRouteSuggestion(routePanel, result, {
+        stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
+        fmt: formatClock,
+        onApply: () => {
+          undoByDay[day.day] = day.stops.slice()
+          day.stops = result.order.map((i) => day.stops[i])
+          checkMarks = {}
+          saveState(); render()
+          renderRouteApplied(routePanel, () => {
+            day.stops = undoByDay[day.day]
+            delete undoByDay[day.day]
+            checkMarks = {}
+            saveState(); render()
+            routePanel.hidden = true
+          })
+        },
+      })
+    })
+
+    // --- Tap a travel chip or band: the same travel time editor as the list ------------------
+    const travelEditor = document.querySelector('#itl-travel-editor') as HTMLElement
+    const travelEdit = document.querySelector('#itl-travel-edit') as HTMLElement
+    document.querySelector('#itl-travel-editor-close')!.addEventListener('click', () => { travelEditor.hidden = true })
+    function openTravelEditor(idx: number) {
+      const day = currentDayPlan()
+      if (!day.stops[idx]) return
+      const { sched } = computeDayTimes(day, base, shopById)
+      const from = idx === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[idx - 1], shopById)
+      const to = resolveStop(day.stops[idx], shopById)
+      ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
+      travelEdit.innerHTML = travelEditorInnerHtml({ manual: manualTravelFor(day, idx, shopById), placeholder: sched.stops[idx].travelIn.minutes, from, to })
+      bindTravelEditor(travelEdit, (minutes) => {
+        const s = day.stops[idx]
+        if (minutes == null) { delete s.travelMin; delete s.travelFrom }
+        else { s.travelMin = minutes; s.travelFrom = legFromKey(day, idx, shopById) }
+        travelEditor.hidden = true
+        saveState(); render()
+      })
+      travelEditor.hidden = false
+      travelEditor.scrollIntoView({ block: 'nearest' })
+    }
+    dayEl.addEventListener('click', (e) => {
+      const travel = (e.target as HTMLElement).closest('.itl-travel') as HTMLElement | null
+      if (travel) openTravelEditor(Number(travel.dataset.index))
+    })
+
+    // --- Tap a block: the edit sheet ---------------------------------------------------------
+    // The list's ⋯ actions (src/lib/itinerary-plan.ts / itinerary-ui.ts), then saveState() and
+    // render() like every edit here. The sheet follows its stop (by object), so it stays on it
+    // after a re-sort or ▲▼, and closes when the stop moves to another day or is deleted.
+    const detail = document.querySelector('#itl-detail') as HTMLElement
+    const ed = (id: string) => document.querySelector(`#itl-ed-${id}`) as HTMLInputElement
+    let sheetStop: PlanStop | null = null
+    const sheetDay = () => currentDayPlan()
+    const sheetIdx = () => (sheetStop ? sheetDay().stops.indexOf(sheetStop) : -1)
+    function closeSheet() { detail.hidden = true; sheetStop = null }
+    document.querySelector('#itl-detail-close')!.addEventListener('click', closeSheet)
+
+    // The shop's page (/edit-store), with "← Back to timeline" to this day (and trip).
+    function shopPageUrl(shopId: string, hash = '') {
+      const params = new URLSearchParams({ id: shopId, from: 'timeline', day: currentDay })
+      const trip = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '').get('trip')
+      if (trip) params.set('trip', trip)
+      return `/edit-store?${params.toString()}${hash}`
+    }
+    function fillSheet() {
+      const day = sheetDay()
+      const idx = sheetIdx()
+      if (idx < 0) { closeSheet(); return }
+      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const x = sched.stops[idx]
+      const s = day.stops[idx]
+      const lines: (string | { html: string })[] = [] // text, escaped below — or ready HTML
+      lines.push(x.fixed ? `📌 ${formatClock(x.start)}–${formatClock(x.end)}${x.arrival !== x.start ? ` · arrive by ${formatClock(x.arrival)}` : ''}` : `${formatClock(x.start)}–${formatClock(x.end)} (${inputs[idx].durationMin} min)`)
+      if (s.hours) lines.push(`Opening hours: ${s.hours}`)
+      // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
+      if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.leaveBy, shopById)}` })
+      if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
+      if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
+      else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+      if (looksClosed(s.hours, x.start)) lines.push(`⚠️ Closed ~${formatClock(x.start)}?`)
+      // The name opens the linked shop's page, which links back to this day.
+      const nameEl = document.querySelector('#itl-detail-name') as HTMLElement
+      const stopName = resolveStop(s, shopById).name
+      if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
+      else nameEl.textContent = stopName
+      // The linked shop's photos and "Found here"; each strip only when it has something, and
+      // "No shop photos yet" (with a link to the shop page) for a linked shop without photos.
+      const shop = s.shopId ? shopById.get(s.shopId) : undefined
+      const strip = shopPhotoStripHtml(shop)
+      const photosEl = document.querySelector('#itl-ed-photos') as HTMLElement
+      photosEl.innerHTML = strip ? `<p class="itl-strip-title">📷 Shop photos</p>${strip}` : ''
+      photosEl.hidden = !strip
+      ;(document.querySelector('#itl-ed-photos-empty') as HTMLElement).hidden = !shop || !!strip
+      if (shop) (document.querySelector('#itl-ed-photos-add') as HTMLAnchorElement).href = shopPageUrl(shop._id, '#shop-photos')
+      const foundStrip = shop ? foundStripHtml(foundByShop[shop._id], foundRate) : ''
+      const foundEl = document.querySelector('#itl-ed-found') as HTMLElement
+      foundEl.innerHTML = foundStrip ? `<p class="itl-strip-title">🔎 Found here</p>${foundStrip}` : ''
+      foundEl.hidden = !foundStrip
+      const place = resolveStop(s, shopById)
+      ;(document.querySelector('#itl-ed-gmaps') as HTMLAnchorElement).href = googleMapsPlaceUrl({
+        name: place.name, lat: place.lat, lng: place.lng, address: shop?.address, area: shop?.area,
+      })
+      ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
+      const now = nowButtons(day, x)
+      ed('here').hidden = !now.here
+      ed('leave').hidden = !now.leave
+      ;(document.querySelector('#itl-ed-now') as HTMLElement).hidden = !now.here && !now.leave
+      ed('dur').value = String(inputs[idx].durationMin)
+      ed('time').value = s.fixedTime || ''
+      ed('early').value = typeof s.arriveEarly === 'number' ? String(s.arriveEarly) : ''
+      ;(document.querySelector('#itl-ed-early-label') as HTMLElement).hidden = !s.fixedTime
+      ed('tag').value = s.tag || ''
+      ;(document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value = typeof s.note === 'string' ? s.note : ''
+      ;(document.querySelector('#itl-ed-up') as HTMLButtonElement).disabled = idx === 0
+      ;(document.querySelector('#itl-ed-down') as HTMLButtonElement).disabled = idx === day.stops.length - 1
+      const move = document.querySelector('#itl-ed-move') as HTMLSelectElement
+      move.innerHTML = '<option value="">—</option>' + state.filter((d) => d !== day).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}</option>`).join('')
+      ed('coord').value = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : ''
+      ;(document.querySelector('#itl-ed-coord-fetch') as HTMLButtonElement).hidden = !s.shopId
+      // The list (/itinerary-list) opens with this day and stop in view (?day=&stop=).
+      const params = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '')
+      params.set('day', currentDay)
+      params.set('stop', String(idx))
+      ;(document.querySelector('#itl-detail-edit') as HTMLAnchorElement).href = `/itinerary-list?${params.toString()}`
+    }
+    function showDetails(idx: number) {
+      sheetStop = sheetDay().stops[idx] || null
+      if (!sheetStop) return
+      ;(document.querySelector('#itl-ed-coord-msg') as HTMLElement).hidden = true
+      fillSheet()
+      detail.hidden = false
+    }
+    // Any change: save, redraw, and refresh the sheet on the same stop.
+    function changed() { checkMarks = {}; saveState(); render(); if (sheetStop) fillSheet() }
+    const withStop = (fn: (s: PlanStop, idx: number, day: PlanDay) => void) => () => {
+      const idx = sheetIdx()
+      if (idx >= 0) fn(sheetStop!, idx, sheetDay())
+    }
+    ed('dur').addEventListener('change', withStop((s) => { setStopDuration(s, ed('dur').value); changed() }))
+    ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, base, shopById); changed() }))
+    ed('early').addEventListener('change', withStop((s) => { setArriveEarly(s, ed('early').value); changed() }))
+    ed('tag').addEventListener('change', withStop((s) => { const v = ed('tag').value.trim(); s.tag = v; changed() }))
+    document.querySelector('#itl-ed-note')!.addEventListener('change', withStop((s) => {
+      const v = (document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value.trim()
+      if (v) s.note = v; else delete s.note
+      changed()
+    }))
+    document.querySelector('#itl-ed-up')!.addEventListener('click', withStop((s, idx, day) => { if (moveStopBy(day, idx, -1)) changed() }))
+    document.querySelector('#itl-ed-down')!.addEventListener('click', withStop((s, idx, day) => { if (moveStopBy(day, idx, +1)) changed() }))
+    document.querySelector('#itl-ed-move')!.addEventListener('change', withStop((s, idx, day) => {
+      const to = state.find((d) => d.day === (document.querySelector('#itl-ed-move') as HTMLSelectElement).value)
+      if (!to) return
+      moveStopToDay(day, idx, to)
+      closeSheet(); changed()
+    }))
+    const coordCb = () => {
+      const msg = document.querySelector('#itl-ed-coord-msg') as HTMLElement
+      return {
+        save: saveState,
+        msg: (text: string, color: string) => { msg.hidden = false; msg.textContent = text; msg.style.color = color },
+        done: () => { render(); if (sheetStop) fillSheet() },
+      }
+    }
+    document.querySelector('#itl-ed-coord-save')!.addEventListener('click', withStop((s) => { saveStopCoords(s, ed('coord').value, coordCb()) }))
+    document.querySelector('#itl-ed-coord-fetch')!.addEventListener('click', withStop((s) => { fetchStopCoordsFromShop(s, coordCb()) }))
+    ed('here').addEventListener('click', withStop((s, idx, day) => { markNow('here', day, idx); fillSheet() }))
+    ed('leave').addEventListener('click', withStop((s, idx, day) => { markNow('leave', day, idx); fillSheet() }))
+    document.querySelector('#itl-ed-delete')!.addEventListener('click', withStop((s, idx, day) => {
+      if (!confirm(`Delete "${resolveStop(s, shopById).name}" from ${day.date}?`)) return
+      removeStop(day, idx)
+      closeSheet(); changed()
+    }))
+    dayEl.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      const block = target.closest('.itl-block') as HTMLElement | null
+      if (!block || target.closest('.itn-reminder')) return
+      const idx = Number(block.dataset.index)
+      if (target.closest('.itl-here')) { markNow('here', currentDayPlan(), idx); return }
+      if (target.closest('.itl-leave')) { markNow('leave', currentDayPlan(), idx); return }
+      showDetails(idx)
+    })
+
+    // --- Tap an empty spot: add a stop there ---------------------------------------------------
+    const addForm = document.querySelector('#itl-add') as HTMLFormElement
+    const addTime = document.querySelector('#itl-add-time') as HTMLElement
+    const addShop = document.querySelector('#itl-add-shop') as HTMLSelectElement
+    const addCustom = document.querySelector('#itl-add-custom') as HTMLElement
+    const addName = document.querySelector('#itl-add-name') as HTMLInputElement
+    const addHours = document.querySelector('#itl-add-hours') as HTMLInputElement
+    const addDur = document.querySelector('#itl-add-dur') as HTMLInputElement
+    let addMinutes = 0
+    // The same grouped list as the list's add-stop (shopOptionGroups), then "write it yourself".
+    addShop.innerHTML = '<option value="">Choose a place…</option>' +
+      shopOptionGroups(shops || []).map(({ area, items }) =>
+        `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
+      ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
+    addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__' })
+
+    dayEl.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      const grid = dayEl.querySelector('.itl-grid') as HTMLElement | null
+      if (!grid || (target !== grid && !target.classList.contains('itl-hour'))) return
+      const range = { start: Number(grid.dataset.start), end: Number(grid.dataset.end) }
+      addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range, Number(grid.dataset.px))
+      addTime.textContent = formatClock(addMinutes)
+      addShop.value = ''; addCustom.hidden = true; addName.value = ''; addHours.value = ''; addDur.value = '45'
+      addForm.hidden = false
+      addForm.scrollIntoView({ block: 'nearest' })
+    })
+    document.querySelector('#itl-add-cancel')!.addEventListener('click', () => { addForm.hidden = true })
+    addForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const day = state.find((d) => d.day === currentDay)
+      if (!day) return
+      let stop
+      if (addShop.value === '__custom__') {
+        const name = addName.value.trim()
+        if (!name) { addName.focus(); return }
+        stop = customStopFrom(name, addHours.value.trim())
+      } else if (addShop.value !== '') {
+        const shop = (shops || [])[+addShop.value]
+        if (!shop) return
+        stop = shopStopFrom(shop)
+      } else return
+      const dur = parseInt(addDur.value, 10)
+      if (!isNaN(dur) && dur > 0) stop.dur = dur
+      // In the order after the last stop starting at or before the tapped time — not pinned to it.
+      const { times } = computeDayTimes(day, base, shopById)
+      const at = insertIndexForTime(times, addMinutes)
+      day.stops.splice(at, 0, stop)
+      addForm.hidden = true
+      saveState()
+      render()
+      const added = dayEl.querySelector(`.itl-block[data-index="${at}"]`)
+      if (added) { added.classList.add('itl-new'); added.scrollIntoView({ block: 'nearest' }) }
+    })
+
+    document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
+      currentDay = tab.dataset.day!
+      checkMarks = {}
+      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true
+      closeSheet()
+      document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
+        t.classList.toggle('active', t === tab)
+        t.setAttribute('aria-selected', t === tab ? 'true' : 'false')
+      })
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('day', currentDay)
+        history.replaceState(null, '', url.toString())
+      } catch (e) {}
+      render()
+    }))
+
+    // --- "🧪 Test time": the ?now= override, set from the day bar --------------------------------
+    // Kept in the address (?now=YYYY-MM-DDTHH:MM, Tokyo time) so a reload keeps it; the label above
+    // the tabs shows it while it's on. Setting it opens that day.
+    const testForm = document.querySelector('#itl-test-form') as HTMLFormElement
+    const testDate = document.querySelector('#itl-test-date') as HTMLSelectElement
+    const testClock = document.querySelector('#itl-test-clock') as HTMLInputElement
+    const testClear = document.querySelector('#itl-test-clear') as HTMLButtonElement
+    function setTestTime(t: { date: string; minutes: number } | null) {
+      testTimeEl.hidden = !t
+      testClear.hidden = !t
+      testTimeEl.dataset.date = t ? t.date : ''
+      testTimeEl.dataset.minutes = t ? String(t.minutes) : ''
+      ;(document.querySelector('#itl-test-time-text') as HTMLElement).textContent = t ? `${t.date} ${formatClock(t.minutes)}` : ''
+      try {
+        const url = new URL(window.location.href)
+        if (t) url.searchParams.set('now', `${t.date}T${formatClock(t.minutes)}`)
+        else url.searchParams.delete('now')
+        history.replaceState(null, '', url.toString())
+      } catch (e) {}
+      const tab = t ? document.querySelector<HTMLButtonElement>(`.itl-tab[data-day="${t.date}"]`) : null
+      if (tab) tab.click() // renders, and keeps ?day= in step
+      else render()
+    }
+    document.querySelector('#itl-test-btn')!.addEventListener('click', () => {
+      const now = nowTokyo()
+      testDate.value = days.includes(now.date) ? now.date : currentDay
+      testClock.value = formatClock(now.minutes)
+      testForm.hidden = !testForm.hidden
+    })
+    document.querySelector('#itl-test-cancel')!.addEventListener('click', () => { testForm.hidden = true })
+    testForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const m = /^(\d{2}):(\d{2})/.exec(testClock.value) // "HH:MM", or "HH:MM:SS"
+      if (!m || !testDate.value) { testClock.focus(); return }
+      testForm.hidden = true
+      setTestTime({ date: testDate.value, minutes: Number(m[1]) * 60 + Number(m[2]) })
+    })
+    testClear.addEventListener('click', () => setTestTime(null))
+
+    render()
+    // Exposed for tests and the later steps (insert / details) of this page.
+    Object.assign(window, { __itl: { get state() { return state }, extraDays, render, serializePlan } })
   </script>
 
   <style is:global>
-    .plan-tip {
-      font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 680px;
-      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.25);
-      border-radius: 8px; padding: 0.7rem 0.9rem;
-      display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
+    .itl-wrap { max-width: 680px; }
+    .itl-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .itl-nav-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; padding: 0.4rem 0; }
+    .itl-nav-link:hover { color: var(--accent); }
+    .itl-save-status { font-size: 0.75rem; color: var(--muted); }
+    .itl-beta { font-size: 0.7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; vertical-align: middle; }
+    .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
+    .itl-tab {
+      flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
     }
-    .plan-tip strong { color: var(--accent); }
-    .itn-timeline-link { margin-left: auto; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--accent); border-radius: 8px; padding: 0.3rem 0.6rem; }
-    .stop.itn-focus { outline: 2px solid #2ecc71; outline-offset: 2px; border-radius: 6px; }
-    .plan-days-hint { font-size: 0.82rem; color: #e0a04c; margin: -0.5rem 0 1rem; max-width: 680px; }
-    .unscheduled-card { border-style: dashed; }
-    .unscheduled-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-    .unscheduled-stop { display: flex; align-items: center; gap: 0.6rem; justify-content: space-between; flex-wrap: wrap; }
-    .unscheduled-stop .stop-body { display: flex; flex-direction: column; min-width: 0; }
-    .us-move { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.85rem; }
-    .tip-actions { display: flex; align-items: center; gap: 0.6rem; }
-    .save-status { font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
-    .reset-btn {
-      background: var(--surface); color: var(--text); border: 1px solid var(--border);
-      padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;
+    .itl-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .itl-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0 0 0.6rem; }
+    .itl-hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
+    .itl-zoom { display: flex; gap: 0.3rem; flex-shrink: 0; }
+    .itl-zoom button {
+      min-width: 40px; min-height: 36px; font-size: 1.1rem; font-weight: 700; cursor: pointer;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
     }
-    .reset-btn:hover { border-color: var(--accent); }
-
-    #days { display: flex; flex-direction: column; gap: 1.5rem; max-width: 680px; }
-    .day-card {
-      background: var(--surface); border: 1px solid rgba(176,30,52,0.25);
-      border-radius: 10px; padding: 1rem; overflow: hidden; max-width: 100%; box-sizing: border-box;
+    .itl-zoom button:disabled { opacity: 0.4; cursor: default; }
+    /* Blocks share the width left of the travel lane (--itl-lane) in columns (--itl-cols-w). */
+    .itl-grid {
+      --itl-lane: 4.4rem; --itl-gap: 0.3rem; --itl-cols-w: calc(100% - var(--itl-lane) - var(--itl-gap));
+      position: relative; margin-left: 3rem; border-left: 1px solid var(--border); cursor: copy;
     }
-    .day-head {
-      display: flex; justify-content: space-between; align-items: flex-start;
-      gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem;
-      padding-bottom: 0.6rem; border-bottom: 1px solid rgba(176,30,52,0.2);
+    .itl-hour {
+      position: absolute; left: -3rem; width: calc(100% + 3rem); border-top: 1px dashed rgba(255,255,255,0.08);
+      font-size: 0.7rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; pointer-events: none;
     }
-    .day-title {
-      font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 1.05rem;
-      color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
+    .itl-block {
+      position: absolute; box-sizing: border-box; overflow: hidden; cursor: pointer; z-index: 1;
+      background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+      border-radius: 6px; padding: 0.2rem 0.45rem; display: flex; flex-direction: column; gap: 0.05rem; font-size: 0.78rem;
     }
-    .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
-    .day-flight { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-top: 0.3rem; }
-    .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; line-height: 1.5; }
-    .day-startrow { margin-bottom: 0.7rem; }
-    .day-startrow label {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      font-size: 0.82rem; color: var(--text);
-      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.3);
-      border-radius: 8px; padding: 0.4rem 0.7rem;
+    .itl-block.itl-fixed { border-left-color: #6b9fd4; background: rgba(107,159,212,0.1); }
+    .itl-block.itl-warn-fit, .itl-block.itl-warn-leave { border-left-color: #e74c3c; }
+    .itl-block.itl-warn-closed { border-left-color: #e0a04c; }
+    .itl-first { display: flex; align-items: baseline; min-width: 0; line-height: 1.3; }
+    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 3em; flex: 0 1 auto; }
+    .itl-sep { color: var(--muted); white-space: pre; flex-shrink: 0; }
+    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .itl-hours { font-size: 0.7rem; color: var(--muted); }
+    /* The link at the right edge, so a tap in the middle of a short block still opens its sheet. */
+    .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+    .itl-leaveby .itn-reminder { margin-left: auto; padding: 0.05rem 0.35rem; }
+    .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
+    .itl-travel {
+      position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;
+      display: flex; align-items: center; justify-content: center; white-space: nowrap;
+      font-size: 0.68rem; color: var(--muted); overflow: hidden; pointer-events: none; border-radius: 4px;
+      background: repeating-linear-gradient(135deg, rgba(255,255,255,0.07) 0 6px, transparent 6px 12px);
+      border-left: 2px dotted var(--border);
     }
-    .day-start-input {
-      background: var(--bg); color: var(--accent); border: 1px solid var(--border);
-      border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.9rem; font-weight: 700;
-      font-family: 'IBM Plex Mono', monospace;
+    .itl-travel.itl-travel-chip {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 999px; line-height: 1;
     }
-    .day-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin-bottom: 0.7rem; }
-
-
-    .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-    .stop {
-      display: flex; align-items: center; gap: 0.5rem;
-      background: rgba(26,12,18,0.5); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0.5rem 0.55rem;
+    .itl-flight { position: absolute; left: 0; right: 0; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
+    .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
+    .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
+    .itl-now[hidden] { display: none; }
+    .itl-end { height: calc(var(--itl-nav-h, 0px) + env(safe-area-inset-bottom, 0px)); }
+    .itl-add {
+      display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.8rem; padding: 0.75rem;
+      background: var(--surface); border: 1px solid var(--accent); border-radius: 8px;
     }
-    .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
-    .stop.is-base { background: rgba(244,162,76,0.1); border-color: rgba(244,162,76,0.4); }
-    .stop-time {
-      flex-shrink: 0; width: 52px; font-family: 'IBM Plex Mono', monospace; font-weight: 700;
-      font-size: 0.82rem; color: var(--accent); text-align: right;
+    .itl-add[hidden] { display: none; }
+    .itl-add-title { margin: 0; font-size: 0.9rem; }
+    .itl-add select, .itl-add input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.5rem 0.6rem; font-size: 0.95rem; font-family: inherit; box-sizing: border-box; width: 100%;
     }
-    .base-icon { font-size: 1.1rem; width: 26px; text-align: center; }
-    .stop.is-base .stop-name { color: var(--accent); font-weight: 700; }
-    .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
-    .mv {
-      background: var(--surface); color: var(--accent); border: 1px solid var(--border);
-      width: 26px; height: 18px; border-radius: 5px; cursor: pointer; font-size: 0.6rem;
-      display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+    .itl-add-custom { display: flex; flex-direction: column; gap: 0.5rem; }
+    .itl-add-custom[hidden] { display: none; }
+    .itl-add-dur { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+    .itl-add-dur input { width: 5rem; }
+    .itl-add-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+    .itl-add-actions { display: flex; gap: 0.5rem; }
+    .itl-add-actions button { flex: 1; padding: 0.55rem; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    #itl-add-save { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .itl-block.itl-new { box-shadow: 0 0 0 2px #2ecc71; }
+    .itl-test-time { font-size: 0.8rem; font-weight: 600; color: #e0a04c; margin: -0.3rem 0 0.6rem; }
+    .itl-test-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+    .itl-test-form[hidden] { display: none; }
+    .itl-test-form select, .itl-test-form input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; font-size: 0.9rem; min-height: 36px;
     }
-    .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
-    .mv:disabled { opacity: 0.25; cursor: default; }
-    .stop-num {
-      width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #2a1a04;
-      font-size: 0.75rem; font-weight: 700; font-family: 'IBM Plex Mono', monospace;
-      display: flex; align-items: center; justify-content: center; margin: 1px 0;
+    .itl-block.itl-visited { opacity: 0.55; border-left-color: var(--muted); }
+    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.1rem 0; }
+    .itl-actions button {
+      font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 6px; cursor: pointer;
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent); min-height: 26px;
     }
-    .stop-body { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
-    .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
-    .stop-name a { color: var(--text); text-decoration: none; }
-    .stop-name a:hover { color: var(--accent); text-decoration: underline; }
-    .stop-sub { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
-    .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
-    .slot-badge {
-      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
-      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+    .itl-daybar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+    .itl-start {
+      display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.3); border-radius: 8px; padding: 0.3rem 0.6rem;
     }
-    .slot-badge.dagtid { background: rgba(244,162,76,0.18); color: var(--accent); }
-    .slot-badge.kveld { background: rgba(107,159,212,0.2); color: #8fbce8; }
-    .nocoord {
-      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
-      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
-      background: rgba(231,76,60,0.15); color: #ff9b8f;
+    .itl-start input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.4rem; font-size: 0.9rem; }
+    .itl-daybtn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: 8px;
+      padding: 0.45rem 0.75rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
     }
-    .closed-warn {
-      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
-      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
-      background: rgba(243,156,18,0.18); color: #f5c542;
+    .itl-daybtn:disabled { opacity: 0.6; cursor: default; }
+    .itl-dayroute { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .itl-dayroute-link {
+      display: inline-flex; align-items: center; min-height: 36px; padding: 0 0.75rem; border-radius: 8px;
+      border: 1px solid var(--accent); color: var(--text); text-decoration: none; font-size: 0.85rem; font-weight: 600;
     }
-    .stop-tag {
-      flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;
-      border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;
+    .itl-map-section { margin: 0 0 0.6rem; }
+    .itl-map-section summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; padding: 0.3rem 0; }
+    .itl-map { margin-top: 0.4rem; }
+    .itl-panel { margin: 0 0 0.8rem; }
+    .itl-panel[hidden] { display: none; }
+    .itl-travel { pointer-events: auto; cursor: pointer; }
+    .itl-travel-editor { margin: 0 0 0.8rem; padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; }
+    .itl-travel-editor[hidden] { display: none; }
+    .itl-travel-editor-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin-bottom: 0.4rem; }
+    .itl-travel-editor-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-travel-editor .itn-travel-edit { margin: 0; }
+    .itl-block.itl-ir-warning { box-shadow: inset 0 0 0 2px #e74c3c; }
+    .itl-block.itl-ir-tip { box-shadow: inset 0 0 0 2px #f5c542; }
+    .itl-block.itl-flash { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* The edit sheet: fixed to the bottom of the screen, above the bottom nav (z-index 20), with
+       room for the safe area; scrolls inside itself when taller than the screen allows. */
+    /* Full width on a phone; on a wide screen at most 640 px, centred (left/right 0 with auto
+       margins), so it doesn't start at the screen's left edge. */
+    .itl-detail {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; box-sizing: border-box;
+      width: 100%; max-width: 640px; margin: 0 auto;
+      max-height: 80vh; overflow-y: auto; padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      background: var(--surface); border-top: 1px solid var(--accent); border-radius: 14px 14px 0 0;
+      box-shadow: 0 -6px 24px rgba(0,0,0,0.5);
     }
-    .stop-tag.must { background: #e74c3c; color: #fff; }
-    .stop-tag.food { background: #f39c12; color: #2a1a04; }
-    .stop-tag.note { background: var(--border); color: var(--text); }
-    .stop-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-    .more-btn, .remove-btn {
-      background: none; border: none; color: var(--muted);
-      font-size: 0.95rem; cursor: pointer; padding: 0.1rem 0.3rem; line-height: 1; border-radius: 4px;
+    .itl-sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.75rem; margin: 0.4rem 0; }
+    .itl-sheet-grid label, .itl-sheet-note { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
+    .itl-sheet-grid label[hidden] { display: none; }
+    .itl-sheet-grid label span { display: flex; align-items: center; gap: 0.3rem; color: var(--text); }
+    .itl-sheet input, .itl-sheet select, .itl-sheet textarea {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.4rem 0.5rem; font-size: 0.95rem; font-family: inherit; box-sizing: border-box; min-width: 0;
     }
-    .more-btn:hover { color: var(--accent); background: rgba(244,162,76,0.12); }
-    .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
-
-    .mc-panel { display: none; }
-    .mc-panel.open {
-      display: flex; flex-direction: column; gap: 0.5rem;
-      background: rgba(244,162,76,0.06); border: 1px dashed rgba(244,162,76,0.3);
-      border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0.1rem 0 0.2rem 3.4rem;
+    .itl-sheet-grid input { width: 100%; }
+    .itl-sheet-grid label span input { width: 5rem; }
+    .itl-sheet-note textarea { width: 100%; resize: vertical; }
+    .itl-sheet-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.5rem 0; }
+    .itl-sheet-row label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
+    .itl-sheet-row input { flex: 1; min-width: 9rem; }
+    .itl-sheet button {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.45rem 0.75rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
     }
-    .mc-panel label { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
-    .mc-panel select, .mc-panel input {
-      background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem;
+    .itl-sheet button:disabled { opacity: 0.4; cursor: default; }
+    .itl-sheet button[hidden] { display: none; }
+    .itl-sheet-row[hidden] { display: none; }
+    .itl-sheet .itl-sheet-now button { border-color: var(--accent); font-weight: 600; }
+    .itl-sheet-msg { font-size: 0.8rem; margin: 0; }
+    .itl-sheet-msg[hidden] { display: none; }
+    .itl-sheet-foot { justify-content: space-between; }
+    .itl-sheet .itl-sheet-delete { color: #e74c3c; border-color: #e74c3c; }
+    .itl-detail[hidden] { display: none; }
+    @media (min-width: 641px) {
+      .itl-detail { border: 1px solid var(--accent); border-bottom: none; padding-left: 1.5rem; padding-right: 1.5rem; }
     }
-    .mc-time-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-    .mc-early-label[hidden] { display: none; }
-    .itn-travel {
-      background: none; border: none; padding: 0.15rem 0; cursor: pointer; font: inherit; color: var(--muted);
-      text-decoration: underline dotted; text-underline-offset: 3px;
-    }
-    .itn-arrive { display: block; font-size: 0.7rem; color: var(--muted); }
-    .itn-lines { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; }
-    .itn-leave { font-size: 0.75rem; color: var(--accent); font-weight: 600; }
-    .itn-next {
-      max-width: 680px; margin: 0 0 1rem; padding: 0.6rem 0.9rem; border-radius: 8px; font-weight: 600;
-      background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.45); color: #2ecc71;
-    }
-    .itn-next[hidden] { display: none; }
-    .itn-stay { font-size: 0.75rem; color: #2ecc71; }
-    .itn-warn { font-size: 0.75rem; color: #e74c3c; font-weight: 600; }
-    .itn-segment {
-      list-style: none; margin: 0.3rem 0; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
-      color: #e74c3c; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.4);
-    }
-    .itn-segment-tips { display: block; margin-top: 0.2rem; font-weight: 400; color: var(--text); }
-    .mc-time-row label { flex: 1; }
-    .mc-dur { width: 64px; }
-    .mc-coord-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }
-    .mc-coord-row label { flex: 1; flex-direction: column; align-items: stretch; gap: 0.25rem; }
-    .mc-coord { width: 100%; }
-    .mc-coord-save {
-      background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.8rem;
-      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
-    }
-    .mc-coord-fetch {
-      background: var(--bg); color: var(--text); border: 1px solid var(--accent); padding: 0.4rem 0.8rem;
-      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
-    }
-    .mc-coord-fetch:hover { background: rgba(244,162,76,0.1); }
-    .mc-coord-msg { font-size: 0.75rem; margin: 0; }
-
-    .walk-row { padding: 0.05rem 0 0.05rem 3.4rem; }
-    .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
-
-    .add-stop-btn {
-      margin-top: 0.6rem; width: 100%; background: rgba(244,162,76,0.08);
-      color: var(--accent); border: 1px dashed rgba(244,162,76,0.4);
-      padding: 0.55rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
-    }
-    .add-stop-btn:hover { background: rgba(244,162,76,0.15); }
-    .add-form { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
-    .add-form select, .add-form input {
-      background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      padding: 0.6rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
-    }
-    .af-custom { display: flex; flex-direction: column; gap: 0.5rem; }
-    .add-form[hidden], .af-custom[hidden] { display: none; }
-    .af-row { display: flex; gap: 0.5rem; }
-    .af-save { flex: 1; background: var(--accent); color: #fff; border: none; padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
-    .af-cancel { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
-
-
-    /* "Check day" AI review — new classes use an "ir-" prefix (not an existing
-       convention on this page, but these are JS-created via createElement/innerHTML, so
-       is:global is required regardless; the prefix just avoids future collisions). Every
-       class here that's paired with the hidden attribute gets an explicit [hidden]
-       override, per this file's own established pattern above (.add-form[hidden] etc.) —
-       author CSS setting display always wins over the browser's default [hidden] rule. */
-    .day-check-row { margin: 0.75rem 0; }
-    .day-check-btn {
-      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
-      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
-    }
-    .day-check-btn:disabled { opacity: 0.6; cursor: default; }
-    .day-check-results { margin-top: 0.6rem; }
-    .day-check-results[hidden] { display: none; }
-    .stop.ir-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-
-    /* "Suggest route" — deterministic optimizer, not AI. Same reasoning as the "ir-"
-       block above: JS-created via createElement, so is:global is required, and new
-       classes use an "rt-" prefix with explicit [hidden] overrides. */
-    .day-route-btn {
-      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
-      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; margin-left: 0.5rem;
-    }
-    .day-route-btn:disabled { opacity: 0.6; cursor: default; }
-    .day-route-results { margin-top: 0.6rem; }
-    .day-route-results[hidden] { display: none; }
+    .itl-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .itl-detail-head button, .itl-sheet .itl-detail-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-detail-lines { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+    .itl-detail-edit { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
+    #itl-detail-shop { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .itl-strip-title { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin: 0.4rem 0 0.1rem; }
+    .itl-sheet-empty { font-size: 0.8rem; color: var(--muted); margin: 0.3rem 0; }
+    .itl-sheet-empty a { color: var(--accent); }
+    .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
-</Base>
+</Base>

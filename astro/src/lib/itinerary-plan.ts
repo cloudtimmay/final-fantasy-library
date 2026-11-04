@@ -1,10 +1,10 @@
 // The itinerary's plan in the browser: how the saved plan is loaded and saved, and how a day's
-// stops become a timetable. Shared by /itinerary (the list) and /itinerary-timeline, so both
+// stops become a timetable. Shared by /itinerary-list (the list) and /itinerary (the timeline), so both
 // read and write the same data in the same format and show the same times. The timetable rules
 // themselves are in itinerary-schedule.ts; this is the glue from saved stops to its inputs.
 //
 // Both pages' scripts are `is:inline` and reach this through a module script that puts it on
-// `window.__routeOptimizer` (see itinerary.astro).
+// `window.__routeOptimizer` (see itinerary-list.astro).
 
 import { scheduleDay, type DaySchedule, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, parseOpeningHours, looksClosed, type RoutePoint } from './route-optimizer'
@@ -192,7 +192,7 @@ export function customStopFrom(name: string, hours: string): PlanStop {
 }
 
 // --- A day's Google Maps route, "Check day" request and "Suggest route" input -----------------
-// Shared by /itinerary and /itinerary-timeline (exactly what the list used to build inline).
+// Shared by /itinerary-list and /itinerary (exactly what the list used to build inline).
 
 // Walking directions base -> the stops with coordinates, in order -> base; split into parts of
 // at most 10 points (Google Maps' limit), each part starting where the previous one ended.

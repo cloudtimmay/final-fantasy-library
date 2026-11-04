@@ -18,7 +18,7 @@ if (Astro.url.searchParams.get('from') === 'timeline') {
   const trip = Astro.url.searchParams.get('trip') || ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(day)) back.set('day', day)
   if (/^[\w.-]{1,100}$/.test(trip)) back.set('trip', trip)
-  timelineBack = `/itinerary-timeline${back.toString() ? `?${back.toString()}` : ''}`
+  timelineBack = `/itinerary${back.toString() ? `?${back.toString()}` : ''}`
 }
 
 let shop: any = null

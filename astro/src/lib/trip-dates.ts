@@ -1,5 +1,5 @@
 // Calendar dates for the trip ("YYYY-MM-DD", as Sanity stores a `date` field), and the one
-// place that turns them into weekdays and labels — /itinerary's day headings, its "Not
+// place that turns them into weekdays and labels — the list's (/itinerary-list) day headings, its "Not
 // scheduled" section and /api/itinerary-review all use these, so they can't disagree.
 //
 // A calendar date has no time and no timezone. Everything here works on the year/month/day
@@ -67,7 +67,7 @@ export function formatDateLong(iso: string): string {
   return `${weekdayName(iso)} ${p.d} ${MONTHS_EN[p.m - 1]} ${p.y}`
 }
 
-// "1. des (tir)" — /itinerary's day headings, in the page's own (Norwegian) style.
+// "1. des (tir)" — the itinerary's day headings, in the page's own (Norwegian) style.
 export function formatDayLabel(iso: string): string {
   const p = parseIsoDate(iso)!
   return `${p.d}. ${MONTHS_NO_SHORT[p.m - 1]} (${WEEKDAYS_NO_SHORT[weekdayIndex(iso)]})`

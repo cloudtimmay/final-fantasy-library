@@ -27,7 +27,7 @@ async function openTimeline(page: Page, sanity: any, trackDoc: (id: string) => v
     saves.push(JSON.parse(route.request().postDataJSON().data))
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
   })
-  await page.goto(`/itinerary-timeline?trip=${trip._id}${query}`)
+  await page.goto(`/itinerary?trip=${trip._id}${query}`)
   await expect(page.locator('.itl-grid')).toBeVisible()
   await page.evaluate(({ stops, startTime }) => {
     // @ts-ignore - the page's test hook
@@ -66,7 +66,7 @@ test.describe('timeline layout (lib/itinerary-timeline.ts)', () => {
   })
 })
 
-test.describe('/itinerary-timeline: the day view', () => {
+test.describe('/itinerary: the day view', () => {
   test('blocks are placed and sized by start time and duration; travel, fixed stops and warnings shown', async ({ page, sanity, trackDoc }) => {
     await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     const grid = page.locator('.itl-grid')
@@ -116,7 +116,7 @@ test.describe('/itinerary-timeline: the day view', () => {
   })
 })
 
-test.describe('/itinerary-timeline: the "now" line on a phone set to Norwegian time', () => {
+test.describe('/itinerary: the "now" line on a phone set to Norwegian time', () => {
   test.use({ timezoneId: 'Europe/Oslo' })
 
   test('is drawn at the time in Tokyo on today\'s date there', async ({ page, sanity, trackDoc }) => {
@@ -134,7 +134,7 @@ test.describe('/itinerary-timeline: the "now" line on a phone set to Norwegian t
   })
 })
 
-test.describe('/itinerary-timeline: tap an empty spot to add a stop', () => {
+test.describe('/itinerary: tap an empty spot to add a stop', () => {
   // A tap on the grid itself (left of the blocks) at `hhmm`.
   async function tapAt(page: Page, hhmm: string) {
     const grid = page.locator('.itl-grid')
@@ -171,9 +171,9 @@ test.describe('/itinerary-timeline: tap an empty spot to add a stop', () => {
     expect(day.stops[3]).toEqual({ name: 'Test Insert', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30 }) // no fixedTime
   })
 
-  test('a shop from the picker: the same grouped list and stop shape as /itinerary\'s add-stop', async ({ page, sanity, trackDoc }) => {
+  test('a shop from the picker: the same grouped list and stop shape as /itinerary-list\'s add-stop', async ({ page, sanity, trackDoc }) => {
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     const listGroups = await page.locator('.add-form').first().locator('.af-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
     expect(listGroups.length).toBeGreaterThan(0)
@@ -195,8 +195,8 @@ test.describe('/itinerary-timeline: tap an empty spot to add a stop', () => {
   })
 })
 
-test.describe('/itinerary-timeline: block details and the links', () => {
-  test('tapping a block shows its details and "Edit in list" opens /itinerary with that stop in view', async ({ page, sanity, trackDoc }) => {
+test.describe('/itinerary: block details and the links', () => {
+  test('tapping a block shows its details and "Edit in list" opens /itinerary-list with that stop in view', async ({ page, sanity, trackDoc }) => {
     const { trip } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Square Enix Pop Up Cafe' }) }).click()
     const detail = page.locator('#itl-detail')
@@ -205,37 +205,37 @@ test.describe('/itinerary-timeline: block details and the links', () => {
     await expect(page.locator('#itl-detail-name')).toHaveText('Square Enix Pop Up Cafe Yokohama')
     await expect(page.locator('#itl-detail-lines li').first()).toHaveText('📌 16:30–17:30')
     await expect(page.locator('#itl-detail-lines')).toContainText('You can stay until')
-    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary?trip=${trip._id}&day=2026-12-05&stop=2`)
+    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary-list?trip=${trip._id}&day=2026-12-05&stop=2`)
 
     // The list opens with that day's stop highlighted (its own saved plan, so check by position).
     await page.locator('.itl-block').first().click()
-    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary?trip=${trip._id}&day=2026-12-05&stop=0`)
+    await expect(page.locator('#itl-detail-edit')).toHaveAttribute('href', `/itinerary-list?trip=${trip._id}&day=2026-12-05&stop=0`)
     await page.locator('#itl-detail-edit').click()
-    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}&day=2026-12-05&stop=0`)
+    await expect(page).toHaveURL(`/itinerary-list?trip=${trip._id}&day=2026-12-05&stop=0`)
     await expect(page.locator('.stop.itn-focus[data-day="0"][data-idx="0"]')).toBeVisible({ timeout: 20000 })
   })
 
-  test('"🗓️ Timeline (beta)" on /itinerary and "← List view" on the timeline, keeping the trip', async ({ page, sanity, trackDoc }) => {
+  test('"🗓️ Timeline" on /itinerary-list and "📋 List view" on the timeline, keeping the trip', async ({ page, sanity, trackDoc }) => {
     const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Timeline Links ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
     trackDoc(trip._id)
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     const toTimeline = page.locator('#itn-timeline-link')
-    await expect(toTimeline).toHaveText('🗓️ Timeline (beta)')
+    await expect(toTimeline).toHaveText('🗓️ Timeline')
     await toTimeline.click()
-    await expect(page).toHaveURL(`/itinerary-timeline?trip=${trip._id}`)
+    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}`)
     await expect(page.getByRole('heading', { name: /Timeline/ })).toBeVisible()
     const back = page.locator('#itl-list-link')
-    await expect(back).toHaveText('← List view')
+    await expect(back).toHaveText('📋 List view')
     await back.click()
-    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}`)
+    await expect(page).toHaveURL(`/itinerary-list?trip=${trip._id}`)
   })
 })
 
 // Where an element sits on the screen.
 const box = async (l: import('@playwright/test').Locator) => (await l.boundingBox())!
 
-test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => {
+test.describe('/itinerary on a phone: readable blocks and zoom', () => {
   test('at the default zoom an hour is 135 px, and a 30-min block shows its name', async ({ page, sanity, trackDoc }) => {
     expect(PX_PER_MIN * 60).toBe(135) // between the first 72 px and the later 180 px
     await openTimeline(page, sanity, trackDoc, [
@@ -274,7 +274,7 @@ test.describe('/itinerary-timeline on a phone: readable blocks and zoom', () => 
   })
 })
 
-test.describe('/itinerary-timeline on a phone: travel chips and overlapping stops', () => {
+test.describe('/itinerary on a phone: travel chips and overlapping stops', () => {
   const intersects = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
     a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5
 
@@ -327,7 +327,7 @@ test.describe('/itinerary-timeline on a phone: travel chips and overlapping stop
   })
 })
 
-test.describe('/itinerary-timeline on a phone: the end of the day', () => {
+test.describe('/itinerary on a phone: the end of the day', () => {
   test('after scrolling to the end, the last block and the last hour are fully visible above the bottom nav', async ({ page, sanity, trackDoc }) => {
     // The last stop ends 22:30, near the bottom of the 08:00–23:00 axis.
     await openTimeline(page, sanity, trackDoc, [
@@ -344,7 +344,7 @@ test.describe('/itinerary-timeline on a phone: the end of the day', () => {
   })
 })
 
-test.describe('/itinerary-timeline: the day toolbar, map, travel editor, Check day and Suggest route', () => {
+test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Suggest route', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
 
   test('changing the day\'s start time moves the blocks and is saved', async ({ page, sanity, trackDoc }) => {
@@ -451,7 +451,7 @@ test.describe('/itinerary-timeline: the day toolbar, map, travel editor, Check d
   })
 })
 
-test.describe('/itinerary-timeline: editing a stop in the sheet', () => {
+test.describe('/itinerary: editing a stop in the sheet', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const lastSave = async (saves: any[]) => {
     await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
@@ -563,7 +563,7 @@ test.describe('/itinerary-timeline: editing a stop in the sheet', () => {
   })
 })
 
-test.describe('/itinerary-timeline: "I\'m here now" and "Leaving now"', () => {
+test.describe('/itinerary: "I\'m here now" and "Leaving now"', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const shinjukuToYokohama = estimateLeg({ lat: 35.689356, lng: 139.697787 }, { lat: 35.464556, lng: 139.624649 })!.minutes
   // The ?now= test clock, moved on without a reload (the page reads it on every tap).
@@ -649,14 +649,14 @@ test.describe('/itinerary-timeline: "I\'m here now" and "Leaving now"', () => {
   })
 })
 
-test.describe('/itinerary (the list) keeps what it doesn\'t use', () => {
+test.describe('/itinerary-list (the list) keeps what it doesn\'t use', () => {
   test('saving from the list keeps actualStart/actualEnd and other unknown fields on the stops', async ({ page }) => {
     const saves: any[] = []
     await page.route('**/api/itinerary-save', async (route) => {
       saves.push(JSON.parse(route.request().postDataJSON().data))
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
     })
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     const day = await page.evaluate(() => {
       // @ts-ignore - globals of the list's inline script
@@ -677,7 +677,7 @@ test.describe('/itinerary (the list) keeps what it doesn\'t use', () => {
   })
 })
 
-test.describe('/itinerary-timeline on a phone: finding "I\'m here now" / "Leaving now"', () => {
+test.describe('/itinerary on a phone: finding "I\'m here now" / "Leaving now"', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   // A trip from 1 December, with the Yokohama stops on its first day.
   const DEC_1 = { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-03' }
@@ -762,7 +762,7 @@ test('on a phone, two overlapping 30-min stops side by side still show both butt
   }
 })
 
-test.describe('/itinerary-timeline: the "🧪 Test time" control', () => {
+test.describe('/itinerary: the "🧪 Test time" control', () => {
   const putStops = (page: Page) => page.evaluate((stops) => {
     // @ts-ignore - the page's test hook
     const itl = window.__itl
@@ -809,7 +809,7 @@ test.describe('/itinerary-timeline: the "🧪 Test time" control', () => {
   })
 })
 
-test.describe('/itinerary-timeline: "⏰ Reminder"', () => {
+test.describe('/itinerary: "⏰ Reminder"', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const icsOf = (href: string) => decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
   const withoutStamp = (ics: string) => ics.replace(/DTSTAMP:\d{8}T\d{6}Z/, 'DTSTAMP:x')
@@ -831,7 +831,7 @@ test.describe('/itinerary-timeline: "⏰ Reminder"', () => {
     expect(withoutStamp(icsOf((await sheetLink.getAttribute('href'))!))).toBe(withoutStamp(icsOf(timeline[0].href)))
 
     // The list, same trip and stops.
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await page.evaluate((stops) => {
       // @ts-ignore - globals of the list's inline script
@@ -889,7 +889,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   test('the list\'s ⋯ panel shows the same strip', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await page.evaluate((s) => {
       // @ts-ignore - globals of the list's inline script
@@ -910,7 +910,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   })
 })
 
-test.describe('/itinerary-timeline: the edit sheet\'s shop link', () => {
+test.describe('/itinerary: the edit sheet\'s shop link', () => {
   test('the linked shop\'s name opens its page, whose "← Back to timeline" returns to the same day; an unlinked stop has no link', async ({ page, sanity, trackDoc }) => {
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Sheet Link Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
     trackDoc(shop._id)
@@ -940,7 +940,7 @@ test.describe('/itinerary-timeline: the edit sheet\'s shop link', () => {
     await expect(page.getByRole('heading', { name: 'Edit shop' })).toBeVisible()
     const back = page.locator('#s-back-timeline')
     await expect(back).toHaveText('← Back to timeline')
-    await expect(back).toHaveAttribute('href', `/itinerary-timeline?day=2026-12-06&trip=${trip._id}`)
+    await expect(back).toHaveAttribute('href', `/itinerary?day=2026-12-06&trip=${trip._id}`)
     await back.click()
     await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
   })
@@ -953,11 +953,11 @@ test.describe('/itinerary-timeline: the edit sheet\'s shop link', () => {
     await expect(page.locator('a.back-link')).toHaveText('← Back to notes')
     // A made-up day or trip never ends up in the link.
     await page.goto(`/edit-store?id=${shop._id}&from=timeline&day=tomorrow&trip=${encodeURIComponent('"><x')}`)
-    await expect(page.locator('#s-back-timeline')).toHaveAttribute('href', '/itinerary-timeline')
+    await expect(page.locator('#s-back-timeline')).toHaveAttribute('href', '/itinerary')
   })
 })
 
-test.describe('/itinerary-timeline: "Found here" in the edit sheet, and the empty states', () => {
+test.describe('/itinerary: "Found here" in the edit sheet, and the empty states', () => {
   const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const stop = (name: string, shopId?: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, ...(shopId ? { shopId } : {}) })
@@ -1012,7 +1012,7 @@ test.describe('/itinerary-timeline: "Found here" in the edit sheet, and the empt
   })
 })
 
-test.describe('/itinerary-timeline: the edit sheet\'s size', () => {
+test.describe('/itinerary: the edit sheet\'s size', () => {
   async function openSheet(page: Page, sanity: any, trackDoc: (id: string) => void) {
     await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     await page.locator('.itl-block').first().click()
@@ -1046,5 +1046,49 @@ test.describe('/itinerary-timeline: the edit sheet\'s size', () => {
     expect(box.x).toBe(0)
     expect(box.width).toBe(width)
     expect((await padding(sheet)).left).toBeGreaterThanOrEqual(16)
+  })
+})
+
+test.describe('the itinerary\'s addresses: /itinerary is the timeline, /itinerary-list the list', () => {
+  test('/itinerary renders the timeline and /itinerary-list the list', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Routes Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await expect(page.locator('.itl-tab')).toHaveText(['5. des (lør)', '6. des (søn)'])
+    await expect(page.locator('.day-card')).toHaveCount(0)
+
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await expect(page.locator('#itn-timeline-link')).toBeVisible()
+    await expect(page.locator('.itl-grid')).toHaveCount(0)
+  })
+
+  test('/itinerary-timeline redirects to /itinerary, keeping ?trip, ?now and ?day', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Redirect Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    const res = await page.request.get(`/itinerary-timeline?trip=${trip._id}&now=2026-12-06T13:00&day=2026-12-06`, { maxRedirects: 0 })
+    expect(res.status()).toBe(302)
+    expect(res.headers()['location']).toBe(`/itinerary?trip=${trip._id}&now=2026-12-06T13:00&day=2026-12-06`)
+
+    await page.goto(`/itinerary-timeline?trip=${trip._id}&now=2026-12-06T13:00&day=2026-12-06`)
+    await expect(page).toHaveURL(`/itinerary?trip=${trip._id}&now=2026-12-06T13:00&day=2026-12-06`)
+    await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
+    await expect(page.locator('#itl-test-time')).toContainText('2026-12-06 13:00')
+    // Without a query too.
+    await page.goto('/itinerary-timeline')
+    await expect(page).toHaveURL(/\/itinerary$/)
+  })
+
+  test('the site navigation\'s Plan goes to /itinerary, and is lit on both pages', async ({ page }) => {
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto('/itinerary-list')
+    const plan = page.locator('nav a', { hasText: 'Plan' })
+    await expect(plan.first()).toHaveAttribute('href', '/itinerary')
+    for (const link of await plan.all()) await expect(link).toHaveClass(/active/)
+    await page.goto('/itinerary')
+    for (const link of await plan.all()) await expect(link).toHaveClass(/active/)
   })
 })

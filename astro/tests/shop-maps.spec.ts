@@ -49,7 +49,7 @@ test.describe('"📷 Photos on Google Maps" on the pages', () => {
     const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Maps Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
     trackDoc(trip._id)
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto(`/itinerary-timeline?trip=${trip._id}`)
+    await page.goto(`/itinerary?trip=${trip._id}`)
     await expect(page.locator('.itl-grid')).toBeVisible()
     await page.evaluate((shopId) => {
       // @ts-ignore - the page's test hook

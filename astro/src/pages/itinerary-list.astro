@@ -1,0 +1,902 @@
+---
+import Base from '../layouts/Base.astro'
+import { loadItineraryPageData } from '../lib/itinerary-page-data'
+import '../styles/itinerary-shared.css'
+
+// The default plan, the trip and its days, the flight home, the shops and the saved plan —
+// shared with the timeline, /itinerary (src/lib/itinerary-page-data.ts).
+const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels } = await loadItineraryPageData(Astro.url)
+const tripParam = Astro.url.searchParams.get('trip')
+const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
+---
+<Base title="Itinerary">
+  <div class="page-header">
+    <h1>Shopping-plan</h1>
+    <span class="count">{rangeLabel} · base Akihabara</span>
+    <a id="itn-timeline-link" class="itn-timeline-link" href={`/itinerary${tripQuery}`}>🗓️ Timeline</a>
+  </div>
+  {!usingTripDays && (
+    <p class="plan-days-hint">Days from the plan's own dates. Set "First day in Tokyo" and "Last day in Tokyo" in Trip Settings{trip?.label ? ` (${trip.label})` : ''} to show the trip's days.</p>
+  )}
+
+  <div class="plan-tip">
+    <span>Endringer lagres automatisk og synkes mellom enhetene dine. Mangler et stopp koordinater, lim inn «lat, lng» fra Google Maps i <strong>⋯</strong>. <strong>▲▼</strong> flytt · <strong>✕</strong> fjern · <strong>+</strong> legg til · <strong>🗺️</strong> rute.</span>
+    <div class="tip-actions">
+      <span id="save-status" class="save-status"></span>
+      <button id="reset-btn" class="reset-btn" type="button">↺ Tilbakestill</button>
+    </div>
+  </div>
+
+  <p id="itn-next" class="itn-next" role="status" hidden></p>
+
+  <div id="days"></div>
+
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, flight, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
+
+  <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
+       safely convert to a module) and so can't use `import`. This tiny module script
+       imports the shared itinerary code from src/lib and exposes it on window for that
+       script; module scripts run after it, so its first render waits for the
+       "itinerary-lib-ready" event this one sends. -->
+  <script>
+    import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
+    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN } from '../lib/itinerary-schedule'
+    import * as itineraryPlan from '../lib/itinerary-plan'
+    import * as itineraryUi from '../lib/itinerary-ui'
+    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN }
+    // The inline script's first render waits for this (see itineraryLibReady there).
+    window.dispatchEvent(new Event('itinerary-lib-ready'))
+  </script>
+
+  <script is:inline>
+
+    const STORE_KEY = 'ff-itinerary-v12'
+    const DEFAULT_START = '08:00'
+    const raw = document.querySelector('#plan-data')?.textContent || '{}'
+    // `days`: the dates shown, in order; `labels`: "1. des (tir)" for every date the page knows
+    // (computed on the server by lib/trip-dates.ts — this script never works out a weekday).
+    const { plan, days, labels, flight, areaMin, base, shops, savedState } = JSON.parse(raw)
+    const templateByDay = new Map(plan.map((d) => [d.day, d]))
+    const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
+    const daysEl = document.querySelector('#days')
+    const resetBtn = document.querySelector('#reset-btn')
+    const saveStatusEl = document.querySelector('#save-status')
+
+    let mapInstances = []
+    let leafletOk = false
+    // Per-day previous stop order, kept only in memory (not saved/synced) — lets "Undo"
+    // restore the order from right before the most recent "Apply", until the page reloads.
+    let undoByDay = {}
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
+    }
+
+    // The shop picker: shops grouped by area (src/lib/itinerary-plan.ts, shared with the timeline).
+    // Built at startup, once that module has loaded.
+    function buildShopOptions() {
+      if (!shops || !shops.length) return ''
+      let html = ''
+      window.__routeOptimizer.shopOptionGroups(shops).forEach(({ area, items }) => {
+        html += `<optgroup label="${esc(area)}">`
+        items.forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
+        html += `</optgroup>`
+      })
+      return html
+    }
+    let SHOP_OPTIONS = ''
+
+    // The saved plan, as { "YYYY-MM-DD": { startTime, stops } }. Saved as { v: 2, days }; an
+    // older save is an array with one entry per plan day in the plan's order (1.–7. des), so
+    // entry i is read as the plan's i-th date.
+    // The plan's load/save rules live in src/lib/itinerary-plan.ts (shared with the timeline, /itinerary).
+    const LIB = () => window.__routeOptimizer
+    function normalizeSaved(p) { return LIB().normalizeSavedPlan(p, plan) }
+    // Prefer server-synced state; fall back to local cache.
+    function loadSaved() {
+      if (savedState) { try { const p = normalizeSaved(JSON.parse(savedState)); if (p) return p } catch (e) {} }
+      try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSaved(JSON.parse(s)) : null } catch { return null }
+    }
+
+    function setStatus(text, color) {
+      if (!saveStatusEl) return
+      saveStatusEl.textContent = text
+      saveStatusEl.style.color = color || 'var(--muted)'
+    }
+
+    let saveTimer = null
+    function scheduleRemoteSave(payload) {
+      setStatus('Lagrer…', 'var(--muted)')
+      clearTimeout(saveTimer)
+      saveTimer = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/itinerary-save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: payload }),
+          })
+          setStatus(res.ok ? 'Lagret ✓' : 'Lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
+        } catch (e) {
+          setStatus('Lagret lokalt (ingen nett)', '#e0a04c')
+        }
+      }, 1000)
+    }
+
+    // Saves every date, the "Not scheduled" ones (extraDays) included — a stop is only ever
+    // removed by the user, never by the trip's days changing.
+    function saveState() {
+      const payload = LIB().serializePlan(state, extraDays)
+      try { localStorage.setItem(STORE_KEY, payload) } catch {}
+      scheduleRemoteSave(payload)
+    }
+
+    // One date's day: its saved version, else the plan's default for that date, else empty.
+    function dayEntry(iso, s) { return LIB().planDayEntry(iso, s, templateByDay, labels) }
+    // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
+    // default) — their stops are shown under "Not scheduled" until moved to a day. Built once the
+    // shared module has loaded (see the startup at the end), before the first render.
+    let extraDays = {}
+    function buildState() {
+      const built = LIB().buildPlanState(plan, days, labels, loadSaved() || {})
+      extraDays = built.extraDays
+      return built.state
+    }
+    let state = []
+
+    function moveUnscheduled(iso, idx, dj) {
+      const [s] = extraDays[iso].stops.splice(idx, 1)
+      if (s) state[dj].stops.push(s)
+      saveState(); render()
+    }
+
+    function renderUnscheduled() {
+      const unscheduled = Object.values(extraDays).filter((d) => d.stops.length).sort((a, b) => a.day.localeCompare(b.day))
+      if (!unscheduled.length) return
+      const card = document.createElement('div')
+      card.className = 'day-card unscheduled-card'
+      const options = state.map((d, dj) => `<option value="${dj}">${esc(d.date)}</option>`).join('')
+      card.innerHTML = `
+        <div class="day-head"><div><div class="day-title">Not scheduled</div>
+        <div class="day-area">Stops from a day that isn't in the trip any more. Nothing is deleted — move them to a day.</div></div></div>
+        <ul class="unscheduled-list"></ul>`
+      const ul = card.querySelector('.unscheduled-list')
+      unscheduled.forEach((d) => d.stops.forEach((s, si) => {
+        const li = document.createElement('li')
+        li.className = 'unscheduled-stop'
+        li.innerHTML = `
+          <span class="stop-body"><span class="stop-name">${esc(resolveStop(s).name)}</span>
+          <span class="stop-sub">from ${esc(d.date)}</span></span>
+          <select class="us-move" data-key="${esc(d.day)}" data-idx="${si}" aria-label="Move to day"><option value="">Move to day…</option>${options}</select>`
+        ul.appendChild(li)
+      }))
+      ul.querySelectorAll('.us-move').forEach((sel) => sel.addEventListener('change', () => {
+        if (sel.value !== '') moveUnscheduled(sel.dataset.key, +sel.dataset.idx, +sel.value)
+      }))
+      daysEl.appendChild(card)
+    }
+
+    const pad = (n) => String(n).padStart(2, '0')
+    function fmt(mins) { mins = ((Math.round(mins) % 1440) + 1440) % 1440; return `${pad(Math.floor(mins/60))}:${pad(mins%60)}` }
+    function parseT(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1])*60 + (+m[2]) : null }
+
+
+    // Shared with the timeline, /itinerary (src/lib/itinerary-plan.ts): the stop's effective
+    // name/coordinates (a linked shop's win), opening hours, and default visit lengths.
+    function resolveStop(s) { return LIB().resolveStop(s, shopById) }
+    function parseOpeningHours(text) { return LIB().parseOpeningHours(text) }
+    function looksClosed(hoursText, plannedMinutes) { return LIB().looksClosed(hoursText, plannedMinutes) }
+    function defaultDur(s) { return LIB().defaultDurationMin(s) }
+
+    function distM(a, b) {
+      const R = 6371000, toRad = (d) => d * Math.PI / 180
+      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng)
+      const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2
+      return 2 * R * Math.asin(Math.sqrt(x))
+    }
+    // Travel between two points: the shared estimate (src/lib/route-optimizer.ts estimateLeg —
+    // walking for short hops, a Tokyo-rail train estimate beyond that).
+    function walkMin(a, b) {
+      if (!a || !b) return 0
+      const leg = window.__routeOptimizer.estimateLeg(a, b)
+      return leg ? leg.minutes : 0
+    }
+    function walkText(a, b) {
+      if (!a || !b) return ''
+      const leg = window.__routeOptimizer.estimateLeg(a, b)
+      if (!leg) return ''
+      if (leg.mode === 'train') return `🚃 ~${leg.minutes} min (estimate)`
+      return `🚶 ~${leg.minutes} min · ${Math.round(distM(a, b) * 1.4)} m`
+    }
+    function travelBadge(area) {
+      const key = Object.keys(areaMin).find((k) => area.includes(k))
+      const min = key != null ? areaMin[key] : null
+      if (min == null) return ''
+      if (min === 0) return '🏠 base'
+      return `🚃 ~${min} min fra base`
+    }
+
+    // The leg's own travel time (only while it's still the same leg) and the day's timetable —
+    // src/lib/itinerary-plan.ts, the same code the timeline (/itinerary) uses.
+    function legFromKey(day, si) { return LIB().legFromKey(day, si, shopById) }
+    function manualTravelFor(day, si) { return LIB().manualTravelFor(day, si, shopById) }
+    function computeTimes(day) { return LIB().computeDayTimes(day, base, shopById) }
+
+    // The travel line into stop si, tappable: "🚃 ~45 min (estimate)" etc., opening an editor
+    // for the leg's own minutes and a Google Maps transit link.
+    function travelRowHtml(di, si, day, sched) {
+      const leg = sched.stops[si].travelIn
+      const from = si === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[si - 1])
+      const to = resolveStop(day.stops[si])
+      const text = LIB().travelLegText(leg)
+      const editor = LIB().travelEditorInnerHtml({ manual: manualTravelFor(day, si), placeholder: leg.minutes, from, to })
+      return `<li class="walk-row"><button type="button" class="itn-travel" data-day="${di}" data-idx="${si}">${esc(text)} →</button></li>
+        <li class="itn-travel-edit" data-day="${di}" data-idx="${si}" hidden>${editor}</li>`
+    }
+
+    // "Next: leave <stop> by HH:MM (in N min)" during the trip — today's next leave-by time in
+    // Tokyo (src/lib/itinerary-schedule.ts nextLeave), refreshed by render() and every minute.
+    const nextEl = document.querySelector('#itn-next')
+    function updateNextBanner() {
+      if (!nextEl || !window.__routeOptimizer) return
+      const entries = []
+      state.forEach((day) => {
+        if (!day.day) return
+        const { sched } = computeTimes(day)
+        sched.stops.forEach((x, si) => {
+          if (x.leaveBy == null || !day.stops[si + 1]) return
+          entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy })
+        })
+      })
+      const next = window.__routeOptimizer.nextLeave(entries)
+      nextEl.hidden = !next
+      if (next) nextEl.textContent = `Next: leave ${next.from} by ${fmt(next.leaveBy)} (${next.inMin === 0 ? 'now' : `in ${next.inMin} min`})`
+    }
+    // Refreshed just after each minute starts (Japan's offset is whole hours, so the phone's
+    // minutes are Tokyo's minutes) — a plain 60 s interval could lag the clock by up to a minute.
+    function tickEveryMinute() {
+      setTimeout(() => { updateNextBanner(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
+    }
+    tickEveryMinute()
+
+    // "⏰ Reminder": an .ics calendar event at the leave-by time (src/lib/itinerary-ui.ts
+    // reminderLinkHtml — the same link as on the timeline).
+    function reminderLinkHtml(day, si, leaveBy) { return LIB().reminderLinkHtml(day, si, leaveBy, shopById) }
+
+    // Once per segment that runs over, just above the travel line into its anchor: how much
+    // too long the stops before it are, and the longest visits that could give.
+    function segmentHtml(day, sched, anchorIdx) {
+      const seg = sched.segments.find((g) => g.anchorIndex === anchorIdx)
+      if (!seg) return ''
+      const anchorName = resolveStop(day.stops[anchorIdx]).name
+      const tips = seg.suggestions.length
+        ? `<span class="itn-segment-tips">Longest visits: ${seg.suggestions.map((g) => `${esc(g.name)} (${g.durationMin} min)`).join(', ')}</span>`
+        : ''
+      return `<li class="itn-segment">⚠️ The stops before ${esc(anchorName)} ${fmt(seg.anchorTime)} need ${seg.overrunMin} min more than available. Shorten a visit or remove a stop.${tips}</li>`
+    }
+
+    // Under a stop: when to leave it, and any timing problem.
+    function scheduleLinesHtml(day, sched, si) {
+      const x = sched.stops[si]
+      const lines = []
+      if (x.doesntFit) {
+        const anchorName = resolveStop(day.stops[x.doesntFit.anchorIndex]).name
+        lines.push(`<span class="itn-warn">⚠️ Doesn't fit before ${esc(anchorName)} ${fmt(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)</span>`)
+      } else if (x.leaveEarlierMin) {
+        lines.push(`<span class="itn-warn">⚠️ Leave ${x.leaveEarlierMin} min earlier</span>`)
+      }
+      if (x.stayUntil != null) lines.push(`<span class="itn-stay">You can stay until ${fmt(x.stayUntil)}</span>`)
+      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}${reminderLinkHtml(day, si, x.leaveBy)}</span>`)
+      return lines.length ? `<span class="itn-lines">${lines.join('')}</span>` : ''
+    }
+
+    // What time would a not-yet-added stop land at, if appended to the end of this day?
+    // Reuses computeTimes itself (on a throwaway copy of the day) rather than
+    // re-deriving the arrival-time math separately.
+    function previewArrivalTime(di, tentativeStop) {
+      const day = state[di]
+      const projected = { ...day, stops: [...day.stops, tentativeStop] }
+      const { times } = computeTimes(projected)
+      return times[times.length - 1]
+    }
+
+
+    function dayRouteUrls(day) { return LIB().dayRouteUrls(day.stops.map(resolveStop), base) }
+    function baseRow(label, time) {
+      return `<li class="stop is-base"><span class="stop-time">${time}</span><div class="move-col"><span class="base-icon">🏠</span></div>
+        <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
+    }
+    function dayOptions(exceptDi) {
+      return state.map((d, dj) => dj === exceptDi ? '' : `<option value="${dj}">${d.date}</option>`).join('')
+    }
+    function slotBadge(slot) {
+      if (slot === 'kveld') return '<span class="slot-badge kveld">🌙 kveld</span>'
+      if (slot === 'dagtid') return '<span class="slot-badge dagtid">☀️ dagtid</span>'
+      return ''
+    }
+
+    function initMap(di, day) {
+      if (!leafletOk || !window.L) return
+      const el = document.getElementById(`map-${di}`)
+      if (!el) return
+      const map = LIB().drawDayMap(el, day, base, shopById)
+      if (map) mapInstances.push(map)
+    }
+
+    function render() {
+      mapInstances.forEach((m) => { try { m.remove() } catch {} })
+      mapInstances = []
+      daysEl.innerHTML = ''
+
+      state.forEach((day, di) => {
+        const { baseStart, times, baseEnd, sched } = computeTimes(day)
+        const card = document.createElement('div')
+        card.className = 'day-card'
+        const urls = dayRouteUrls(day)
+        let routeBtns = ''
+        if (urls.length === 1) routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
+        else if (urls.length > 1) routeBtns = '<div class="route-parts">' + urls.map((u, i) => `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
+
+        const shopSelectHtml = SHOP_OPTIONS
+          ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`
+          : `<select class="af-shop"><option value="__custom__" selected>✏️ Skriv selv</option></select>`
+
+        card.innerHTML = `
+          <div class="day-head">
+            <div>
+              <div class="day-title">${day.date}</div>
+              <div class="day-area">${day.area}</div>
+              ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
+            </div>
+            <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
+          </div>
+          <div class="day-check-row">
+            <button class="day-check-btn" data-day="${di}" type="button">🔍 Check day</button>
+            <button class="day-route-btn" data-day="${di}" type="button">🧭 Suggest route</button>
+            <div class="day-check-results" data-day="${di}" hidden></div>
+            <div class="day-route-results" data-day="${di}" hidden></div>
+          </div>
+          <div class="day-startrow">
+            <label>🕗 Dagen starter <input type="time" class="day-start-input" data-day="${di}" value="${day.startTime}" /></label>
+          </div>
+          ${day.note ? `<div class="day-note">${day.note}</div>` : ''}
+          ${leafletOk ? `<div id="map-${di}" class="day-map"></div>` : ''}
+          ${routeBtns}
+          <ul class="stop-list" data-day="${di}"></ul>
+          <button class="add-stop-btn" data-day="${di}" type="button">+ Legg til stopp</button>
+          <div class="add-form" data-day="${di}" hidden>
+            ${shopSelectHtml}
+            <div class="af-custom" hidden>
+              <input class="af-name" type="text" placeholder="Navn på stopp *" />
+              <input class="af-hours" type="text" placeholder="Info (valgfritt)" />
+            </div>
+            <div class="af-row"><button class="af-save" type="button">Legg til</button><button class="af-cancel" type="button">Avbryt</button></div>
+          </div>
+        `
+        const ul = card.querySelector('.stop-list')
+        ul.insertAdjacentHTML('beforeend', baseRow('Start: base', fmt(baseStart)))
+        if (day.stops[0]) ul.insertAdjacentHTML('beforeend', travelRowHtml(di, 0, day, sched))
+
+        day.stops.forEach((s, si) => {
+          const r = resolveStop(s)
+          const t = times[si]
+          const noCoord = (r.lat == null || r.lng == null)
+          const li = document.createElement('li')
+          li.className = 'stop' + (s.tag === 'mat' ? ' is-food' : '')
+          li.dataset.day = di
+          li.dataset.idx = si
+          const tagCls = s.tag === 'MUST' ? 'must' : s.tag === 'mat' ? 'food' : 'note'
+          const tagHtml = s.tag ? `<span class="stop-tag ${tagCls}">${s.tag}</span>` : ''
+          const gmap = (r.lat != null) ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : ''
+          const editUrl = s.shopId ? `/edit-store?id=${esc(encodeURIComponent(s.shopId))}` : ''
+          const durVal = (s.dur != null ? s.dur : defaultDur(s))
+          li.innerHTML = `
+            <span class="stop-time">${fmt(t)}${s.fixedTime ? ' 📌' : ''}${sched.stops[si].arrival !== sched.stops[si].start ? `<span class="itn-arrive">(arrive ${fmt(sched.stops[si].arrival)})</span>` : ''}</span>
+            <div class="move-col">
+              <button class="mv up" data-day="${di}" data-idx="${si}" ${si === 0 ? 'disabled' : ''} title="Opp">▲</button>
+              <span class="stop-num">${si + 1}</span>
+              <button class="mv down" data-day="${di}" data-idx="${si}" ${si === day.stops.length - 1 ? 'disabled' : ''} title="Ned">▼</button>
+            </div>
+            <span class="stop-body">
+              <span class="stop-name">${
+                editUrl ? `<a href="${editUrl}">${r.name}</a>`
+                : gmap ? `<a href="${gmap}" target="_blank" rel="noopener">${r.name}</a>`
+                : r.name
+              }</span>
+              <span class="stop-sub">
+                ${s.hours ? `<span class="stop-hours">${s.hours}</span>` : ''}
+                ${slotBadge(s.slot)}
+                ${noCoord ? '<span class="nocoord">📍 mangler koordinater</span>' : ''}
+                ${looksClosed(s.hours, t) ? `<span class="closed-warn">⚠️ stengt ~${fmt(t)}?</span>` : ''}
+                ${scheduleLinesHtml(day, sched, si)}
+              </span>
+            </span>
+            ${tagHtml}
+            <div class="stop-actions">
+              <button class="more-btn" data-day="${di}" data-idx="${si}" title="Tid / koordinater / flytt / kopier">⋯</button>
+              <button class="remove-btn" data-day="${di}" data-idx="${si}" title="Fjern">✕</button>
+            </div>
+          `
+          ul.appendChild(li)
+          const panel = document.createElement('li')
+          panel.className = 'mc-panel'; panel.dataset.day = di; panel.dataset.idx = si
+          // The linked shop's photos first (src/lib/itinerary-ui.ts shopPhotoStripHtml).
+          panel.innerHTML = `
+            ${s.shopId ? LIB().shopPhotoStripHtml(shopById.get(s.shopId)) : ''}
+            ${noCoord ? `
+              <div class="mc-coord-row">
+                <label>📍 Koordinater <input type="text" class="mc-coord" placeholder="lat, lng (fra Google Maps)" /></label>
+                <button class="mc-coord-save" type="button">Lagre</button>
+                ${s.shopId ? `<button class="mc-coord-fetch" type="button">🔄 Hent koordinater fra butikken</button>` : ''}
+              </div>
+              <p class="mc-coord-msg" hidden></p>
+            ` : ''}
+            <div class="mc-time-row">
+              <label>🕐 Tid <input type="time" class="mc-time" value="${s.fixedTime || ''}" /></label>
+              <label>⏱ Varighet <input type="number" class="mc-dur" min="5" step="5" value="${durVal}" /> min</label>
+              <label class="mc-early-label" ${s.fixedTime ? '' : 'hidden'}>Arrive <input type="number" class="mc-early" min="0" step="5" value="${typeof s.arriveEarly === 'number' ? s.arriveEarly : ''}" /> min early</label>
+            </div>
+            <label>Flytt til <select class="mc-move"><option value="">—</option>${dayOptions(di)}</select></label>
+            <label>Kopier til <select class="mc-copy"><option value="">—</option>${dayOptions(di)}</select></label>
+          `
+          ul.appendChild(panel)
+
+          if (day.stops[si + 1]) ul.insertAdjacentHTML('beforeend', segmentHtml(day, sched, si + 1) + travelRowHtml(di, si + 1, day, sched))
+        })
+
+        const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1]) : null
+        if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
+        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base', fmt(baseEnd)))
+        daysEl.appendChild(card)
+      })
+
+      renderUnscheduled()
+      updateNextBanner()
+      state.forEach((day, di) => initMap(di, day))
+      state.forEach((day, di) => renderUndoAffordance(di))
+      attachEvents()
+    }
+
+    // The ⋯ menu's actions, ▲▼ and ✕: src/lib/itinerary-plan.ts (shared with the timeline's edit
+    // sheet); this page then saves and re-renders as before.
+    function move(di, idx, delta) {
+      if (!LIB().moveStopBy(state[di], idx, delta)) return
+      saveState(); render()
+    }
+    function moveToDay(di, idx, dj) { LIB().moveStopToDay(state[di], idx, state[dj]); saveState(); render() }
+    function copyToDay(di, idx, dj) { LIB().copyStopToDay(state[di], idx, state[dj]); saveState(); render() }
+
+    function addShopStop(di, shopIdx) {
+      const shop = shops[shopIdx]
+      if (!shop) return
+      state[di].stops.push(LIB().shopStopFrom(shop)) // the same shape the timeline adds
+      saveState(); render()
+    }
+    function addCustomStop(di, name, hours) {
+      state[di].stops.push(LIB().customStopFrom(name, hours))
+      saveState(); render()
+    }
+
+    function coordMsg(el, text, color) { el.hidden = false; el.textContent = text; el.style.color = color }
+
+    // Coordinates: src/lib/itinerary-ui.ts (shared with the timeline's edit sheet).
+    function coordCallbacks(panel) {
+      const msg = panel.querySelector('.mc-coord-msg')
+      return { save: saveState, msg: (text, color) => coordMsg(msg, text, color), done: render }
+    }
+    async function saveCoords(di, idx, panel) {
+      await LIB().saveStopCoords(state[di].stops[idx], panel.querySelector('.mc-coord').value, coordCallbacks(panel))
+    }
+    async function fetchShopCoords(di, idx, panel) {
+      await LIB().fetchStopCoordsFromShop(state[di].stops[idx], coordCallbacks(panel))
+    }
+
+    // --- "Check day" AI review — read-only: never touches state/saveState, so the plan
+    // itself is never changed by a review, only ever read to build the request. ---
+    function stopNote(s) { return LIB().stopNote(s, shopById) }
+
+    // Request and results: src/lib/itinerary-plan.ts checkDayRequestBody and itinerary-ui.ts
+    // runCheckDay (shared with the timeline). A stop's item links to its row here.
+    async function checkDay(di, btn) {
+      const day = state[di]
+      const resultsEl = daysEl.querySelector(`.day-check-results[data-day="${di}"]`)
+      const stopLi = (i) => daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${i}"]`)
+      await LIB().runCheckDay(btn, resultsEl, LIB().checkDayRequestBody(day, { base, shopById, flight }), {
+        stopName: (i) => {
+          const nameEl = stopLi(i) ? stopLi(i).querySelector('.stop-name') : null
+          return nameEl ? nameEl.textContent : `Stop ${i + 1}`
+        },
+        onStopClick: (i) => {
+          const li = stopLi(i)
+          if (!li) return
+          li.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          li.classList.add('ir-highlight')
+          setTimeout(() => li.classList.remove('ir-highlight'), 1600)
+        },
+      })
+    }
+
+    // --- "Suggest route" — a deterministic optimizer (src/lib/route-optimizer.ts via
+    // window.__routeOptimizer), never the AI. Computing/showing a suggestion never
+    // touches state/saveState; only clicking "Apply" does, through the same
+    // state[di].stops/saveState()/render() path every other edit on this page uses, so it
+    // behaves exactly like a manual reorder for sync/undo-on-reload purposes alike. ---
+    function renderUndoAffordance(di) {
+      const el = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
+      if (!el || undoByDay[di] === undefined) return
+      LIB().renderRouteApplied(el, () => {
+        state[di].stops = undoByDay[di]
+        delete undoByDay[di]
+        saveState(); render()
+      })
+    }
+
+    // Input and preview: src/lib/itinerary-plan.ts optimizerInput and itinerary-ui.ts
+    // renderRouteSuggestion (shared with the timeline).
+    function suggestRoute(di) {
+      const day = state[di]
+      const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
+      if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
+      const input = LIB().optimizerInput(day, { base, shopById })
+      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start)
+      LIB().renderRouteSuggestion(resultsEl, result, {
+        stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
+        fmt,
+        onApply: () => {
+          undoByDay[di] = day.stops.slice()
+          state[di].stops = result.order.map((i) => day.stops[i])
+          saveState(); render()
+        },
+      })
+    }
+
+    function attachEvents() {
+      document.querySelectorAll('.day-check-btn').forEach((btn) => btn.addEventListener('click', () => checkDay(+btn.dataset.day, btn)))
+      document.querySelectorAll('.day-route-btn').forEach((btn) => btn.addEventListener('click', () => suggestRoute(+btn.dataset.day)))
+      document.querySelectorAll('.day-start-input').forEach((inp) => inp.addEventListener('change', () => {
+        state[+inp.dataset.day].startTime = inp.value || DEFAULT_START; saveState(); render()
+      }))
+      document.querySelectorAll('.mv.up').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, -1)))
+      document.querySelectorAll('.mv.down').forEach((b) => b.addEventListener('click', () => move(+b.dataset.day, +b.dataset.idx, +1)))
+      document.querySelectorAll('.remove-btn').forEach((btn) => btn.addEventListener('click', () => {
+        LIB().removeStop(state[+btn.dataset.day], +btn.dataset.idx); saveState(); render()
+      }))
+      document.querySelectorAll('.more-btn').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = daysEl.querySelector(`.mc-panel[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
+        if (panel) panel.classList.toggle('open')
+      }))
+      document.querySelectorAll('.mc-coord-save').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = btn.closest('.mc-panel')
+        saveCoords(+panel.dataset.day, +panel.dataset.idx, panel)
+      }))
+      document.querySelectorAll('.mc-coord-fetch').forEach((btn) => btn.addEventListener('click', () => {
+        const panel = btn.closest('.mc-panel')
+        fetchShopCoords(+panel.dataset.day, +panel.dataset.idx, panel)
+      }))
+      document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
+        const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
+        LIB().setFixedTime(state[di], +panel.dataset.idx, inp.value, base, shopById)
+        saveState(); render()
+      }))
+      // Arrive early (fixed-time stops): the anchor for travel becomes time − minutes.
+      document.querySelectorAll('.mc-early').forEach((inp) => inp.addEventListener('change', () => {
+        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
+        LIB().setArriveEarly(s, inp.value)
+        saveState(); render()
+      }))
+      // The travel line: tap to enter minutes for this leg, or go back to the estimate.
+      document.querySelectorAll('.itn-travel').forEach((btn) => btn.addEventListener('click', () => {
+        const ed = daysEl.querySelector(`.itn-travel-edit[data-day="${btn.dataset.day}"][data-idx="${btn.dataset.idx}"]`)
+        if (ed) ed.hidden = !ed.hidden
+      }))
+      document.querySelectorAll('.itn-travel-edit').forEach((ed) => {
+        const di = +ed.dataset.day, si = +ed.dataset.idx
+        LIB().bindTravelEditor(ed, (minutes) => {
+          const s = state[di].stops[si]
+          if (minutes == null) { delete s.travelMin; delete s.travelFrom }
+          else { s.travelMin = minutes; s.travelFrom = legFromKey(state[di], si) }
+          saveState(); render()
+        })
+      })
+      document.querySelectorAll('.mc-dur').forEach((inp) => inp.addEventListener('change', () => {
+        const panel = inp.closest('.mc-panel'); const s = state[+panel.dataset.day].stops[+panel.dataset.idx]
+        LIB().setStopDuration(s, inp.value); saveState(); render()
+      }))
+      document.querySelectorAll('.mc-move').forEach((sel) => sel.addEventListener('change', () => {
+        const panel = sel.closest('.mc-panel')
+        if (sel.value !== '') moveToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
+      }))
+      document.querySelectorAll('.mc-copy').forEach((sel) => sel.addEventListener('change', () => {
+        const panel = sel.closest('.mc-panel')
+        if (sel.value !== '') copyToDay(+panel.dataset.day, +panel.dataset.idx, +sel.value)
+      }))
+      document.querySelectorAll('.add-stop-btn').forEach((btn) => btn.addEventListener('click', () => {
+        const form = daysEl.querySelector(`.add-form[data-day="${btn.dataset.day}"]`)
+        if (form) { form.hidden = false; const sel = form.querySelector('.af-shop'); if (sel) sel.focus() }
+      }))
+      document.querySelectorAll('.add-form').forEach((form) => {
+        const di = +form.dataset.day
+        const shopSel = form.querySelector('.af-shop')
+        const custom = form.querySelector('.af-custom')
+        function syncCustom() { custom.hidden = shopSel.value !== '__custom__' }
+        shopSel.addEventListener('change', syncCustom)
+        syncCustom()
+        form.querySelector('.af-cancel').addEventListener('click', () => {
+          form.hidden = true; shopSel.value = ''; custom.hidden = true
+          form.querySelector('.af-name').value = ''; form.querySelector('.af-hours').value = ''
+        })
+        form.querySelector('.af-save').addEventListener('click', () => {
+          const val = shopSel.value
+          if (val === '__custom__') {
+            const name = form.querySelector('.af-name').value.trim()
+            if (!name) return
+            const hours = form.querySelector('.af-hours').value.trim()
+            const arrival = previewArrivalTime(di, { name, hours, tag: '', slot: '', lat: null, lng: null })
+            if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+            addCustomStop(di, name, hours)
+          } else if (val !== '') {
+            const shopIdx = +val
+            const shop = shops[shopIdx]
+            if (shop) {
+              const hours = shop.openingHours || ''
+              const tentative = {
+                name: shop.shopName, hours, tag: shop.placeType === 'restaurant' ? 'mat' : '', slot: '',
+                lat: (typeof shop.latitude === 'number') ? shop.latitude : null,
+                lng: (typeof shop.longitude === 'number') ? shop.longitude : null,
+              }
+              const arrival = previewArrivalTime(di, tentative)
+              if (looksClosed(hours, arrival) && !confirm(`Dette stedet ser ut til å være stengt rundt ${fmt(arrival)}. Legg til likevel?`)) return
+            }
+            addShopStop(di, shopIdx)
+          }
+        })
+      })
+    }
+
+    resetBtn.addEventListener('click', () => {
+      if (!confirm('Tilbakestille hele planen på alle enheter? Dine endringer forsvinner.')) return
+      // Back to the plan's defaults. A date that only exists in the saved plan (not in the
+      // default plan) keeps its stops under "Not scheduled" — they're not the plan's to reset.
+      state = days.map((iso) => dayEntry(iso, null))
+      const keep = {}
+      Object.keys(extraDays).forEach((iso) => { if (!templateByDay.has(iso)) keep[iso] = extraDays[iso] })
+      plan.forEach((t) => { if (!days.includes(t.day)) keep[t.day] = dayEntry(t.day, null) })
+      extraDays = keep
+      saveState(); render()
+    })
+
+    // The travel estimate and schedule live in src/lib, reached through the module script above
+    // (window.__routeOptimizer); module scripts run after this one, so the first render waits.
+    const itineraryLibReady = window.__routeOptimizer
+      ? Promise.resolve()
+      : new Promise((resolve) => window.addEventListener('itinerary-lib-ready', resolve, { once: true }))
+    itineraryLibReady.then(() => window.__routeOptimizer.loadLeaflet()).then((ok) => { leafletOk = ok; SHOP_OPTIONS = buildShopOptions(); state = buildState(); render(); focusFromUrl() })
+
+    // ?day=<date>&stop=<n> (the timeline's "Edit in list"): that stop in view, highlighted.
+    function focusFromUrl() {
+      const params = new URLSearchParams(window.location.search)
+      const di = state.findIndex((d) => d.day === params.get('day'))
+      const idx = params.get('stop')
+      if (di < 0 || idx == null) return
+      const li = daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${+idx}"]`)
+      if (!li) return
+      li.classList.add('itn-focus')
+      li.scrollIntoView({ block: 'center' })
+    }
+  </script>
+
+  <style is:global>
+    .plan-tip {
+      font-size: 0.85rem; color: var(--muted); margin: 0 0 1.5rem; max-width: 680px;
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.25);
+      border-radius: 8px; padding: 0.7rem 0.9rem;
+      display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; flex-wrap: wrap;
+    }
+    .plan-tip strong { color: var(--accent); }
+    .itn-timeline-link { margin-left: auto; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--accent); border-radius: 8px; padding: 0.3rem 0.6rem; }
+    .stop.itn-focus { outline: 2px solid #2ecc71; outline-offset: 2px; border-radius: 6px; }
+    .plan-days-hint { font-size: 0.82rem; color: #e0a04c; margin: -0.5rem 0 1rem; max-width: 680px; }
+    .unscheduled-card { border-style: dashed; }
+    .unscheduled-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .unscheduled-stop { display: flex; align-items: center; gap: 0.6rem; justify-content: space-between; flex-wrap: wrap; }
+    .unscheduled-stop .stop-body { display: flex; flex-direction: column; min-width: 0; }
+    .us-move { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.85rem; }
+    .tip-actions { display: flex; align-items: center; gap: 0.6rem; }
+    .save-status { font-size: 0.75rem; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+    .reset-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;
+    }
+    .reset-btn:hover { border-color: var(--accent); }
+
+    #days { display: flex; flex-direction: column; gap: 1.5rem; max-width: 680px; }
+    .day-card {
+      background: var(--surface); border: 1px solid rgba(176,30,52,0.25);
+      border-radius: 10px; padding: 1rem; overflow: hidden; max-width: 100%; box-sizing: border-box;
+    }
+    .day-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem;
+      padding-bottom: 0.6rem; border-bottom: 1px solid rgba(176,30,52,0.2);
+    }
+    .day-title {
+      font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 1.05rem;
+      color: var(--accent); text-shadow: 0 0 10px rgba(244,162,76,0.3);
+    }
+    .day-area { font-size: 0.9rem; color: var(--text); margin-top: 0.15rem; }
+    .day-flight { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-top: 0.3rem; }
+    .day-travel { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-align: right; line-height: 1.5; }
+    .day-startrow { margin-bottom: 0.7rem; }
+    .day-startrow label {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      font-size: 0.82rem; color: var(--text);
+      background: rgba(244,162,76,0.08); border: 1px solid rgba(244,162,76,0.3);
+      border-radius: 8px; padding: 0.4rem 0.7rem;
+    }
+    .day-start-input {
+      background: var(--bg); color: var(--accent); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.3rem 0.5rem; font-size: 0.9rem; font-weight: 700;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .day-note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin-bottom: 0.7rem; }
+
+
+    .stop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+    .stop {
+      display: flex; align-items: center; gap: 0.5rem;
+      background: rgba(26,12,18,0.5); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 0.55rem;
+    }
+    .stop.is-food { background: rgba(40,26,8,0.5); border-color: rgba(243,156,18,0.35); }
+    .stop.is-base { background: rgba(244,162,76,0.1); border-color: rgba(244,162,76,0.4); }
+    .stop-time {
+      flex-shrink: 0; width: 52px; font-family: 'IBM Plex Mono', monospace; font-weight: 700;
+      font-size: 0.82rem; color: var(--accent); text-align: right;
+    }
+    .base-icon { font-size: 1.1rem; width: 26px; text-align: center; }
+    .stop.is-base .stop-name { color: var(--accent); font-weight: 700; }
+    .move-col { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
+    .mv {
+      background: var(--surface); color: var(--accent); border: 1px solid var(--border);
+      width: 26px; height: 18px; border-radius: 5px; cursor: pointer; font-size: 0.6rem;
+      display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+    }
+    .mv:hover:not(:disabled) { background: rgba(244,162,76,0.15); border-color: var(--accent); }
+    .mv:disabled { opacity: 0.25; cursor: default; }
+    .stop-num {
+      width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #2a1a04;
+      font-size: 0.75rem; font-weight: 700; font-family: 'IBM Plex Mono', monospace;
+      display: flex; align-items: center; justify-content: center; margin: 1px 0;
+    }
+    .stop-body { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
+    .stop-name { font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
+    .stop-name a { color: var(--text); text-decoration: none; }
+    .stop-name a:hover { color: var(--accent); text-decoration: underline; }
+    .stop-sub { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+    .stop-hours { font-size: 0.75rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; overflow-wrap: anywhere; }
+    .slot-badge {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+    }
+    .slot-badge.dagtid { background: rgba(244,162,76,0.18); color: var(--accent); }
+    .slot-badge.kveld { background: rgba(107,159,212,0.2); color: #8fbce8; }
+    .nocoord {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+      background: rgba(231,76,60,0.15); color: #ff9b8f;
+    }
+    .closed-warn {
+      font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace; white-space: nowrap;
+      background: rgba(243,156,18,0.18); color: #f5c542;
+    }
+    .stop-tag {
+      flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.2rem 0.45rem;
+      border-radius: 4px; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.03em;
+    }
+    .stop-tag.must { background: #e74c3c; color: #fff; }
+    .stop-tag.food { background: #f39c12; color: #2a1a04; }
+    .stop-tag.note { background: var(--border); color: var(--text); }
+    .stop-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .more-btn, .remove-btn {
+      background: none; border: none; color: var(--muted);
+      font-size: 0.95rem; cursor: pointer; padding: 0.1rem 0.3rem; line-height: 1; border-radius: 4px;
+    }
+    .more-btn:hover { color: var(--accent); background: rgba(244,162,76,0.12); }
+    .remove-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.12); }
+
+    .mc-panel { display: none; }
+    .mc-panel.open {
+      display: flex; flex-direction: column; gap: 0.5rem;
+      background: rgba(244,162,76,0.06); border: 1px dashed rgba(244,162,76,0.3);
+      border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0.1rem 0 0.2rem 3.4rem;
+    }
+    .mc-panel label { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+    .mc-panel select, .mc-panel input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem;
+    }
+    .mc-time-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    .mc-early-label[hidden] { display: none; }
+    .itn-travel {
+      background: none; border: none; padding: 0.15rem 0; cursor: pointer; font: inherit; color: var(--muted);
+      text-decoration: underline dotted; text-underline-offset: 3px;
+    }
+    .itn-arrive { display: block; font-size: 0.7rem; color: var(--muted); }
+    .itn-lines { display: flex; flex-direction: column; gap: 0.1rem; width: 100%; }
+    .itn-leave { font-size: 0.75rem; color: var(--accent); font-weight: 600; }
+    .itn-next {
+      max-width: 680px; margin: 0 0 1rem; padding: 0.6rem 0.9rem; border-radius: 8px; font-weight: 600;
+      background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.45); color: #2ecc71;
+    }
+    .itn-next[hidden] { display: none; }
+    .itn-stay { font-size: 0.75rem; color: #2ecc71; }
+    .itn-warn { font-size: 0.75rem; color: #e74c3c; font-weight: 600; }
+    .itn-segment {
+      list-style: none; margin: 0.3rem 0; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+      color: #e74c3c; background: rgba(231,76,60,0.08); border: 1px solid rgba(231,76,60,0.4);
+    }
+    .itn-segment-tips { display: block; margin-top: 0.2rem; font-weight: 400; color: var(--text); }
+    .mc-time-row label { flex: 1; }
+    .mc-dur { width: 64px; }
+    .mc-coord-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }
+    .mc-coord-row label { flex: 1; flex-direction: column; align-items: stretch; gap: 0.25rem; }
+    .mc-coord { width: 100%; }
+    .mc-coord-save {
+      background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.8rem;
+      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+    }
+    .mc-coord-fetch {
+      background: var(--bg); color: var(--text); border: 1px solid var(--accent); padding: 0.4rem 0.8rem;
+      border-radius: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+    }
+    .mc-coord-fetch:hover { background: rgba(244,162,76,0.1); }
+    .mc-coord-msg { font-size: 0.75rem; margin: 0; }
+
+    .walk-row { padding: 0.05rem 0 0.05rem 3.4rem; }
+    .walk-line { font-size: 0.72rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+
+    .add-stop-btn {
+      margin-top: 0.6rem; width: 100%; background: rgba(244,162,76,0.08);
+      color: var(--accent); border: 1px dashed rgba(244,162,76,0.4);
+      padding: 0.55rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    }
+    .add-stop-btn:hover { background: rgba(244,162,76,0.15); }
+    .add-form { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .add-form select, .add-form input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 0.6rem 0.7rem; border-radius: 8px; font-size: 0.9rem; font-family: inherit;
+    }
+    .af-custom { display: flex; flex-direction: column; gap: 0.5rem; }
+    .add-form[hidden], .af-custom[hidden] { display: none; }
+    .af-row { display: flex; gap: 0.5rem; }
+    .af-save { flex: 1; background: var(--accent); color: #fff; border: none; padding: 0.55rem; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+    .af-cancel { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
+
+
+    /* "Check day" AI review — new classes use an "ir-" prefix (not an existing
+       convention on this page, but these are JS-created via createElement/innerHTML, so
+       is:global is required regardless; the prefix just avoids future collisions). Every
+       class here that's paired with the hidden attribute gets an explicit [hidden]
+       override, per this file's own established pattern above (.add-form[hidden] etc.) —
+       author CSS setting display always wins over the browser's default [hidden] rule. */
+    .day-check-row { margin: 0.75rem 0; }
+    .day-check-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+    }
+    .day-check-btn:disabled { opacity: 0.6; cursor: default; }
+    .day-check-results { margin-top: 0.6rem; }
+    .day-check-results[hidden] { display: none; }
+    .stop.ir-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+    /* "Suggest route" — deterministic optimizer, not AI. Same reasoning as the "ir-"
+       block above: JS-created via createElement, so is:global is required, and new
+       classes use an "rt-" prefix with explicit [hidden] overrides. */
+    .day-route-btn {
+      background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+      padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; margin-left: 0.5rem;
+    }
+    .day-route-btn:disabled { opacity: 0.6; cursor: default; }
+    .day-route-results { margin-top: 0.6rem; }
+    .day-route-results[hidden] { display: none; }
+  </style>
+</Base>

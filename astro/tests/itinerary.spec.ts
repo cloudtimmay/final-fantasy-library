@@ -47,7 +47,7 @@ test.describe('itinerary-review-helpers: distance/gap/fare computation', () => {
 
 test.describe('itinerary: "Check day" AI review', () => {
   test('sends per-stop timing and coordinates in order, and renders results against the correct stops', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     // Generous timeout: the page defers its first render until an external Leaflet
     // script load settles (success or failure), which can take a moment.
@@ -102,7 +102,7 @@ test.describe('itinerary: "Check day" AI review', () => {
   })
 
   test('shows "Looks good" for an empty result', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     await expect(firstCard).toBeVisible({ timeout: 20000 })
 
@@ -117,7 +117,7 @@ test.describe('itinerary: "Check day" AI review', () => {
   })
 
   test('never changes the plan', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     await expect(firstCard).toBeVisible({ timeout: 20000 })
 
@@ -142,7 +142,7 @@ test.describe('itinerary: "Check day" AI review', () => {
   })
 
   test('shows a network-error message without crashing', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     await expect(firstCard).toBeVisible({ timeout: 20000 })
 
@@ -263,7 +263,7 @@ test.describe('route-optimizer: optimizeRoute', () => {
 test.describe('itinerary: "Suggest route"', () => {
   // Apply/Undo change the plan, and the page autosaves the plan to /api/itinerary-save —
   // the one shared itineraryState document. Answered here instead, so these tests never
-  // write the dataset's real plan (and a parallel test reading /itinerary never sees the
+  // write the dataset's real plan (and a parallel test reading /itinerary-list never sees the
   // injected "Far/Near" day).
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/itinerary-save', (route) =>
@@ -296,7 +296,7 @@ test.describe('itinerary: "Suggest route"', () => {
   }
 
   test('shows the current and suggested order with a "saves X min" summary', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)
 
@@ -315,7 +315,7 @@ test.describe('itinerary: "Suggest route"', () => {
   })
 
   test('does not change the plan until Apply is pressed', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)
 
@@ -331,7 +331,7 @@ test.describe('itinerary: "Suggest route"', () => {
   })
 
   test('Apply writes the suggested order into the plan, and Undo restores the previous one', async ({ page }) => {
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)
 
@@ -381,7 +381,7 @@ test.describe('itinerary: day headings', () => {
 
   test('show the right weekday for each date, and the review gets the calendar date', async ({ page }) => {
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     const titles = page.locator('.day-card .day-title')
     await expect(titles.first()).toHaveText('1. des (tir)', { timeout: 20000 })
     await expect(titles.filter({ hasText: '6. des' })).toHaveText('6. des (søn)')
@@ -417,7 +417,7 @@ test.describe('itinerary: days follow the trip, "Not scheduled" keeps the rest',
   test('the days shown are the trip\'s days in Tokyo; the plan\'s other days go to "Not scheduled"', async ({ page, sanity, trackDoc }) => {
     const trip = await tokyoTrip(sanity, trackDoc, { firstTokyoDay: '2026-12-02', lastTokyoDay: '2026-12-04' })
     await captureSaves(page)
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     await expect(page.locator('.day-card:not(.unscheduled-card) .day-title')).toHaveText(['2. des (ons)', '3. des (tor)', '4. des (fre)'], { timeout: 20000 })
     await expect(page.locator('.page-header .count')).toContainText('2. des (ons) – 4. des (fre)')
     await expect(page.locator('.plan-days-hint')).toHaveCount(0)
@@ -430,7 +430,7 @@ test.describe('itinerary: days follow the trip, "Not scheduled" keeps the rest',
   test('1–6 December: the 7 December stops are listed and can be moved to a day, through the normal save', async ({ page, sanity, trackDoc }) => {
     const trip = await tokyoTrip(sanity, trackDoc, { firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-06' })
     const saves = await captureSaves(page)
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     const dayCards = page.locator('.day-card:not(.unscheduled-card)')
     await expect(dayCards).toHaveCount(6, { timeout: 20000 })
     await expect(dayCards.last().locator('.day-title')).toHaveText('6. des (søn)')
@@ -459,7 +459,7 @@ test.describe('itinerary: days follow the trip, "Not scheduled" keeps the rest',
   test('a trip without Tokyo days shows the plan\'s own dates, with a hint', async ({ page, sanity, trackDoc }) => {
     const trip = await tokyoTrip(sanity, trackDoc, {})
     await captureSaves(page)
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     await expect(page.locator('.day-card:not(.unscheduled-card)')).toHaveCount(7, { timeout: 20000 })
     await expect(page.locator('.plan-days-hint')).toContainText('First day in Tokyo')
     await expect(page.locator('.unscheduled-card')).toHaveCount(0)
@@ -507,7 +507,7 @@ test.describe('itinerary: the flight home', () => {
       bodies.push(route.request().postDataJSON())
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
     })
-    await page.goto(`/itinerary?trip=${trip._id}`)
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
     const dayCards = page.locator('.day-card:not(.unscheduled-card)')
     await expect(dayCards).toHaveCount(6, { timeout: 20000 })
     await expect(dayCards.last().locator('.day-flight')).toHaveText('✈️ Flight 23:00 from Narita (T1) · last stop should end by ~18:30')

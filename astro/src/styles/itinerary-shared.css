@@ -1,8 +1,8 @@
-/* The itinerary's shared parts (src/lib/itinerary-ui.ts), on /itinerary and /itinerary-timeline:
+/* The itinerary's shared parts (src/lib/itinerary-ui.ts), on /itinerary-list and /itinerary (the timeline):
    the day map and its pins, the day route links, the per-leg travel editor, the "Check day"
    results ("ir-") and the "Suggest route" preview ("rt-"). All of these are built in JS, so the
    rules are global (a plain stylesheet, imported by both pages); classes shown and hidden with
-   [hidden] have their own [hidden] rule. Moved here unchanged from itinerary.astro. */
+   [hidden] have their own [hidden] rule. Moved here unchanged from the list (now itinerary-list.astro). */
 .day-map {
   height: 240px; border: 1px solid var(--border); border-radius: 8px;
   overflow: hidden; margin-bottom: 0.6rem; max-width: 100%; background: #1a1a1a;

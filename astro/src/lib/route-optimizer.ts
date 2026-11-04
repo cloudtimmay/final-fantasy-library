@@ -1,12 +1,12 @@
 // Pure, dependency-free deterministic route optimizer for the itinerary page's
 // "🧭 Suggest route" feature — no AI involved, just arithmetic and search. Kept as its own
-// module so it's directly unit-testable; itinerary.astro's main script is `is:inline`
+// module so it's directly unit-testable; itinerary-list.astro's main script is `is:inline`
 // (left untouched, far too large/load-bearing to safely convert to a module) and can't
 // import it directly, so a tiny separate `<script type="module">` in that file imports
 // this and exposes it as `window.__routeOptimizer` for the inline script to call.
 //
 // Opening-hours parsing below is a deliberate, hand-kept-in-sync duplicate of
-// itinerary.astro's own parseOpeningHours/looksClosed (same reason shop-info.ts and
+// itinerary-list.astro's own parseOpeningHours/looksClosed (same reason shop-info.ts and
 // itinerary-review.ts each keep their own copy too) — see that file's comment for the
 // exact format rules this must match.
 
@@ -38,7 +38,7 @@ export type OptimizeResult = {
   improved: boolean // true if the suggested order scores strictly better than the current one
 }
 
-// ---- Opening hours (see itinerary.astro's parseOpeningHours for the authoritative copy) ----
+// ---- Opening hours (see itinerary-list.astro's parseOpeningHours for the authoritative copy) ----
 
 export function parseOpeningHours(text: string | null | undefined): { start: number; end: number } | null {
   const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(String(text || ''))

@@ -103,7 +103,7 @@ test.describe('itinerary page: anchors, leave-by and travel per leg', () => {
       saves.push(JSON.parse(route.request().postDataJSON().data))
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
     })
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await page.evaluate(() => {
       // @ts-ignore - globals of the page's own inline script
@@ -208,7 +208,7 @@ test.describe('itinerary page: reminder link on a phone set to Norwegian time', 
 
   test('the cafe\'s reminder is at its leave-by time in Asia/Tokyo', async ({ page }) => {
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     const date = await page.evaluate(() => {
       // @ts-ignore - globals of the page's own inline script
@@ -259,7 +259,7 @@ test.describe('itinerary: "Next: leave … by …" during the trip', () => {
       await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
       // 16:59 in Tokyo on 6 December (08:59 in Oslo): the clock runs until paused at 17:00.
       await page.clock.install({ time: new Date('2026-12-06T16:59:00+09:00') })
-      await page.goto(`/itinerary?trip=${trip._id}`)
+      await page.goto(`/itinerary-list?trip=${trip._id}`)
       await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
       await page.clock.pauseAt(new Date('2026-12-06T17:00:00+09:00'))
       await page.evaluate(() => {
@@ -334,7 +334,7 @@ test.describe('itinerary: "Check day" gets the timetable', () => {
       body = route.request().postDataJSON()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
     })
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await page.evaluate(() => {
       // @ts-ignore - globals of the page's own inline script
@@ -414,7 +414,7 @@ test.describe('itinerary: "doesn\'t fit" per segment, not per stop', () => {
 
   test('the page: one segment message above the cafe, no warning on the early stops', async ({ page }) => {
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary')
+    await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await page.evaluate((stops) => {
       // @ts-ignore - globals of the page's own inline script

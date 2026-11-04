@@ -48,7 +48,7 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return 2 * R * Math.asin(Math.sqrt(x))
 }
 
-// Must match itinerary.astro's parseOpeningHours exactly (src/pages/itinerary.astro) — an
+// Must match itinerary-list.astro's parseOpeningHours exactly (src/pages/itinerary-list.astro) — an
 // openingHours string that this can't parse is silently treated as "unknown hours" by the
 // itinerary page (never an error, just never flags a shop as closed), so an AI-suggested
 // string that doesn't fit this is worse than useless there and is dropped here instead.

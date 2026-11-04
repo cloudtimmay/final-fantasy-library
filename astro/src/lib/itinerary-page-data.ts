@@ -1,4 +1,4 @@
-// Everything /itinerary and /itinerary-timeline load on the server: the default plan, the
+// Everything /itinerary (the timeline) and /itinerary-list load on the server: the default plan, the
 // trip (?trip=<id> or the default one), its days in Tokyo and their labels, the flight home,
 // the shops and the saved plan. One function, so both pages show the same days for the same trip.
 import { sanity } from './sanity'

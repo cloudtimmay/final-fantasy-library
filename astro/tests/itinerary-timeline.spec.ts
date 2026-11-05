@@ -719,6 +719,97 @@ test.describe('/itinerary on a phone: finding "I\'m here now" / "Leaving now"', 
     await expect(page.locator('#itl-ed-now')).toBeHidden()
   })
 
+  // "🧪 Test time" set from the toolbar, as on the phone.
+  async function setTestTimeInUi(page: Page, date: string, hhmm: string) {
+    await page.locator('#itl-test-btn').click()
+    await page.locator('#itl-test-date').selectOption(date)
+    await page.locator('#itl-test-clock').fill(hhmm)
+    await page.locator('#itl-test-set').click()
+    await expect(page.locator('#itl-test-time')).toContainText(`${date} ${hhmm}`)
+  }
+  const sized = (min: number) => ({ name: `Sized ${min} Stop`, hours: '10:00–20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: min })
+  const savedStop = async (saves: any[], i: number, check: (s: any) => boolean) =>
+    expect.poll(() => saves.length > 0 && check(saves[saves.length - 1].days['2026-12-01'].stops[i]), { timeout: 10000 }).toBe(true)
+
+  test('a 10-minute block with a Tokyo test time: 📍 on its first line, tapped without the sheet, then ✅', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { ...sized(10), name: 'Ten Min Stop', travelMin: 0, travelFrom: '__base__' }, sized(60),
+    ], DEC_1, '10:00')
+    await setTestTimeInUi(page, '2026-12-01', '09:50')
+    const b = block(page, 'Ten Min Stop')
+    await expect(b).toHaveClass(/itl-compact/)
+    const icons = b.locator('.itl-first .itl-icons')
+    await expect(icons.locator('.itl-here')).toHaveText('📍')
+    await expect(b.locator('.itl-leave')).toHaveCount(0) // one at a time: ✅ after "I'm here now"
+    await expectInsideBlock(b, icons.locator('.itl-here'))
+    await icons.locator('.itl-here').click()
+    await expect(page.locator('#itl-detail')).toBeHidden() // not the sheet
+    await savedStop(saves, 0, (s) => s.actualStart === '09:50')
+    await expect(b.locator('.itl-first .itl-icons .itl-leave')).toHaveText('✅')
+    await expect(b.locator('.itl-here')).toHaveCount(0)
+    await b.locator('.itl-first .itl-icons .itl-leave').click()
+    await expect(page.locator('#itl-detail')).toBeHidden()
+    await savedStop(saves, 0, (s) => s.actualEnd === '09:50')
+    await expect(b.locator('.itl-here, .itl-leave')).toHaveCount(0) // left: nothing more to press
+  })
+
+  test('both buttons on today\'s blocks of every size, at the default and the smallest zoom (compact: the icon)', async ({ page, sanity, trackDoc }) => {
+    const SIZES = [10, 20, 30, 45, 60, 120]
+    await openTimeline(page, sanity, trackDoc, SIZES.map((m, i) => (i ? sized(m) : { ...sized(m), travelMin: 0, travelFrom: '__base__' })), DEC_1, '10:00')
+    await setTestTimeInUi(page, '2026-12-01', '09:00')
+    const check = async () => {
+      for (const m of SIZES) {
+        const b = block(page, `Sized ${m} Stop`)
+        await expect(b.locator('.itl-here')).toBeVisible()
+        await expectInsideBlock(b, b.locator('.itl-here'))
+        if (await b.evaluate((el) => el.classList.contains('itl-compact') && !el.querySelector('.itl-actions'))) continue // the 📍 icon only
+        await expect(b.locator('.itl-leave')).toBeVisible()
+        await expectInsideBlock(b, b.locator('.itl-leave'))
+      }
+    }
+    await check()
+    await expect(block(page, 'Sized 10 Stop')).toHaveClass(/itl-compact/)
+    await expect(block(page, 'Sized 120 Stop').locator('.itl-actions .itl-leave')).toHaveText('✅ Leaving now')
+    while (await page.locator('#itl-zoom-out').isEnabled()) await page.locator('#itl-zoom-out').click()
+    await check()
+  })
+
+  test('the "now" stop is highlighted on today: the one on now, then the next, then the one you\'re at; not on other days', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { ...sized(60), name: 'Now A', travelMin: 0, travelFrom: '__base__' }, { ...sized(60), name: 'Now B' }, { ...sized(60), name: 'Now C' },
+    ], DEC_1, '10:00', '&now=2026-12-01T10:30')
+    const lit = page.locator('.itl-block.itl-now-block')
+    await expect(lit).toHaveCount(1)
+    await expect(lit.locator('.itl-name')).toHaveText('Now A') // 10:00–11:00
+    await block(page, 'Now A').locator('.itl-leave').click() // left early
+    await expect(lit.locator('.itl-name')).toHaveText('Now B') // the next one
+    await block(page, 'Now B').locator('.itl-here').click()
+    await expect(lit.locator('.itl-name')).toHaveText('Now B') // there now
+    await expect(block(page, 'Now C')).not.toHaveClass(/itl-now-block/)
+    await page.locator('.itl-tab', { hasText: '2. des' }).click()
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await expect(lit).toHaveCount(0)
+  })
+
+  test('the toolbar hint: outside the trip with the real clock; gone with a test time or on a trip day', async ({ page, sanity, trackDoc }) => {
+    const hint = page.locator('#itl-here-hint')
+    await page.clock.setFixedTime(new Date('2026-11-03T12:00:00+09:00'))
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1)
+    await expect(hint).toHaveText('I\'m here now appears on trip days. Use 🧪 Test time to try it.')
+    await setTestTimeInUi(page, '2026-12-01', '13:00')
+    await expect(hint).toBeHidden()
+    await page.locator('#itl-test-clear').click()
+    await expect(hint).toBeVisible()
+  })
+
+  test('the toolbar hint is not shown on a trip day', async ({ page, sanity, trackDoc }) => {
+    await page.clock.setFixedTime(new Date('2026-12-01T12:00:00+09:00'))
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1)
+    await expect(page.locator('#itl-test-time')).toBeHidden()
+    await expect(page.locator('#itl-here-hint')).toBeHidden()
+    await expect(page.locator('.itl-here').first()).toBeVisible()
+  })
+
   test('in the edit sheet: both on today\'s stop, saved like the block\'s; hidden on other days', async ({ page, sanity, trackDoc }) => {
     const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1, '15:06', '&now=2026-12-01T13:00')
     await block(page, 'Yellow Submarine').click()

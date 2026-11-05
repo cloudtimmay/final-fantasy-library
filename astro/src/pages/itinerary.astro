@@ -68,6 +68,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
       <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
       <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
+      <span id="itl-here-hint" class="itl-here-hint" hidden>I'm here now appears on trip days. Use 🧪 Test time to try it.</span>
     </div>
     <!-- "🧪 Test time": pretend it's this date and time in Tokyo — the same as ?now=. -->
     <form id="itl-test-form" class="itl-test-form" hidden>
@@ -382,6 +383,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // Stops the last "Check day" had something to say about: index -> 'warning' | 'tip'. Cleared
     // when the day or the plan changes (indices would no longer match).
     let checkMarks: Record<number, string> = {}
+    // The day on screen and its timetable, for the "now" highlight (updateNow).
+    let shownSched: { day: string; sched: ReturnType<typeof computeDayTimes>['sched'] } | null = null
+    const hereHint = document.querySelector('#itl-here-hint') as HTMLElement
 
     function render() {
       const di = state.findIndex((d) => d.day === currentDay)
@@ -394,6 +398,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       areasEl.textContent = areas.join(' · ')
       areasEl.hidden = !areas.length
       const { sched, inputs, baseStart } = computeDayTimes(day, base, shopById)
+      shownSched = { day: day.day, sched }
+      // Outside the trip with the real clock, nothing shows "I'm here now": say how to try it.
+      hereHint.hidden = !testTimeEl.hidden || days.includes(nowTokyo().date)
       // "🚆 Trains today: ¥7,340 per person (≈ 470 kr)" — planned trains' fares plus the fares in
       // the notes of train legs without one; an estimate when any train leg lacks a planned fare.
       const fares = dayTrainFares(day, sched, shopById)
@@ -450,7 +457,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // is in the page, where their height can be measured).
       // Per block, the icons standing in for its rows: ⚠️ for the warnings, 🚆 the train line, ⏰ the
       // "Leave by" line's reminder.
-      const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string }[] = []
+      const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string; now: string }[] = []
       // Stops: side by side in columns where they overlap (layoutTimeline).
       layout.stops.forEach((item) => {
         const el = document.createElement('div')
@@ -524,6 +531,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           warn: problems.length ? `<span class="itl-icon" title="${esc(problems.join(' · '))}">⚠️</span>` : '',
           train: s.train ? `<span class="itl-icon itl-icon-train" title="${esc(trainSummary(s.train))}">🚆</span>` : '',
           reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.leaveBy, shopById, true) : '',
+          // Today: 📍 "I'm here now" until you're there, then ✅ "Leaving now" — tapped right on the block.
+          now: now.here
+            ? '<button type="button" class="itl-here itl-icon-btn" aria-label="I\'m here now" title="I\'m here now">📍</button>'
+            : now.leave ? '<button type="button" class="itl-leave itl-icon-btn" aria-label="Leaving now" title="Leaving now">✅</button>' : '',
         })
         // A small photo on the left of a tall block; a tap opens it in the lightbox (public/
         // lightbox.js takes the tap before the block's own handler), anywhere else the sheet.
@@ -595,6 +606,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           rows[i].remove()
         }
         const icons = (gone.has('itl-badges') ? c.warn : '') + (gone.has('itl-train-line') ? c.train : '') + (gone.has('itl-leaveby') ? c.reminder : '')
+          + (gone.has('itl-actions') ? c.now : '')
         c.el.classList.add('itl-compact')
         if (icons) first.insertAdjacentHTML('beforeend', `<span class="itl-icons">${icons}</span>`)
       }
@@ -620,6 +632,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const show = t.date === currentDay && top >= 0 && top <= grid.offsetHeight
       line.hidden = !show
       if (show) { line.style.top = `${Math.round(top)}px`; line.dataset.minutes = String(t.minutes) }
+      // Today's "now" stop: the one you're at ("I'm here now" pressed, not left), else the one on
+      // now, else the next one not yet visited.
+      dayEl.querySelectorAll('.itl-now-block').forEach((b) => b.classList.remove('itl-now-block'))
+      if (!shownSched || shownSched.day !== currentDay || t.date !== currentDay) return
+      const stops = shownSched.sched.stops
+      let idx = stops.findIndex((x) => x.actual && !x.visited)
+      if (idx < 0) idx = stops.findIndex((x) => !x.visited && x.end > t.minutes)
+      if (idx >= 0) dayEl.querySelector(`.itl-block[data-index="${idx}"]`)?.classList.add('itl-now-block')
     }
     function tickEveryMinute() {
       setTimeout(() => { updateNow(); tickEveryMinute() }, 60000 - (Date.now() % 60000) + 50)
@@ -1664,6 +1684,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-icons { display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; margin-left: 0.25rem; font-size: 0.72rem; }
     .itl-icons .itn-reminder { margin: 0; padding: 0 0.2rem; font-size: 0.72rem; line-height: 1.2; }
     .itl-block.itl-compact { justify-content: flex-start; }
+    .itl-block.itl-now-block { border-color: #e74c3c; background: rgba(231,76,60,0.08); box-shadow: 0 0 0 2px rgba(231,76,60,0.55); }
+    .itl-icons .itl-icon-btn {
+      margin: 0; padding: 0 0.2rem; min-width: 24px; min-height: 22px; font-size: 0.78rem; line-height: 1.1; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text);
+    }
+    .itl-here-hint { font-size: 0.75rem; color: var(--muted); }
+    .itl-here-hint[hidden] { display: none; }
     .itl-block.itl-has-thumb { padding-left: calc(0.45rem + 48px); }
     .itl-thumb {
       position: absolute; left: 0.35rem; top: 0.3rem; width: 44px; height: 44px; object-fit: cover;

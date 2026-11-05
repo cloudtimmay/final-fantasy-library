@@ -1544,3 +1544,63 @@ test.describe('/itinerary on a phone: the day\'s areas', () => {
     await expect(page.locator('#itl-day-areas')).toHaveText('Nakano')
   })
 })
+
+test.describe('/itinerary on a phone: "⏰ Reminders for this day"', () => {
+  const icsOf = (href: string) => decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
+  const field = (ics: string, name: string) => [...ics.matchAll(new RegExp(`^${name}[:;](.*)$`, 'gm'))].map((m) => m[1].trim())
+  // The events' start times (the time zone block has a DTSTART of its own).
+  const starts = (ics: string) => field(ics, 'DTSTART').filter((v) => v.startsWith('TZID='))
+  const SUMMARY_RE = /^Leave .+ \d{2}:\d{2} JST → .+$/
+
+  test('every leave-by time, all checked; deselecting; one .ics with exactly the checked events and stable UIDs', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await page.locator('#itl-rem-btn').click()
+    const panel = page.locator('#itl-reminders')
+    await expect(panel).toBeVisible()
+    await expect(panel.locator('.itl-rem-note')).toHaveText('If you change the plan later, add the reminders again. Old ones stay in your calendar.')
+    const items = panel.locator('.itl-rem-item')
+    await expect(items).toHaveCount(3) // every stop but the last has a next stop
+    const titles = await items.allTextContents()
+    titles.forEach((tt) => expect(tt.trim()).toMatch(SUMMARY_RE))
+    expect(titles[0].trim()).toMatch(/^Leave Yellow Submarine Shinjuku \d{2}:\d{2} JST → SURUGA-YA Marui City Yokohama$/)
+    for (const c of await panel.locator('.itl-rem-check').all()) await expect(c).toBeChecked()
+
+    // Uncheck the second: the file has the first and the third only, in the same format as one reminder.
+    await panel.locator('.itl-rem-check').nth(1).uncheck()
+    const add = page.locator('#itl-rem-add')
+    await expect(add).toHaveAttribute('download', 'leave-reminders-2026-12-05.ics')
+    let ics = icsOf((await add.getAttribute('href'))!)
+    expect(field(ics, 'BEGIN').filter((v) => v === 'VEVENT')).toHaveLength(2)
+    expect(field(ics, 'SUMMARY')).toEqual([titles[0].trim(), titles[2].trim()])
+    expect(ics).toContain('TZID:Asia/Tokyo')
+    expect(starts(ics)).toHaveLength(2)
+    expect(starts(ics).every((v) => v.startsWith('TZID=Asia/Tokyo:20261205T'))).toBe(true)
+    expect(field(ics, 'TRIGGER')).toEqual(['PT0M', 'PT0M'])
+    expect(ics).toContain("DESCRIPTION:Times are Japan time (JST). Your calendar shows this in your phone's current time zone.")
+    const uids = field(ics, 'UID')
+    expect(uids).toEqual(['leave-20261205-yellow-submarine-shinjuku@final-fantasy-library', 'leave-20261205-square-enix-pop-up-cafe-yokoha@final-fantasy-library'])
+
+    // Select none: nothing to add. Select all: all three.
+    await panel.locator('#itl-rem-none').click()
+    await expect(add).toHaveAttribute('aria-disabled', 'true')
+    await panel.locator('#itl-rem-all').click()
+    await expect(add).toHaveAttribute('aria-disabled', 'false')
+    ics = icsOf((await add.getAttribute('href'))!)
+    expect(field(ics, 'SUMMARY')).toHaveLength(3)
+
+    // The plan changes (a longer first visit): the times move, the UIDs stay — and they're the
+    // single "⏰ Reminder" link's too.
+    await panel.locator('#itl-rem-close').click()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl; itl.state[0].stops[0].dur = 75; itl.render()
+    })
+    await page.locator('#itl-rem-btn').click()
+    const after = icsOf((await add.getAttribute('href'))!)
+    expect(field(after, 'UID')).toEqual(field(ics, 'UID'))
+    expect(starts(after)[0]).not.toBe(starts(ics)[0])
+    const single = icsOf((await page.locator('.itl-block .itn-reminder').first().getAttribute('href'))!)
+    expect(field(single, 'UID')).toEqual([field(after, 'UID')[0]])
+    expect(field(single, 'SUMMARY')).toEqual([field(after, 'SUMMARY')[0]])
+  })
+})

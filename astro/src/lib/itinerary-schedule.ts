@@ -201,15 +201,44 @@ export function transitRouteUrl(from: { name: string; lat: number | null; lng: n
 // Japan time itself — "Leave <stop> 17:35 JST → <next stop>" — and the description says so.
 export const JST_NOTE = "Times are Japan time (JST). Your calendar shows this in your phone's current time zone."
 
-export function leaveReminderIcs(o: { date: string; leaveBy: number; from: string; to: string; routeUrl: string; now?: Date }): string {
+// One reminder. `key` identifies the stop you leave (its shop's id, else its name): the UID is
+// "leave-<day>-<key>", the same for that stop on that day whatever its time or the next stop —
+// so a calendar that supports it updates the event instead of adding another.
+export type ReminderInput = { date: string; leaveBy: number; from: string; to: string; routeUrl: string; key?: string; now?: Date }
+const pad2 = (n: number) => String(n).padStart(2, '0')
+// "Leave Square Enix Pop Up Cafe 17:35 JST → Tokyo Temple" — the event's title, and the list's.
+export function reminderTitle(from: string, leaveBy: number, to: string): string {
+  return `Leave ${from} ${pad2(Math.floor(leaveBy / 60) % 24)}:${pad2(leaveBy % 60)} JST → ${to}`
+}
+function reminderEvent(o: ReminderInput): string[] {
   const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.date)
   if (!p) throw new Error(`Not a calendar date: ${o.date}`)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const local = `${p[1]}${p[2]}${p[3]}T${pad(Math.floor(o.leaveBy / 60))}${pad(o.leaveBy % 60)}00`
+  const local = `${p[1]}${p[2]}${p[3]}T${pad2(Math.floor(o.leaveBy / 60))}${pad2(o.leaveBy % 60)}00`
   const stamp = (o.now || new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-  const jst = `${pad(Math.floor(o.leaveBy / 60))}:${pad(o.leaveBy % 60)}`
-  const title = `Leave ${o.from} ${jst} JST → ${o.to}`
-  const uid = `leave-${local}-${slug(o.from)}-${slug(o.to)}@final-fantasy-library`
+  const title = reminderTitle(o.from, o.leaveBy, o.to)
+  const uid = `leave-${p[1]}${p[2]}${p[3]}-${slug(o.key || o.from)}@final-fantasy-library`
+  return [
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=Asia/Tokyo:${local}`,
+    'DURATION:PT15M',
+    `SUMMARY:${icsText(title)}`,
+    `DESCRIPTION:${icsText(`${JST_NOTE}\nRoute: ${o.routeUrl}`)}`,
+    `URL:${o.routeUrl}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${icsText(title)}`,
+    'TRIGGER:PT0M',
+    'END:VALARM',
+    'END:VEVENT',
+  ]
+}
+export function leaveReminderIcs(o: ReminderInput): string {
+  return leaveRemindersIcs([o])
+}
+// Several reminders in one file ("⏰ Reminders for this day"): one VEVENT each.
+export function leaveRemindersIcs(list: ReminderInput[]): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -225,20 +254,7 @@ export function leaveReminderIcs(o: { date: string; leaveBy: number; from: strin
     'TZNAME:JST',
     'END:STANDARD',
     'END:VTIMEZONE',
-    'BEGIN:VEVENT',
-    `UID:${uid}`,
-    `DTSTAMP:${stamp}`,
-    `DTSTART;TZID=Asia/Tokyo:${local}`,
-    'DURATION:PT15M',
-    `SUMMARY:${icsText(title)}`,
-    `DESCRIPTION:${icsText(`${JST_NOTE}\nRoute: ${o.routeUrl}`)}`,
-    `URL:${o.routeUrl}`,
-    'BEGIN:VALARM',
-    'ACTION:DISPLAY',
-    `DESCRIPTION:${icsText(title)}`,
-    'TRIGGER:PT0M',
-    'END:VALARM',
-    'END:VEVENT',
+    ...list.flatMap(reminderEvent),
     'END:VCALENDAR',
   ]
   return lines.map(foldLine).join('\r\n') + '\r\n'

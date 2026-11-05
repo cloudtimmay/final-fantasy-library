@@ -4,7 +4,7 @@
 // by src/styles/itinerary-shared.css). Changing the plan is always left to the page, through the
 // callbacks — so each page saves through its own state/saveState/render, as before.
 
-import { transitRouteUrl, leaveReminderIcs, type TravelLeg } from './itinerary-schedule'
+import { transitRouteUrl, leaveReminderIcs, leaveRemindersIcs, reminderTitle, type TravelLeg, type DaySchedule, type ReminderInput } from './itinerary-schedule'
 import { formatClock } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 import { cdnImage } from './image-url'
@@ -322,7 +322,7 @@ export async function fetchStopCoordsFromShop(stop: PlanStop, cb: CoordCallbacks
 export function reminderLinkHtml(day: PlanDay, si: number, leaveBy: number, shopById: Map<string, PlanShop>, iconOnly = false): string {
   if (!day.day || !day.stops[si + 1]) return ''
   const from = resolveStop(day.stops[si], shopById), to = resolveStop(day.stops[si + 1], shopById)
-  const ics = leaveReminderIcs({ date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to) })
+  const ics = leaveReminderIcs(reminderFor(day, si, leaveBy, shopById))
   const file = `leave-${day.day}-${formatClock(leaveBy).replace(':', '')}.ics`
   return ` <a class="itn-reminder" href="data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}" download="${file}"${iconOnly ? ' aria-label="Reminder" title="Reminder"' : ''}>⏰${iconOnly ? '' : ' Reminder'}</a>`
 }
@@ -361,4 +361,29 @@ export function foundStripHtml(items: FoundItem[] | null | undefined, rate: numb
       i.price != null ? `<span class="found-price">${esc(formatPriceNokFirst(i.price, i.currency, rate))}</span>` : ''
     }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span>${buy}</figcaption></figure>`
   }).join('')}</div>`
+}
+
+// The reminder for leaving stop `si` (see itinerary-schedule.ts ReminderInput): keyed by the
+// stop's shop, else its name, plus a count when the same stop is on the day twice.
+function reminderFor(day: PlanDay, si: number, leaveBy: number, shopById: Map<string, PlanShop>): ReminderInput {
+  const keyOf = (i: number) => day.stops[i].shopId || resolveStop(day.stops[i], shopById).name
+  const key = keyOf(si)
+  const before = day.stops.slice(0, si).filter((_, i) => keyOf(i) === key).length
+  const from = resolveStop(day.stops[si], shopById), to = resolveStop(day.stops[si + 1], shopById)
+  return { date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to), key: before ? `${key}-${before + 1}` : key }
+}
+
+// "⏰ Reminders for this day": every leave-by time on the day (the same ones that get a
+// "⏰ Reminder" link), in order, with its title.
+export function dayReminders(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): { si: number; title: string; reminder: ReminderInput }[] {
+  if (!day.day) return []
+  return sched.stops.flatMap((x, si) => {
+    if (x.leaveBy == null || !day.stops[si + 1]) return []
+    const reminder = reminderFor(day, si, x.leaveBy, shopById)
+    return [{ si, title: reminderTitle(reminder.from, reminder.leaveBy, reminder.to), reminder }]
+  })
+}
+// One .ics file with the chosen ones, as a data: link (like the single reminder).
+export function remindersHref(list: ReminderInput[]): string {
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(leaveRemindersIcs(list))}`
 }

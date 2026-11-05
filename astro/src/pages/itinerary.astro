@@ -59,6 +59,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
       <span id="itl-dayroute" class="itl-dayroute"></span>
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
+      <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
       <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
       <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
     </div>
@@ -76,6 +77,22 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div id="itl-map" class="day-map itl-map"></div>
     </details>
     <div id="itl-check-results" class="itl-panel" hidden></div>
+    <!-- "⏰ Reminders for this day": every leave-by time, checked by default, in one .ics file
+         (itinerary-ui.ts dayReminders / remindersHref). The items are built in the script. -->
+    <div id="itl-reminders" class="itl-panel itl-reminders" hidden>
+      <div class="itl-rem-head">
+        <strong>⏰ Reminders for this day</strong>
+        <button id="itl-rem-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="itl-rem-tools">
+        <button id="itl-rem-all" type="button">Select all</button>
+        <button id="itl-rem-none" type="button">Select none</button>
+      </div>
+      <ul id="itl-rem-list" class="itl-rem-list"></ul>
+      <p id="itl-rem-empty" class="itl-rem-empty" hidden>No leave-by times on this day.</p>
+      <a id="itl-rem-add" class="itl-daybtn itl-rem-add" href="#" download="leave-reminders.ics">📅 Add to calendar</a>
+      <p class="itl-rem-note">If you change the plan later, add the reminders again. Old ones stay in your calendar.</p>
+    </div>
     <div id="itl-route-results" class="itl-panel" hidden></div>
     <div id="itl-travel-editor" class="itl-travel-editor" hidden>
       <div class="itl-travel-editor-head">
@@ -193,7 +210,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
-      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml,
+      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml, dayReminders, remindersHref,
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
@@ -500,6 +517,37 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       closeSheet()
       saveState(); render()
     })
+
+    // --- "⏰ Reminders for this day" ---------------------------------------------------------------
+    // Every leave-by time on the day, all checked; "Add to calendar" downloads ONE .ics with the
+    // checked ones (the same events as the single "⏰ Reminder", with a UID per day and stop).
+    const remPanel = document.querySelector('#itl-reminders') as HTMLElement
+    const remList = document.querySelector('#itl-rem-list') as HTMLUListElement
+    const remAdd = document.querySelector('#itl-rem-add') as HTMLAnchorElement
+    let remItems: ReturnType<typeof dayReminders> = []
+    function updateRemAdd() {
+      const checked = [...remList.querySelectorAll<HTMLInputElement>('.itl-rem-check')].filter((c) => c.checked).map((c) => remItems[Number(c.dataset.index)].reminder)
+      remAdd.href = checked.length ? remindersHref(checked) : '#'
+      remAdd.setAttribute('aria-disabled', checked.length ? 'false' : 'true')
+      remAdd.classList.toggle('itl-rem-off', !checked.length)
+    }
+    function openReminders() {
+      const day = currentDayPlan()
+      remItems = dayReminders(day, computeDayTimes(day, base, shopById).sched, shopById)
+      remList.innerHTML = remItems.map((r, i) => `<li><label class="itl-rem-item"><input type="checkbox" class="itl-rem-check" data-index="${i}" checked /> <span>${esc(r.title)}</span></label></li>`).join('')
+      ;(document.querySelector('#itl-rem-empty') as HTMLElement).hidden = remItems.length > 0
+      remAdd.download = `leave-reminders-${day.day}.ics`
+      updateRemAdd()
+      remPanel.hidden = false
+      remPanel.scrollIntoView({ block: 'nearest' })
+    }
+    document.querySelector('#itl-rem-btn')!.addEventListener('click', () => { if (remPanel.hidden) openReminders(); else remPanel.hidden = true })
+    document.querySelector('#itl-rem-close')!.addEventListener('click', () => { remPanel.hidden = true })
+    remList.addEventListener('change', updateRemAdd)
+    const setAll = (on: boolean) => { remList.querySelectorAll<HTMLInputElement>('.itl-rem-check').forEach((c) => { c.checked = on }); updateRemAdd() }
+    document.querySelector('#itl-rem-all')!.addEventListener('click', () => setAll(true))
+    document.querySelector('#itl-rem-none')!.addEventListener('click', () => setAll(false))
+    remAdd.addEventListener('click', (e) => { if (remAdd.getAttribute('aria-disabled') === 'true') e.preventDefault() })
 
     // --- The day toolbar: start time, Check day, Suggest route, the day's route ----------------
     const startInput = document.querySelector('#itl-start') as HTMLInputElement
@@ -919,7 +967,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
       currentDay = tab.dataset.day!
       checkMarks = {}
-      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true
+      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true; remPanel.hidden = true
       closeSheet()
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
         t.classList.toggle('active', t === tab)
@@ -1179,6 +1227,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-bought-note { color: var(--muted); }
     .itl-bought-msg { color: #e74c3c; font-weight: 600; }
     .itl-sheet .itl-bought-confirm { border-color: #2ecc71; font-weight: 600; }
+    .itl-rem-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .itl-rem-head button { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; min-width: 36px; min-height: 36px; }
+    .itl-rem-tools { display: flex; gap: 0.4rem; margin: 0.3rem 0; }
+    .itl-rem-tools button { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.6rem; font-size: 0.8rem; min-height: 32px; cursor: pointer; }
+    .itl-rem-list { list-style: none; margin: 0.3rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+    .itl-rem-item { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
+    .itl-rem-item input { margin-top: 0.15rem; width: 18px; height: 18px; flex-shrink: 0; }
+    .itl-rem-empty, .itl-rem-note { font-size: 0.8rem; color: var(--muted); margin: 0.4rem 0 0; }
+    .itl-rem-empty[hidden] { display: none; }
+    .itl-rem-add { display: inline-block; margin-top: 0.4rem; text-decoration: none; }
+    .itl-rem-add.itl-rem-off { opacity: 0.5; pointer-events: none; }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

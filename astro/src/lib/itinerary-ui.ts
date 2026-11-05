@@ -73,7 +73,12 @@ export function travelEditorInnerHtml(o: {
   placeholder: number
   from: { name: string; lat: number | null; lng: number | null }
   to: { name: string; lat: number | null; lng: number | null }
+  fromTrain?: number | null // a planned train sets the time (train-plan.ts trainTravelMinutes): shown, not editable
 }): string {
+  if (o.fromTrain != null) return `
+          <label>Travel time <input type="number" class="itn-travel-min" value="${o.fromTrain}" disabled /> min <span class="itn-travel-from-train">from train</span></label>
+          <a class="itn-route" href="${esc(transitRouteUrl(o.from, o.to))}" target="_blank" rel="noopener">🗺️ Route</a>
+        `
   return `
           <label>Travel time <input type="number" class="itn-travel-min" min="0" step="1" value="${o.manual != null ? o.manual : ''}" placeholder="${o.placeholder}" /> min</label>
           <button type="button" class="itn-travel-save">Save</button>
@@ -85,7 +90,9 @@ export function travelEditorInnerHtml(o: {
 // Save -> the minutes (or null for an empty/invalid value: back to the estimate); "Use estimate"
 // -> null.
 export function bindTravelEditor(ed: Element, onSave: (minutes: number | null) => void): void {
-  ed.querySelector('.itn-travel-save')!.addEventListener('click', () => {
+  const save = ed.querySelector('.itn-travel-save')
+  if (!save) return // the time comes from a train
+  save.addEventListener('click', () => {
     const v = parseInt((ed.querySelector('.itn-travel-min') as HTMLInputElement).value, 10)
     onSave(isNaN(v) || v < 0 ? null : v)
   })

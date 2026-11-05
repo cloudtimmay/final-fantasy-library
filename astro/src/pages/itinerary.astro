@@ -48,6 +48,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     </div>
     <!-- The day's areas in visiting order (itinerary-plan.ts dayAreas). -->
     <p id="itl-day-areas" class="itl-day-areas" hidden></p>
+    <p id="itl-day-fares" class="itl-day-fares" hidden></p>
 
     <div class="itl-toolbar">
       <p class="itl-hint">Tap an empty spot to add a stop there.</p>
@@ -136,6 +137,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           <label class="itl-tr-walk">Walk to the first station <span><input id="itl-tr-walk" type="number" min="0" max="60" step="1" /> min</span></label>
           <ol id="itl-tr-legs" class="itl-tr-legs"></ol>
           <button id="itl-tr-add-leg" type="button" class="itl-train-btn">＋ Add a train</button>
+          <label class="itl-tr-walk">Walk from the last station <span><input id="itl-tr-walk-from" type="number" min="0" max="60" step="1" placeholder="5" /> min</span></label>
+          <label class="itl-tr-walk">Fare per person <span>¥ <input id="itl-tr-fare" type="number" min="0" step="10" placeholder="6670" /></span></label>
           <p id="itl-tr-error" class="itl-train-error" hidden></p>
           <div class="itl-train-actions">
             <button id="itl-tr-save" type="submit" class="itl-train-btn itl-train-save">Save train</button>
@@ -252,14 +255,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script is:inline src="/trip-select.js"></script>
   <script is:inline src="/resize-image.js"></script>
-  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '' })}></script>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '', tripRate: trip?.jpyToNokRate ?? null })}></script>
 
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -273,7 +276,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
-    import { validateTrain, trainSummary, trainLegText, trainDeparture, type TrainLeg } from '../lib/train-plan'
+    import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainFareText, yenWithNok, type TrainLeg } from '../lib/train-plan'
     import { trainEarlyHint } from '../lib/itinerary-schedule'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
@@ -288,6 +291,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const { plan, days, labels, flight, base, shops, savedState } = DATA
     const foundByShop: Record<string, FoundItem[]> = DATA.found || {}
     const foundRate: number | null = DATA.foundRate ?? null
+    // The trip's own rate, for the train fares' ≈ NOK.
+    const tripRate: number | null = DATA.tripRate ?? null
     const shopById = new Map<string, PlanShop>((shops || []).map((s: PlanShop) => [s._id, s]))
     const wrap = document.querySelector('.itl-wrap') as HTMLElement
     const dayEl = document.querySelector('#itl-day') as HTMLElement
@@ -380,6 +385,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       areasEl.textContent = areas.join(' · ')
       areasEl.hidden = !areas.length
       const { sched, inputs, baseStart } = computeDayTimes(day, base, shopById)
+      // "🚆 Trains today: ¥7,340 per person (≈ 470 kr)" — planned trains' fares plus the fares in
+      // the notes of train legs without one; an estimate when any train leg lacks a planned fare.
+      const fares = dayTrainFares(day, sched, shopById)
+      const faresEl = document.querySelector('#itl-day-fares') as HTMLElement
+      faresEl.textContent = fares && fares.totalYen ? `🚆 Trains today: ${yenWithNok(fares.totalYen, tripRate).replace(/^(¥[\d,]+)/, '$1 per person')}${fares.estimate ? ' · estimate' : ''}` : ''
+      faresEl.hidden = !faresEl.textContent
       renderLateDay(day, sched)
       // Train legs after the last trains: the stop they go to (or back to the base).
       const lateTrains = new Map(lastTrainLegs(sched).map((l) => [l.index, l]))
@@ -773,7 +784,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const from = idx === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[idx - 1], shopById)
       const to = resolveStop(day.stops[idx], shopById)
       ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
-      travelEdit.innerHTML = travelEditorInnerHtml({ manual: manualTravelFor(day, idx, shopById), placeholder: sched.stops[idx].travelIn.minutes, from, to })
+      // With a planned train the time is the train's (walks + first departure to last arrival);
+      // removing the train brings back the typed-in time or the estimate, which stay saved.
+      travelEdit.innerHTML = travelEditorInnerHtml({ manual: manualTravelFor(day, idx, shopById), placeholder: sched.stops[idx].travelIn.minutes, from, to, fromTrain: trainTravelMinutes(day.stops[idx].train) })
       bindTravelEditor(travelEdit, (minutes) => {
         const s = day.stops[idx]
         if (minutes == null) { delete s.travelMin; delete s.travelFrom }
@@ -830,13 +843,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const v = t ? validateTrain(t) : null
       const train = v && 'train' in v ? v.train : { legs: [] as TrainLeg[] }
       trEl('walk').value = train.walkToStationMin != null ? String(train.walkToStationMin) : ''
+      trEl('walk-from').value = train.walkFromStationMin != null ? String(train.walkFromStationMin) : ''
+      trEl('fare').value = train.fareYen != null ? String(train.fareYen) : ''
       legsEl.innerHTML = (train.legs.length ? train.legs : [{}]).map(legCardHtml).join('')
       refreshLegs()
       trainError.hidden = true
       trainForm.hidden = false
     }
     function readTrainForm() {
-      return { walkToStationMin: trEl('walk').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
+      return { walkToStationMin: trEl('walk').value, walkFromStationMin: trEl('walk-from').value, fareYen: trEl('fare').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
     }
     function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }) {
       const train = day.stops[idx].train
@@ -846,7 +861,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-train-maps') as HTMLAnchorElement).href = transitRouteUrl(from, to)
       const summary = document.querySelector('#itl-train-summary') as HTMLElement
       summary.hidden = !train
-      summary.textContent = train ? trainSummary(train) : ''
+      const fare = train ? trainFareText(train, tripRate) : ''
+      summary.textContent = train ? `${trainSummary(train)}${fare ? ` · 💴 ${fare}` : ''}` : ''
       ;(document.querySelector('#itl-train-remove') as HTMLElement).hidden = !train
       ;(document.querySelector('#itl-train-manual') as HTMLElement).textContent = train ? '✏️ Edit train' : '✏️ Enter train'
       trainForm.hidden = true
@@ -962,6 +978,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         lines.push(trainSummary(trainV.train))
         if (trainV.train.walkToStationMin != null) lines.push(`🚶 ${trainV.train.walkToStationMin} min to the first station`)
         trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i)))
+        if (trainV.train.walkFromStationMin != null) lines.push(`🚶 ${trainV.train.walkFromStationMin} min from the last station`)
+        const fare = trainFareText(trainV.train, tripRate)
+        if (fare) lines.push(`💴 ${fare}`)
       }
       if (x.trainLateMin != null) lines.push(`⚠️ The train arrives ${x.trainLateMin} min too late for the fixed time`)
       if (x.trainEarly) lines.push(`💡 ${trainEarlyHint(x.trainEarly)}`)
@@ -1374,6 +1393,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-save-status { font-size: 0.75rem; color: var(--muted); }
     .itl-beta { font-size: 0.7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; vertical-align: middle; }
     .itl-day-areas { margin: -0.2rem 0 0.6rem; font-size: 0.9rem; font-weight: 600; color: var(--text); }
+    .itl-day-fares { margin: -0.4rem 0 0.6rem; font-size: 0.85rem; color: var(--text); }
+    .itl-day-fares[hidden] { display: none; }
     .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
     .itl-tab {
       flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);
@@ -1508,6 +1529,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-panel { margin: 0 0 0.8rem; }
     .itl-panel[hidden] { display: none; }
     .itl-travel { pointer-events: auto; cursor: pointer; }
+    .itl-travel-editor .itn-travel-from-train { font-size: 0.8rem; color: var(--muted, #888); }
     .itl-travel-editor { margin: 0 0 0.8rem; padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; }
     .itl-travel-editor[hidden] { display: none; }
     .itl-travel-editor-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin-bottom: 0.4rem; }

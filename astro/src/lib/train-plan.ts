@@ -17,8 +17,14 @@ export type TrainLeg = {
 }
 export type TrainPlan = {
   walkToStationMin?: number // from the stop before to the first station, when known
+  walkFromStationMin?: number // from the last station to the stop (DEFAULT_WALK_FROM_STATION_MIN when not known)
+  fareYen?: number // the fare for the whole trip, per person, as Google Maps shows it (¥6,670)
   legs: TrainLeg[]
 }
+
+// From the last station to the stop, when the route doesn't say.
+export const DEFAULT_WALK_FROM_STATION_MIN = 5
+const MAX_FARE_YEN = 200000
 
 export const MAX_LEGS = 6
 const MAX_TEXT = 60
@@ -91,20 +97,52 @@ export function validateTrain(raw: unknown): { train: TrainPlan } | { error: str
     legs.push(leg)
   }
   const train: TrainPlan = { legs }
-  const walk = Number(r.walkToStationMin)
-  if (r.walkToStationMin !== '' && r.walkToStationMin != null && Number.isInteger(walk) && walk >= 0 && walk <= 60) train.walkToStationMin = walk
+  const minutes = (v: unknown) => { const n = Number(v); return v !== '' && v != null && Number.isInteger(n) && n >= 0 && n <= 60 ? n : null }
+  const walkTo = minutes(r.walkToStationMin)
+  if (walkTo != null) train.walkToStationMin = walkTo
+  const walkFrom = minutes(r.walkFromStationMin)
+  if (walkFrom != null) train.walkFromStationMin = walkFrom
+  // "¥6,670", "6670" or 6670.
+  const fare = typeof r.fareYen === 'number' ? r.fareYen : typeof r.fareYen === 'string' && /\d/.test(r.fareYen) ? Number(r.fareYen.replace(/[^\d]/g, '')) : NaN
+  if (Number.isInteger(fare) && fare > 0 && fare <= MAX_FARE_YEN) train.fareYen = fare
   if (!timeline(legs)) return { error: TRAIN_ORDER_ERROR }
   return { train }
 }
 
 // The schedule's view (itinerary-schedule.ts TrainTimes): minutes, the first departure and the
 // last arrival (after it — past midnight when it runs over).
-export function trainTimes(t: unknown): { departure: number; arrival: number; walkToStationMin: number | null } | null {
+export function trainTimes(t: unknown): { departure: number; arrival: number; walkToStationMin: number | null; walkFromStationMin: number } | null {
   if (!t) return null
   const v = validateTrain(t)
   if ('error' in v) return null
   const times = timeline(v.train.legs)!
-  return { departure: times[0], arrival: times[times.length - 1], walkToStationMin: v.train.walkToStationMin ?? null }
+  return {
+    departure: times[0], arrival: times[times.length - 1],
+    walkToStationMin: v.train.walkToStationMin ?? null,
+    walkFromStationMin: v.train.walkFromStationMin ?? DEFAULT_WALK_FROM_STATION_MIN,
+  }
+}
+
+// The leg's travel time with this train, as Google Maps counts it: the walk to the first
+// station, the first departure to the last arrival, the walk from the last station (not the
+// wait for the train). The real route: 5 + 83 + 12 = 100 min ("1 hr 40 min").
+export function trainTravelMinutes(t: unknown): number | null {
+  const x = trainTimes(t)
+  return x ? (x.walkToStationMin ?? 0) + (x.arrival - x.departure) + x.walkFromStationMin : null
+}
+
+// "¥6,670"; with a rate "¥6,670 (≈ 427 kr)".
+export function formatYen(yen: number): string {
+  return `¥${Math.round(yen).toLocaleString('en-US')}`
+}
+export function yenWithNok(yen: number, rate: number | null | undefined): string {
+  return `${formatYen(yen)}${rate && rate > 0 ? ` (≈ ${Math.round(yen * rate).toLocaleString('en-US')} kr)` : ''}`
+}
+// "¥6,670 per person (≈ 427 kr)" — the trip's fare; '' when it has none.
+export function trainFareText(t: unknown, rate: number | null | undefined): string {
+  const v = t ? validateTrain(t) : null
+  const fare = v && 'train' in v ? v.train.fareYen : undefined
+  return fare ? `${formatYen(fare)} per person${rate && rate > 0 ? ` (≈ ${Math.round(fare * rate).toLocaleString('en-US')} kr)` : ''}` : ''
 }
 
 // The first departure ("HH:MM"), for the reminder and the band ('' when unreadable).
@@ -145,6 +183,8 @@ export const TRAIN_SCREENSHOT_PROMPT = `The image is a screenshot of a public-tr
 
 Respond with ONLY a JSON object (no other text, no markdown code fences) with exactly these fields:
 - walkToStationMin: the walk to the first station in minutes, as a number, when the screenshot shows it; otherwise null.
+- walkFromStationMin: the walk from the last station to the destination in minutes, as a number, when the screenshot shows it (or it follows from the arrival time at the station and at the destination); otherwise null.
+- fareYen: the fare for the whole trip per person in yen, as a number (e.g. 6670 for "¥6,670"), when shown; otherwise null.
 - legs: an array, one object per train ridden, in order, each with:
   - line: the line, e.g. "Yamanote Line", "Tokaido Shinkansen". "" if not shown.
   - train: that train's name or number, e.g. "Hikari 701", "Rapid 1234", or "local". "" if not shown.

@@ -115,7 +115,7 @@ export async function loadItineraryPageData(url: URL) {
   return pageDataFrom(shops, savedState, trip)
 }
 
-type PageTrip = { _id: string; label?: string; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string }
+type PageTrip = { _id: string; label?: string; jpyToNokRate?: number; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string }
 
 async function loadShops(): Promise<any[]> {
   try {
@@ -144,7 +144,7 @@ async function loadTrip(url: URL): Promise<PageTrip | null> {
     const picked = trips.find((t) => t._id === requestedTripId) || pickDefaultTrip(trips)
     if (!picked) return null
     return await sanity.fetch(
-      `*[_id == $id][0]{ _id, label, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
+      `*[_id == $id][0]{ _id, label, jpyToNokRate, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
       { id: picked._id }
     )
   } catch (e) { return null }

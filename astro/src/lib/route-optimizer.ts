@@ -20,7 +20,7 @@ export type OptimizerStop = {
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
   // A planned train on the leg INTO this stop (lib/train-plan.ts trainTimes): you arrive with it.
-  train?: { departure: number; arrival: number; walkToStationMin?: number | null } | null
+  train?: { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null } | null
   // Stays in its position, like a fixed-time stop: the stops on both sides of a train leg, so the
   // leg stays intact (the same two stops, in that order, next to each other).
   locked?: boolean
@@ -126,7 +126,7 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       // The planned train: missing it (still busy at its leave-by) costs like a closed shop.
       const leaveBy = stop.train.departure - TRAIN_PLATFORM_MIN - Math.max(0, stop.train.walkToStationMin || 0)
       if (clock > leaveBy) closedCount++
-      clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + TRAIN_EXIT_WALK_MIN
+      clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + (stop.train.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
     } else if (stop.fixedTime != null) {
       clock = stop.fixedTime
     } else {

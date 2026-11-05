@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, TRAIN_ORDER_ERROR } from '../src/lib/train-plan'
+import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
 import { scheduleDay, reminderTitle, trainEarlyHint, TRAIN_PLATFORM_MIN, TRAIN_EXIT_WALK_MIN } from '../src/lib/itinerary-schedule'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
@@ -23,7 +23,7 @@ const withLeg = (i: number, change: Record<string, string>) => ({ ...ROUTE, legs
 test.describe('trains on a leg (lib/train-plan.ts): a list of legs', () => {
   test('the real route: valid, its times, the summary, each leg in full', () => {
     expect(validateTrain(ROUTE)).toEqual({ train: ROUTE })
-    expect(trainTimes(ROUTE)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5 })
+    expect(trainTimes(ROUTE)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: DEFAULT_WALK_FROM_STATION_MIN })
     expect(trainDeparture(ROUTE)).toBe('06:47')
     expect(trainSummary(ROUTE)).toBe('🚆 06:47 Yamanote → Tokyo · 07:03 Shinkansen Hikari 701 (15) → Shizuoka · 08:07 Tokaido → Higashi-Shizuoka 08:10')
     expect(ROUTE.legs.map(trainLegText)).toEqual([
@@ -42,7 +42,7 @@ test.describe('trains on a leg (lib/train-plan.ts): a list of legs', () => {
     expect(validateTrain(withLeg(2, { arrival: '08:05' }))).toEqual({ error: TRAIN_ORDER_ERROR }) // arrives before it leaves
     expect(validateTrain({ legs: [] })).toEqual({ error: 'Add at least one train.' })
     // Past midnight once is fine.
-    expect(trainTimes({ legs: [{ ...ONE.legs[0], departure: '23:50', arrival: '00:20' }] })).toEqual({ departure: t('23:50'), arrival: t('00:20') + 1440, walkToStationMin: null })
+    expect(trainTimes({ legs: [{ ...ONE.legs[0], departure: '23:50', arrival: '00:20' }] })).toEqual({ departure: t('23:50'), arrival: t('00:20') + 1440, walkToStationMin: null, walkFromStationMin: 5 })
   })
 
   test('a train saved the old way (a main train with transfers) is read as legs', () => {
@@ -154,5 +154,46 @@ test.describe('Suggest route with a planned train', () => {
     expect(result.order.slice(0, 2)).toEqual([1, 0]) // the near one first now
     // The train sets the time after the leg.
     expect(result.suggested.times[3]).toBe(t('12:40') + TRAIN_EXIT_WALK_MIN)
+  })
+})
+
+// The whole Google Maps route: 1 hr 40 min, ¥6,670 — 5 min to Akihabara Station, the trains
+// 06:47–08:10, then about 12 min from Higashi-Shizuoka Station to the museum (there at 08:22).
+const FULL = { ...ROUTE, walkFromStationMin: 12, fareYen: 6670 }
+
+test.describe('a train trip\'s walks, travel time and fare', () => {
+  test('both walks and the fare are kept; the walk from the last station is 5 min when not known; bad values are dropped', () => {
+    expect(validateTrain(FULL)).toEqual({ train: FULL })
+    expect(validateTrain({ ...ROUTE, fareYen: '¥6,670', walkFromStationMin: '12' })).toEqual({ train: FULL })
+    expect(trainTimes(FULL)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: 12 })
+    expect(trainTimes(ROUTE)!.walkFromStationMin).toBe(5)
+    expect(validateTrain({ ...ROUTE, fareYen: -5, walkFromStationMin: 90 })).toEqual({ train: ROUTE })
+    expect(validateTrain({ ...ROUTE, fareYen: '', walkFromStationMin: '' })).toEqual({ train: ROUTE })
+  })
+
+  test('travel time: 5 + (06:47→08:10 = 83) + 12 = 100 min, as Google\'s 1 hr 40 min', () => {
+    expect(trainTravelMinutes(FULL)).toBe(100)
+    expect(trainTravelMinutes(ROUTE)).toBe(5 + 83 + 5)
+    expect(trainTravelMinutes(null)).toBeNull()
+  })
+
+  test('the schedule: the next stop starts after the walk from the last station (08:22); the hint uses that arrival', () => {
+    let d = scheduleDay([stop('Hotel Breakfast'), stop('Shizuoka Museum', { train: trainTimes(FULL) })], t('06:00'), BASE)
+    expect(d.stops[0].leaveBy).toBe(t('06:32'))
+    expect(d.stops[1].start).toBe(t('08:22'))
+    d = scheduleDay([stop('Hotel Breakfast'), stop('Shizuoka Museum', { train: trainTimes(FULL), fixedTime: t('09:30') })], t('06:00'), BASE)
+    expect(trainEarlyHint(d.stops[1].trainEarly!)).toBe('Arrives 08:22, 68 min before 09:30. A later train may be possible.')
+  })
+
+  test('the fare: "¥6,670 per person" with ≈ NOK at the trip\'s rate; nothing without a fare', () => {
+    expect(trainFareText(FULL, 0.064)).toBe('¥6,670 per person (≈ 427 kr)')
+    expect(trainFareText(FULL, null)).toBe('¥6,670 per person')
+    expect(trainFareText(ROUTE, 0.064)).toBe('')
+  })
+
+  test('read from the screenshot: the fare (¥6,670) and both walks', async () => {
+    const { trainFromModelText } = await import('../src/lib/train-plan')
+    expect(trainFromModelText(JSON.stringify({ ...ROUTE, walkFromStationMin: 12, fareYen: 6670 }))).toEqual({ train: FULL })
+    expect(trainFromModelText(JSON.stringify({ ...ROUTE, walkFromStationMin: null, fareYen: '¥6,670' }))).toEqual({ train: { ...ROUTE, fareYen: 6670 } })
   })
 })

@@ -1893,6 +1893,50 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     expect(lines).toEqual(expect.arrayContaining([SUMMARY, '🚶 5 min to the first station', '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02']))
   })
 
+  test('fare, walk from the last station and travel time "from train"; the day\'s train fares', async ({ page, sanity, trackDoc }) => {
+    // After Shizuoka, a shop in Yokohama (by train, estimated) whose note gives its fare.
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Yokohama Fare Shop ${Date.now()}`), note: 'JR Tokaido from Shizuoka ¥670', latitude: 35.4658, longitude: 139.6223 })
+    trackDoc(shop._id)
+    const train = { walkToStationMin: 5, walkFromStationMin: 12, fareYen: 6670, legs: LEGS }
+    await openTimeline(page, sanity, trackDoc, [
+      DAY[0], { ...DAY[1], train },
+      { name: 'x', hours: '', tag: '', slot: '', lat: 35.4658, lng: 139.6223, dur: 60, shopId: shop._id },
+    ], { jpyToNokRate: 0.064 }, '06:00')
+    // 08:10 at Higashi-Shizuoka + 12 min walk.
+    await expect(block(page, 'Shizuoka Hobby Square')).toHaveAttribute('data-start', String(t('08:22')))
+    // ¥6,670 + ¥670 from the note; an estimate (a leg by train without a planned train).
+    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥7,340 per person (≈ 470 kr) · estimate')
+
+    // The travel time at the top: the train's, not editable.
+    await page.locator('.itl-travel[data-index="1"]').click()
+    const min = page.locator('#itl-travel-edit .itn-travel-min')
+    await expect(min).toHaveValue('100') // 5 + 83 + 12
+    await expect(min).toBeDisabled()
+    await expect(page.locator('#itl-travel-edit')).toContainText('from train')
+    await expect(page.locator('#itl-travel-edit .itn-travel-save')).toHaveCount(0)
+    await expect(page.locator('#itl-train-summary')).toHaveText(`${SUMMARY} · 💴 ¥6,670 per person (≈ 427 kr)`)
+    // The editor shows both walks and the fare.
+    await page.locator('#itl-train-manual').click()
+    await expect(page.locator('#itl-tr-walk-from')).toHaveValue('12')
+    await expect(page.locator('#itl-tr-fare')).toHaveValue('6670')
+    await page.locator('#itl-tr-cancel').click()
+    await page.locator('#itl-travel-editor-close').click()
+
+    // The sheet, in full.
+    await block(page, 'Shizuoka Hobby Square').locator('.itl-name').click()
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toEqual(expect.arrayContaining(['🚶 12 min from the last station', '💴 ¥6,670 per person (≈ 427 kr)']))
+    await page.locator('#itl-detail-close').click()
+
+    // Without the train: the estimate again, editable.
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await page.locator('#itl-train-remove').click()
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await expect(min).toBeEnabled()
+    await expect(min).toHaveValue('')
+    await expect(page.locator('#itl-travel-edit')).not.toContainText('from train')
+    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥670 per person (≈ 43 kr) · estimate')
+  })
+
   test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {
     await openTimeline(page, sanity, trackDoc, [DAY[0], { ...DAY[1], fixedTime: '09:30', train: { walkToStationMin: 5, legs: LEGS } }], {}, '06:00')
     const b = block(page, 'Shizuoka Hobby Square')
@@ -1940,6 +1984,8 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
   const shot = () => ({ name: 'route.png', mimeType: 'image/png', buffer: uniquePng() })
   const READ = {
     walkToStationMin: 5,
+    walkFromStationMin: 12,
+    fareYen: 6670,
     legs: [
       { line: 'Yamanote Line', train: 'local', fromStation: 'Akihabara', departure: '06:47', platform: '3', toStation: 'Tokyo', arrival: '06:51' },
       { line: 'Tokaido Shinkansen', train: 'Hikari 701', fromStation: 'Tokyo', departure: '07:03', platform: '15', toStation: 'Shizuoka', arrival: '08:02' },
@@ -1964,6 +2010,8 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
     await page.locator('#itl-train-shot').setInputFiles(shot())
     await expect(page.locator('#itl-train-shot-msg')).toHaveText('Read from the screenshot — check it, then Save train.')
     await expect(page.locator('#itl-tr-walk')).toHaveValue('5')
+    await expect(page.locator('#itl-tr-walk-from')).toHaveValue('12')
+    await expect(page.locator('#itl-tr-fare')).toHaveValue('6670')
     await expect(page.locator('.itl-tr-leg-title')).toHaveText([
       '1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51',
       '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02',
@@ -1975,6 +2023,7 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
     await page.locator('#itl-tr-legs .itl-tr-leg').nth(1).locator('.itl-tr-l-platform').fill('14')
     await page.locator('#itl-tr-save').click()
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.legs?.[1]?.platform, { timeout: 10000 }).toBe('14')
+    expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train).toMatchObject({ walkToStationMin: 5, walkFromStationMin: 12, fareYen: 6670 })
 
     // A reading the endpoint refused (invalid times): the message, and the saved train stays.
     reply = { status: 422, body: { error: 'Train 2: the arrival time must be HH:MM.' } }

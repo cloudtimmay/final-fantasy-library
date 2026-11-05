@@ -65,8 +65,9 @@ export type ScheduleStopInput = {
 
 // A train's times on a leg (lib/train-plan.ts trainTimes): minutes after midnight, the arrival
 // after the departure (past midnight when it runs over).
-export type TrainTimes = { departure: number; arrival: number; walkToStationMin?: number | null }
-// Time to get to the platform before the train leaves, and from the arrival platform to the stop.
+export type TrainTimes = { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null }
+// Time to get to the platform before the train leaves, and from the arrival platform to the stop
+// when the trip doesn't give its own walk from the last station.
 export const TRAIN_PLATFORM_MIN = 10
 export const TRAIN_EXIT_WALK_MIN = 5
 export const TRAIN_EARLY_HINT_MIN = 30
@@ -140,7 +141,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       const shift = s.train.departure + 720 < clock ? 1440 : 0
       const t = { ...s.train, departure: s.train.departure + shift, arrival: s.train.arrival + shift }
       trains[i] = t
-      trainArrival = t.arrival + TRAIN_EXIT_WALK_MIN
+      trainArrival = t.arrival + (t.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
       // The leg: from the stop before's leave-by to the stop.
       legs[i] = { minutes: trainArrival - trainLeaveBy(t), source: 'train', mode: 'train' }
     }

@@ -10,7 +10,8 @@ import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type Schedu
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex } from './trip-dates'
-import { trainTimes, type TrainPlan } from './train-plan'
+import { trainTimes, validateTrain, type TrainPlan } from './train-plan'
+import { extractJpyTotal } from './itinerary-review-helpers'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -428,4 +429,26 @@ export function setLeaveAt(stop: PlanStop, value: string): void {
 // opening stretch you're in, or of the next one) — null when unknown or open around the clock.
 export function closingTimeFor(s: PlanStop, shopById: Map<string, PlanShop>, dayIso: string, start: number): number | null {
   return closingTime(stopHoursText(s, shopById).text, dayWeekday(dayIso), start, isIsoDate(dayIso) ? dayIso : null)
+}
+
+// The day's train fares per person: each planned train's fare, plus for a leg by train without a
+// planned one the fares in its shop's note (as Check day counts them). An estimate when any train
+// leg has only a note fare or no fare at all (a planned train without one, or the trip back by
+// train). null when the day has no train legs.
+export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): { totalYen: number; estimate: boolean } | null {
+  let totalYen = 0, estimate = false, legs = 0
+  day.stops.forEach((s, i) => {
+    const v = s.train ? validateTrain(s.train) : null
+    if (v && 'train' in v) {
+      legs++
+      if (v.train.fareYen) totalYen += v.train.fareYen
+      else estimate = true
+    } else if (sched.stops[i]?.travelIn.mode === 'train') {
+      legs++
+      estimate = true
+      totalYen += extractJpyTotal([stopNote(s, shopById)])
+    }
+  })
+  if (sched.returnLeg?.mode === 'train') { legs++; estimate = true }
+  return legs ? { totalYen, estimate } : null
 }

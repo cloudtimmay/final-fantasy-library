@@ -370,7 +370,8 @@ function reminderFor(day: PlanDay, si: number, leaveBy: number, shopById: Map<st
   const key = keyOf(si)
   const before = day.stops.slice(0, si).filter((_, i) => keyOf(i) === key).length
   const from = resolveStop(day.stops[si], shopById), to = resolveStop(day.stops[si + 1], shopById)
-  return { date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to), key: before ? `${key}-${before + 1}` : key }
+  const train = day.stops[si + 1].train
+  return { date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to), key: before ? `${key}-${before + 1}` : key, ...(train?.departure ? { trainDeparture: train.departure } : {}) }
 }
 
 // "⏰ Reminders for this day": every leave-by time on the day (the same ones that get a
@@ -380,7 +381,7 @@ export function dayReminders(day: PlanDay, sched: DaySchedule, shopById: Map<str
   return sched.stops.flatMap((x, si) => {
     if (x.leaveBy == null || !day.stops[si + 1]) return []
     const reminder = reminderFor(day, si, x.leaveBy, shopById)
-    return [{ si, title: reminderTitle(reminder.from, reminder.leaveBy, reminder.to), reminder }]
+    return [{ si, title: reminderTitle(reminder.from, reminder.leaveBy, reminder.to, reminder.trainDeparture), reminder }]
   })
 }
 // One .ics file with the chosen ones, as a data: link (like the single reminder).

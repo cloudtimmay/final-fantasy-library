@@ -10,6 +10,7 @@ import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type Schedu
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex } from './trip-dates'
+import { trainTimes, type TrainPlan } from './train-plan'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -34,6 +35,7 @@ export type PlanStop = {
   actualStart?: string // "HH:MM", set by "I'm here now" on the timeline
   actualEnd?: string // "HH:MM", set by "Leaving now"
   leaveAt?: string // "HH:MM": "🚪 Leave at" — the visit ends then (itinerary-schedule.ts)
+  train?: TrainPlan // "🚆 Plan train": the train on the leg INTO this stop (lib/train-plan.ts)
   [key: string]: unknown
 }
 export type PlanDay = { day: string; date: string; area: string; note: string; startTime: string; stops: PlanStop[] }
@@ -116,6 +118,7 @@ export function computeDayTimes(
       actualStart: parseClock(s.actualStart),
       actualEnd: parseClock(s.actualEnd),
       leaveAt: parseClock(s.leaveAt),
+      train: trainTimes(s.train),
     }
   })
   const sched = scheduleDay(inputs, start, base)
@@ -230,6 +233,7 @@ export function checkDayRequestBody(
       // A leave time sets the length; the review recomputes it from leaveAt too.
       durationMin: s.leaveAt ? sched.stops[si].end - sched.stops[si].start : s.dur != null ? s.dur : defaultDurationMin(s),
       leaveAt: s.leaveAt || null,
+      train: s.train || null,
       lat: r.lat,
       lng: r.lng,
       openingHours: stopHoursText(s, ctx.shopById).text || null,

@@ -34,6 +34,12 @@
 //   (or fixed time) to leaveAt, and the next stop runs on from leaveAt. Arriving at or after it:
 //   `arrivesAfterLeave`, and the visit takes no time. A leave time well before the start (01:00
 //   for an evening visit) is the next morning.
+// - A train on the leg into a stop (`train`, chosen on the timeline): the leg runs from the
+//   stop before's leave-by — the departure minus TRAIN_PLATFORM_MIN (and the walk to the station
+//   when known) — to the final arrival plus TRAIN_EXIT_WALK_MIN, when the stop starts. The train
+//   is an anchor for the stops before it, like a fixed time: "leave earlier", "doesn't fit" and
+//   the segment overrun all count back from its leave-by. On a fixed-time stop, a train arriving
+//   too late for it is `trainLateMin`.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
 import { tokyoNow, addDays } from './trip-dates'
@@ -54,9 +60,21 @@ export type ScheduleStopInput = {
   actualStart?: number | null // when you really got there (minutes after midnight)
   actualEnd?: number | null // when you really left
   leaveAt?: number | null // "Leave at": when the visit ends (minutes after midnight)
+  train?: TrainTimes | null // a train on the leg INTO this stop
 }
 
-export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate'; mode: 'walk' | 'train' | null }
+// A train's times on a leg (lib/train-plan.ts trainTimes): minutes after midnight, the arrival
+// after the departure (past midnight when it runs over).
+export type TrainTimes = { departure: number; arrival: number; walkToStationMin?: number | null }
+// Time to get to the platform before the train leaves, and from the arrival platform to the stop.
+export const TRAIN_PLATFORM_MIN = 10
+export const TRAIN_EXIT_WALK_MIN = 5
+// The latest the stop before a train leg can end.
+export function trainLeaveBy(t: TrainTimes): number {
+  return t.departure - TRAIN_PLATFORM_MIN - Math.max(0, t.walkToStationMin || 0)
+}
+
+export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate' | 'train'; mode: 'walk' | 'train' | null }
 
 export type ScheduledStop = {
   arrival: number // when you get there (an anchor: fixedTime − arriveEarlyMin)
@@ -72,6 +90,7 @@ export type ScheduledStop = {
   actual: boolean // its times come from actualStart/actualEnd
   visited: boolean // already left (actualEnd set)
   arrivesAfterLeave: number | null // its leaveAt, when you get there at or after it
+  trainLateMin: number | null // a fixed-time stop: its train arrives this much too late for it
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -103,11 +122,22 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
 
   // Forward: arrival, start and end of every stop.
   const out: ScheduledStop[] = []
+  // Each leg's train, on the day's clock (a train after midnight is the next morning).
+  const trains: (TrainTimes | null)[] = stops.map(() => null)
   let clock = startTime
   stops.forEach((s, i) => {
+    let trainArrival: number | null = null
+    if (s.train) {
+      const shift = s.train.departure + 720 < clock ? 1440 : 0
+      const t = { ...s.train, departure: s.train.departure + shift, arrival: s.train.arrival + shift }
+      trains[i] = t
+      trainArrival = t.arrival + TRAIN_EXIT_WALK_MIN
+      // The leg: from the stop before's leave-by to the stop.
+      legs[i] = { minutes: trainArrival - trainLeaveBy(t), source: 'train', mode: 'train' }
+    }
     const anchor = anchorArrival(s)
     const actualStart = s.fixedTime == null && s.actualStart != null ? s.actualStart : null
-    const arrival = anchor != null ? anchor : actualStart != null ? actualStart : clock + legs[i].minutes
+    const arrival = anchor != null ? anchor : actualStart != null ? actualStart : trainArrival != null ? trainArrival : clock + legs[i].minutes
     const start = s.fixedTime != null ? s.fixedTime : arrival
     const leaveAt = s.leaveAt != null ? (s.leaveAt + 720 < start ? s.leaveAt + 1440 : s.leaveAt) : null
     const late = leaveAt != null && s.actualEnd == null && arrival >= leaveAt
@@ -119,6 +149,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, doesntFit: null,
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
       arrivesAfterLeave: late ? leaveAt : null,
+      trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
     })
     clock = end
   })
@@ -135,7 +166,11 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       latestEnd[i] = latestArrivalNext - intoNext
       nextAnchor[i] = anchorIdx
     }
-    if (stops[i].fixedTime != null) {
+    if (trains[i]) {
+      // Catch the train: the stop before must end by its leave-by (whatever the stop's own time).
+      anchorIdx = i
+      latestArrivalNext = trainLeaveBy(trains[i]!) + legs[i].minutes + (stops[i].fixedTime != null ? LEAVE_BUFFER_MIN : 0)
+    } else if (stops[i].fixedTime != null) {
       anchorIdx = i
       latestArrivalNext = anchorArrival(stops[i])
     } else if (latestEnd[i] != null) {
@@ -146,8 +181,8 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   out.forEach((o, i) => {
     if (i === stops.length - 1) return
     const next = stops[i + 1]
-    o.nextIsAnchor = next.fixedTime != null
-    o.leaveBy = o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
+    o.nextIsAnchor = next.fixedTime != null || !!trains[i + 1]
+    o.leaveBy = trains[i + 1] ? trainLeaveBy(trains[i + 1]!) : o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
     if (o.nextIsAnchor && o.end > o.leaveBy && !o.visited) o.leaveEarlierMin = o.end - o.leaveBy
     if (nextAnchor[i] == null || latestEnd[i] == null) return
     if (o.fixed) {
@@ -160,11 +195,29 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   const segments: SegmentOverrun[] = []
   let segStart = 0
   stops.forEach((s, a) => {
-    if (s.fixedTime == null) return
+    if (s.fixedTime == null && !trains[a]) return
     const members: number[] = []
     for (let k = segStart; k < a; k++) members.push(k)
     segStart = a + 1
     if (!members.length) return // nothing between two anchors: "leave earlier" on the first covers it
+    if (trains[a]) {
+      // A train: the stops before it must be done by its leave-by.
+      const deadline = trainLeaveBy(trains[a]!)
+      const overrunMin = out[a - 1].end - deadline
+      if (overrunMin <= 0) return
+      const ahead = members.filter((k) => !out[k].visited)
+      const firstLateIndex = ahead.find((k) => out[k].end > deadline) ?? members[members.length - 1]
+      ahead.filter((k) => k >= firstLateIndex).forEach((k) => {
+        out[k].doesntFit = { anchorIndex: a, anchorTime: trains[a]!.departure, shortMin: out[k].end - deadline }
+      })
+      const suggestions = members
+        .filter((k) => !stops[k].must)
+        .sort((x, y) => (out[y].end - out[y].start) - (out[x].end - out[x].start) || x - y)
+        .slice(0, 3)
+        .map((k) => ({ index: k, name: stops[k].name, durationMin: out[k].end - out[k].start }))
+      segments.push({ anchorIndex: a, anchorTime: trains[a]!.departure, overrunMin, firstLateIndex, suggestions })
+      return
+    }
     const arrive = anchorArrival(s)!
     const overrunMin = out[a - 1].end + legs[a].minutes + LEAVE_BUFFER_MIN - arrive
     if (overrunMin <= 0) return
@@ -215,18 +268,20 @@ export const JST_NOTE = "Times are Japan time (JST). Your calendar shows this in
 // One reminder. `key` identifies the stop you leave (its shop's id, else its name): the UID is
 // "leave-<day>-<key>", the same for that stop on that day whatever its time or the next stop —
 // so a calendar that supports it updates the event instead of adding another.
-export type ReminderInput = { date: string; leaveBy: number; from: string; to: string; routeUrl: string; key?: string; now?: Date }
+// `trainDeparture`: the leg is a chosen train ("Leave … for the 17:42 train").
+export type ReminderInput = { date: string; leaveBy: number; from: string; to: string; routeUrl: string; key?: string; trainDeparture?: string; now?: Date }
 const pad2 = (n: number) => String(n).padStart(2, '0')
-// "Leave Square Enix Pop Up Cafe 17:35 JST → Tokyo Temple" — the event's title, and the list's.
-export function reminderTitle(from: string, leaveBy: number, to: string): string {
-  return `Leave ${from} ${pad2(Math.floor(leaveBy / 60) % 24)}:${pad2(leaveBy % 60)} JST → ${to}`
+// "Leave Square Enix Pop Up Cafe 17:35 JST → Tokyo Temple" — the event's title, and the list's;
+// on a train leg "Leave … 17:30 JST for the 17:42 train → …".
+export function reminderTitle(from: string, leaveBy: number, to: string, trainDeparture?: string): string {
+  return `Leave ${from} ${pad2(Math.floor(leaveBy / 60) % 24)}:${pad2(leaveBy % 60)} JST${trainDeparture ? ` for the ${trainDeparture} train` : ''} → ${to}`
 }
 function reminderEvent(o: ReminderInput): string[] {
   const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.date)
   if (!p) throw new Error(`Not a calendar date: ${o.date}`)
   const local = `${p[1]}${p[2]}${p[3]}T${pad2(Math.floor(o.leaveBy / 60))}${pad2(o.leaveBy % 60)}00`
   const stamp = (o.now || new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
-  const title = reminderTitle(o.from, o.leaveBy, o.to)
+  const title = reminderTitle(o.from, o.leaveBy, o.to, o.trainDeparture)
   const uid = `leave-${p[1]}${p[2]}${p[3]}-${slug(o.key || o.from)}@final-fantasy-library`
   return [
     'BEGIN:VEVENT',

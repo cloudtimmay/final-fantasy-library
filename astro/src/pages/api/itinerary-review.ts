@@ -4,6 +4,13 @@ import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarnin
 import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
+import { validateTrain, trainTimes, trainSummary, type TrainPlan } from '../../lib/train-plan'
+
+// A stop's train from the request, only when it's valid.
+const trainOf = (raw: any): TrainPlan | null => {
+  const v = raw?.train ? validateTrain(raw.train) : null
+  return v && 'train' in v ? v.train : null
+}
 
 export const prerender = false
 
@@ -95,6 +102,8 @@ export const POST: APIRoute = async ({ request }) => {
       actualStart: hhmm(raw?.actualStart),
       actualEnd: hhmm(raw?.actualEnd),
       leaveAt: hhmm(raw?.leaveAt),
+      // A chosen train on the leg in: validated like on the page (lib/train-plan.ts).
+      train: trainTimes(trainOf(raw)),
     }
   })
   const base = point(body.base)
@@ -119,7 +128,8 @@ export const POST: APIRoute = async ({ request }) => {
   const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length - lateItems.length)
 
   const backAtBase = daySchedule && daySchedule.returnLeg ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase)
+  const trainLines = body.stops.map((raw: any) => { const t = trainOf(raw); return t ? trainSummary(t).replace(/^🚆 /, '') : null })
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase, trainLines)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)

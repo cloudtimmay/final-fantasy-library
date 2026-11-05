@@ -135,6 +135,10 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
   const leaveItems = schedule.flatMap((sc, i) => sc.sched.arrivesAfterLeave != null
     ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: arrives after your leave time (${formatClock(sc.sched.arrivesAfterLeave)}).`, suggestion: 'Leave the stop before it earlier, or change the leave time.' }]
     : [])
+  // A chosen train arriving too late for a fixed-time stop.
+  leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.trainLateMin != null
+    ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: the chosen train arrives ${sc.sched.trainLateMin} min too late for its fixed time.`, suggestion: 'Take an earlier train.' }]
+    : []))
   const items: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
   segments.forEach((g) => {
     items.push({
@@ -168,7 +172,7 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
 
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be
 // imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
-export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = [], backAtBase: { end: number; minutes: number } | null = null): string {
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = [], backAtBase: { end: number; minutes: number } | null = null, trainLines: Array<string | null> = []): string {
   const transitions = computeTransitions(stops)
   const lines: string[] = []
   lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
@@ -203,6 +207,7 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       if (sc.sched.doesntFit) lines.push(`    PROBLEM: can't reach the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} in time after this (${sc.sched.doesntFit.shortMin} min short)`)
       else if (sc.sched.leaveEarlierMin) lines.push(`    PROBLEM: ends ${sc.sched.leaveEarlierMin} min after its leave-by time`)
     }
+    if (trainLines[i]) lines.push(`    Train here (chosen by the owner; the timetable above uses it): ${trainLines[i]}`)
     if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
     if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
   })

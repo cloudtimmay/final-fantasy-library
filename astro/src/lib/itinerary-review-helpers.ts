@@ -132,6 +132,9 @@ const LEG_SOURCE: Record<string, string> = { manual: 'entered by the trip owner'
 // TIGHT_CONNECTION_MIN spare, on top of the LEAVE_BUFFER_MIN already counted) to a fixed-time stop.
 export const TIGHT_CONNECTION_MIN = 10
 export function scheduleReviewItems(names: string[], schedule: ReviewScheduleStop[], segments: SegmentOverrun[] = []) {
+  const leaveItems = schedule.flatMap((sc, i) => sc.sched.arrivesAfterLeave != null
+    ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: arrives after your leave time (${formatClock(sc.sched.arrivesAfterLeave)}).`, suggestion: 'Leave the stop before it earlier, or change the leave time.' }]
+    : [])
   const items: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
   segments.forEach((g) => {
     items.push({
@@ -160,7 +163,7 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
       })
     }
   })
-  return items
+  return [...leaveItems, ...items]
 }
 
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be

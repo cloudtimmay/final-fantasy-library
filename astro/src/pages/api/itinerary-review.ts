@@ -94,6 +94,7 @@ export const POST: APIRoute = async ({ request }) => {
       // "I'm here now" / "Leaving now" on the timeline: the same "HH:MM" check as fixed times.
       actualStart: hhmm(raw?.actualStart),
       actualEnd: hhmm(raw?.actualEnd),
+      leaveAt: hhmm(raw?.leaveAt),
     }
   })
   const base = point(body.base)

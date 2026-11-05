@@ -8,7 +8,7 @@
 
 import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
-import { checkHours, visitWarning, closedOnArrival } from './opening-hours'
+import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex } from './trip-dates'
 
 export const DEFAULT_START = '08:00'
@@ -33,6 +33,7 @@ export type PlanStop = {
   note?: string
   actualStart?: string // "HH:MM", set by "I'm here now" on the timeline
   actualEnd?: string // "HH:MM", set by "Leaving now"
+  leaveAt?: string // "HH:MM": "🚪 Leave at" — the visit ends then (itinerary-schedule.ts)
   [key: string]: unknown
 }
 export type PlanDay = { day: string; date: string; area: string; note: string; startTime: string; stops: PlanStop[] }
@@ -114,6 +115,7 @@ export function computeDayTimes(
       must: s.tag === 'MUST',
       actualStart: parseClock(s.actualStart),
       actualEnd: parseClock(s.actualEnd),
+      leaveAt: parseClock(s.leaveAt),
     }
   })
   const sched = scheduleDay(inputs, start, base)
@@ -219,13 +221,15 @@ export function checkDayRequestBody(
   day: PlanDay,
   ctx: { base: { lat: number; lng: number }; shopById: Map<string, PlanShop>; flight: { date: string; time: string; airport: string; terminal?: string } | null }
 ) {
-  const { times } = computeDayTimes(day, ctx.base, ctx.shopById)
+  const { times, sched } = computeDayTimes(day, ctx.base, ctx.shopById)
   const stops = day.stops.map((s, si) => {
     const r = resolveStop(s, ctx.shopById)
     return {
       name: r.name,
       plannedTime: times[si],
-      durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
+      // A leave time sets the length; the review recomputes it from leaveAt too.
+      durationMin: s.leaveAt ? sched.stops[si].end - sched.stops[si].start : s.dur != null ? s.dur : defaultDurationMin(s),
+      leaveAt: s.leaveAt || null,
       lat: r.lat,
       lng: r.lng,
       openingHours: stopHoursText(s, ctx.shopById).text || null,
@@ -264,6 +268,7 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       fixedTime: s.fixedTime ? parseClock(s.fixedTime) : null,
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
+      leaveAt: parseClock(s.leaveAt),
     }
   })
   return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day), date: isIsoDate(day.day) ? day.day : null }
@@ -403,4 +408,16 @@ export function dayAreas(day: PlanDay, shopById: Map<string, PlanShop>): string[
     if (area && !out.includes(area)) out.push(area)
   }
   return out.length ? out : day.area ? [day.area] : []
+}
+
+// "🚪 Leave at": "HH:MM" sets it, anything else (or '') clears it.
+export function setLeaveAt(stop: PlanStop, value: string): void {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim())
+  if (m && +m[1] < 24 && +m[2] < 60) stop.leaveAt = `${m[1].padStart(2, '0')}:${m[2]}`
+  else delete stop.leaveAt
+}
+// "Until closing": when the stop's shop closes on its day, from the visit's start (the end of the
+// opening stretch you're in, or of the next one) — null when unknown or open around the clock.
+export function closingTimeFor(s: PlanStop, shopById: Map<string, PlanShop>, dayIso: string, start: number): number | null {
+  return closingTime(stopHoursText(s, shopById).text, dayWeekday(dayIso), start, isIsoDate(dayIso) ? dayIso : null)
 }

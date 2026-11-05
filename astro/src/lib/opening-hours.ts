@@ -414,3 +414,16 @@ export function splitHoursRemarks(text: string): { hours: string; remarks: strin
     .trim()
   return { hours, remarks }
 }
+
+// When the shop closes for a visit starting at `start` (minutes, may run past 1440): the end of
+// the opening stretch you're in, or of the next one that day. null when it's unknown, closed or
+// open around the clock.
+export function closingTime(text: string | null | undefined, weekday: number | null, start: number, date: string | null = null): number | null {
+  const LONG = 2880
+  // Open a whole day or more from then (only the days around the visit are looked at): around the clock.
+  const closesAt = (c: VisitCheck, from: number) => (c.kind === 'closes-during' && c.closes - from < 1440 ? c.closes : null)
+  const c = checkHours(text, weekday, start, start + LONG, date)
+  if (c.kind === 'closes-during') return closesAt(c, start)
+  if (c.kind === 'before-open') return closesAt(checkHours(text, weekday, c.opens, c.opens + LONG, date), c.opens)
+  return null
+}

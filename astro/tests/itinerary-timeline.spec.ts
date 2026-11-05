@@ -1604,3 +1604,109 @@ test.describe('/itinerary on a phone: "⏰ Reminders for this day"', () => {
     expect(field(single, 'SUMMARY')).toEqual([field(after, 'SUMMARY')[0]])
   })
 })
+
+test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const shinjukuToYokohama = estimateLeg({ lat: 35.689356, lng: 139.697787 }, { lat: 35.464556, lng: 139.624649 })!.minutes
+  const setLeave = async (page: Page, value: string) => {
+    await page.locator('#itl-ed-leaveat').fill(value)
+    await page.locator('#itl-ed-leaveat').dispatchEvent('change')
+  }
+
+  test('the engine: a leave time ends the visit, with a fixed time too; arriving after it is flagged and takes no time', async () => {
+    const { scheduleDay } = await import('../src/lib/itinerary-schedule')
+    const s = (name: string, extra: Record<string, unknown> = {}) => ({ name, lat: null, lng: null, durationMin: 45, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null, ...extra })
+    let d = scheduleDay([s('A', { leaveAt: t('10:20') }), s('B')], t('10:00'), BASE)
+    expect(d.stops[0]).toMatchObject({ start: t('10:00'), end: t('10:20'), arrivesAfterLeave: null })
+    expect(d.stops[1].start).toBe(t('10:20'))
+    d = scheduleDay([s('A', { fixedTime: t('12:00'), leaveAt: t('13:30') }), s('B')], t('10:00'), BASE)
+    expect(d.stops[0]).toMatchObject({ start: t('12:00'), end: t('13:30') })
+    d = scheduleDay([s('A', { durationMin: 120 }), s('B', { leaveAt: t('11:00') }), s('C')], t('10:00'), BASE)
+    expect(d.stops[1]).toMatchObject({ start: t('12:00'), end: t('12:00'), arrivesAfterLeave: t('11:00') })
+    expect(d.stops[2].start).toBe(t('12:00'))
+    // 01:00 for an evening visit is the next morning.
+    d = scheduleDay([s('Late', { leaveAt: t('01:00') })], t('23:00'), BASE)
+    expect(d.stops[0]).toMatchObject({ start: t('23:00'), end: t('01:00') + 1440, arrivesAfterLeave: null })
+  })
+
+  test('shortening and lengthening a visit moves the following blocks; the duration shows the computed minutes', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    const suruga = block(page, 'SURUGA-YA')
+    await block(page, 'Yellow Submarine').click()
+    await setLeave(page, '15:30') // shorter than 45 min
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('15:06–15:30 · until 15:30')
+    await expect(suruga).toHaveAttribute('data-start', String(t('15:30') + shinjukuToYokohama))
+    await expect(page.locator('#itl-ed-dur')).toBeDisabled()
+    await expect(page.locator('#itl-ed-dur')).toHaveValue('24')
+    await setLeave(page, '16:00') // longer
+    await expect(suruga).toHaveAttribute('data-start', String(t('16:00') + shinjukuToYokohama))
+    await expect(page.locator('#itl-ed-dur')).toHaveValue('54')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[0].leaveAt, { timeout: 10000 }).toBe('16:00')
+    // ✕ clears it: the duration is back.
+    await page.locator('#itl-ed-leaveat-clear').click()
+    await expect(page.locator('#itl-ed-dur')).toBeEnabled()
+    await expect(page.locator('#itl-ed-dur')).toHaveValue('45')
+    await expect(block(page, 'Yellow Submarine').locator('.itl-time')).toHaveText('15:06–15:51')
+    await expect.poll(() => saves[saves.length - 1].days['2026-12-05'].stops[0].leaveAt, { timeout: 10000 }).toBeUndefined()
+  })
+
+  test('with a fixed time, and arriving after the leave time', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Long First', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 120 },
+      { name: 'Pinned Visit', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30, fixedTime: '13:00', leaveAt: '14:15' },
+      { name: 'Too Late', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30, leaveAt: '14:00' },
+    ], {}, '10:00')
+    await expect(block(page, 'Pinned Visit').locator('.itl-time')).toHaveText('📌 13:00 · until 14:15')
+    await expect(block(page, 'Too Late')).toHaveAttribute('data-start', String(t('14:15')))
+    await expect(block(page, 'Too Late').locator('.itl-badge')).toHaveText('⚠️ Arrives after your leave time (14:00)')
+    await block(page, 'Too Late').click()
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⚠️ Arrives after your leave time (14:00)')
+    await expect(page.locator('#itl-ed-dur')).toHaveValue('0')
+  })
+
+  test('"Until closing" on the real Yodobashi case: 09:30–22:00, arriving 21:37, leaves at 22:00 and the warning goes', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Yodobashi Camera Multimedia Akiba', hours: '09:30 - 22:00', tag: '', slot: '', lat: null, lng: null, dur: 45 },
+    ], {}, '21:37')
+    const b = block(page, 'Yodobashi')
+    await expect(b.locator('.itl-hours-badge')).toHaveText('Closes 22:00')
+    await b.click()
+    const until = page.locator('#itl-ed-until-close')
+    await expect(until).toHaveText('Until closing (22:00)')
+    await until.click()
+    await expect(page.locator('#itl-ed-leaveat')).toHaveValue('22:00')
+    await expect(b.locator('.itl-time')).toHaveText('21:37–22:00 · until 22:00')
+    await expect(b.locator('.itl-hours-badge')).toHaveCount(0)
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[0].leaveAt, { timeout: 10000 }).toBe('22:00')
+  })
+
+  test('"Until closing" is hidden when the hours are unknown or open 24 hours', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Always Open', hours: 'Open 24 hours', tag: '', slot: '', lat: null, lng: null, dur: 45 },
+      { name: 'No Hours', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 45 },
+    ], {}, '21:00')
+    await block(page, 'Always Open').click()
+    await expect(page.locator('#itl-ed-until-close')).toBeHidden()
+    await page.locator('#itl-detail-close').click()
+    await block(page, 'No Hours').click()
+    await expect(page.locator('#itl-ed-until-close')).toBeHidden()
+  })
+
+  test('/itinerary-list keeps the leave time when it saves', async ({ page }) => {
+    const saves: any[] = []
+    await page.route('**/api/itinerary-save', async (route) => {
+      saves.push(JSON.parse(route.request().postDataJSON().data))
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+    })
+    await page.goto('/itinerary-list')
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    const day = await page.evaluate(() => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops[0].leaveAt = '12:30'; render(); return state[0].day
+    })
+    await page.locator('.day-start-input').first().fill('09:15')
+    await page.locator('.day-start-input').first().dispatchEvent('change')
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    expect(saves[saves.length - 1].days[day].stops[0].leaveAt).toBe('12:30')
+  })
+})

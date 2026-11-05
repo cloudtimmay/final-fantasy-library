@@ -18,6 +18,7 @@ export type OptimizerStop = {
   fixedTime: number | null // minutes since midnight, or null if this stop isn't pinned
   openingHours: string | null // free text, e.g. "10:00–20:00, closed Tue"
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
+  leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
 }
 
 export type RouteSchedule = {
@@ -121,11 +122,13 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
     }
     // Closed when you get there (closed that weekday, not open yet, or closed already): the
     // large penalty. Not open yet also counts the wait (lib/opening-hours.ts).
-    const hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin, date)
+    const leaveAt = stop.leaveAt != null ? (stop.leaveAt + 720 < clock ? stop.leaveAt + 1440 : stop.leaveAt) : null
+    const ends = leaveAt != null ? Math.max(clock, leaveAt) : clock + stop.durationMin
+    const hours = checkHours(stop.openingHours, weekday, clock, ends, date)
     if (hours.kind === 'before-open') waitMin += hours.opens - clock
     if (closedOnArrival(hours)) closedCount++
     times.push(clock)
-    clock += stop.durationMin
+    clock = ends
     prevPoint = { lat: stop.lat, lng: stop.lng }
   })
 

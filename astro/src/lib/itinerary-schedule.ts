@@ -30,6 +30,10 @@
 //   that. A fixed stop never moves — only its actual end carries forward. So the warnings update
 //   (doesn't fit, leave earlier, segment overrun) instead; a stop already left (`visited`) gets
 //   none itself.
+// - "Leave at" (`leaveAt`): the visit ends then, whatever its duration — it lasts from its arrival
+//   (or fixed time) to leaveAt, and the next stop runs on from leaveAt. Arriving at or after it:
+//   `arrivesAfterLeave`, and the visit takes no time. A leave time well before the start (01:00
+//   for an evening visit) is the next morning.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
 import { tokyoNow, addDays } from './trip-dates'
@@ -49,6 +53,7 @@ export type ScheduleStopInput = {
   must?: boolean // tagged MUST: never suggested as the visit to shorten
   actualStart?: number | null // when you really got there (minutes after midnight)
   actualEnd?: number | null // when you really left
+  leaveAt?: number | null // "Leave at": when the visit ends (minutes after midnight)
 }
 
 export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate'; mode: 'walk' | 'train' | null }
@@ -66,6 +71,7 @@ export type ScheduledStop = {
   doesntFit: { anchorIndex: number; anchorTime: number; shortMin: number } | null
   actual: boolean // its times come from actualStart/actualEnd
   visited: boolean // already left (actualEnd set)
+  arrivesAfterLeave: number | null // its leaveAt, when you get there at or after it
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -103,11 +109,16 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     const actualStart = s.fixedTime == null && s.actualStart != null ? s.actualStart : null
     const arrival = anchor != null ? anchor : actualStart != null ? actualStart : clock + legs[i].minutes
     const start = s.fixedTime != null ? s.fixedTime : arrival
-    const end = s.actualEnd != null ? Math.max(s.actualEnd, start) : start + s.durationMin
+    const leaveAt = s.leaveAt != null ? (s.leaveAt + 720 < start ? s.leaveAt + 1440 : s.leaveAt) : null
+    const late = leaveAt != null && s.actualEnd == null && arrival >= leaveAt
+    const end = s.actualEnd != null ? Math.max(s.actualEnd, start)
+      : leaveAt != null ? (late ? start : Math.max(leaveAt, start))
+      : start + s.durationMin
     out.push({
       arrival, start, end, fixed: s.fixedTime != null, travelIn: legs[i],
       leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, doesntFit: null,
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
+      arrivesAfterLeave: late ? leaveAt : null,
     })
     clock = end
   })
@@ -128,7 +139,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       anchorIdx = i
       latestArrivalNext = anchorArrival(stops[i])
     } else if (latestEnd[i] != null) {
-      latestArrivalNext = latestEnd[i]! - stops[i].durationMin
+      latestArrivalNext = latestEnd[i]! - (out[i].end - out[i].start) // its length (a leave time sets it)
     }
   }
 
@@ -171,9 +182,9 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     })
     const suggestions = members
       .filter((k) => !stops[k].must)
-      .sort((x, y) => stops[y].durationMin - stops[x].durationMin || x - y)
+      .sort((x, y) => (out[y].end - out[y].start) - (out[x].end - out[x].start) || x - y)
       .slice(0, 3)
-      .map((k) => ({ index: k, name: stops[k].name, durationMin: stops[k].durationMin }))
+      .map((k) => ({ index: k, name: stops[k].name, durationMin: out[k].end - out[k].start }))
     segments.push({ anchorIndex: a, anchorTime: s.fixedTime!, overrunMin, firstLateIndex, suggestions })
   })
 

@@ -168,6 +168,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div class="itl-sheet-grid">
         <label>⏱ Duration <span><input id="itl-ed-dur" type="number" min="5" step="5" /> min</span></label>
         <label>🕐 Fixed time <input id="itl-ed-time" type="time" /></label>
+        <label>🚪 Leave at
+          <span class="itl-leaveat">
+            <input id="itl-ed-leaveat" type="time" />
+            <button id="itl-ed-leaveat-clear" type="button" aria-label="Clear the leave time">✕</button>
+          </span>
+          <button id="itl-ed-until-close" type="button" class="itl-until-close" hidden>Until closing</button>
+        </label>
         <label id="itl-ed-early-label">Arrive early <span><input id="itl-ed-early" type="number" min="0" step="5" /> min</span></label>
         <label>Tag <input id="itl-ed-tag" type="text" list="itl-tag-options" placeholder="MUST, mat …" /></label>
       </div>
@@ -204,7 +211,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -378,6 +385,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const warnings: string[] = []
         if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
         else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+        if (x.arrivesAfterLeave != null) warnings.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
         const midnight = afterMidnight(x)
         const lastTrain = lateTrains.has(item.index)
         el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : midnight || lastTrain ? ' itl-warn-late' : closed ? ' itl-warn-closed' : '')
@@ -392,6 +400,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
             : x.fixed
               ? `📌 ${formatClock(x.start)}${x.arrival !== x.start ? ` (arrive ${formatClock(x.arrival)})` : ''}`
               : `${formatClock(x.start)}–${formatClock(x.end)}`
+        const timeText = time + (s.leaveAt && !x.actual ? ` · until ${s.leaveAt}` : '')
         if (x.visited) el.classList.add('itl-visited')
         // Today in Tokyo (nowButtons): "I'm here now" / "Leaving now" right under the first line,
         // so a short block doesn't cut them off; just the icons where blocks share the width (the
@@ -414,7 +423,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // The linked shop's area, right under the name (a stop written by hand has none).
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
         el.innerHTML = `
-          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span></span>
           ${area ? `<span class="itl-area">📍 ${esc(area)}</span>` : ''}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${actions}
@@ -709,6 +718,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+      if (x.arrivesAfterLeave != null) lines.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
       const hoursWarning = stopHoursWarning(s, shopById, day.day, x.start, x.end)
       if (hoursWarning) lines.push(hoursWarning.note ? hoursWarning.message : `⚠️ ${hoursWarning.message}`)
       if (afterMidnight(x)) lines.push(`⚠️ After midnight (${formatClock(x.start)})`)
@@ -744,7 +754,16 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ed('here').hidden = !now.here
       ed('leave').hidden = !now.leave
       ;(document.querySelector('#itl-ed-now') as HTMLElement).hidden = !now.here && !now.leave
-      ed('dur').value = String(inputs[idx].durationMin)
+      // "🚪 Leave at": while it's set the visit's length follows from it (shown, not editable).
+      ed('dur').value = String(s.leaveAt ? x.end - x.start : inputs[idx].durationMin)
+      ed('dur').disabled = !!s.leaveAt
+      ed('leaveat').value = s.leaveAt || ''
+      ;(document.querySelector('#itl-ed-leaveat-clear') as HTMLButtonElement).hidden = !s.leaveAt
+      // "Until closing": the shop's closing time that day (hidden when unknown or open 24 hours).
+      const closes = closingTimeFor(s, shopById, day.day, x.start)
+      const untilBtn = document.querySelector('#itl-ed-until-close') as HTMLButtonElement
+      untilBtn.hidden = closes == null
+      if (closes != null) { untilBtn.dataset.time = formatClock(closes); untilBtn.textContent = `Until closing (${formatClock(closes)})` }
       ed('time').value = s.fixedTime || ''
       ed('early').value = typeof s.arriveEarly === 'number' ? String(s.arriveEarly) : ''
       ;(document.querySelector('#itl-ed-early-label') as HTMLElement).hidden = !s.fixedTime
@@ -778,6 +797,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     ed('dur').addEventListener('change', withStop((s) => { setStopDuration(s, ed('dur').value); changed() }))
     ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, base, shopById); changed() }))
+    ed('leaveat').addEventListener('change', withStop((s) => { setLeaveAt(s, ed('leaveat').value); changed() }))
+    document.querySelector('#itl-ed-leaveat-clear')!.addEventListener('click', withStop((s) => { setLeaveAt(s, ''); changed() }))
+    document.querySelector('#itl-ed-until-close')!.addEventListener('click', withStop((s) => {
+      setLeaveAt(s, (document.querySelector('#itl-ed-until-close') as HTMLElement).dataset.time || '')
+      changed()
+    }))
     ed('early').addEventListener('change', withStop((s) => { setArriveEarly(s, ed('early').value); changed() }))
     ed('tag').addEventListener('change', withStop((s) => { const v = ed('tag').value.trim(); s.tag = v; changed() }))
     document.querySelector('#itl-ed-note')!.addEventListener('change', withStop((s) => {
@@ -1238,6 +1263,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-rem-empty[hidden] { display: none; }
     .itl-rem-add { display: inline-block; margin-top: 0.4rem; text-decoration: none; }
     .itl-rem-add.itl-rem-off { opacity: 0.5; pointer-events: none; }
+    .itl-leaveat { display: flex; align-items: center; gap: 0.3rem; }
+    .itl-leaveat input { flex: 1; min-width: 0; }
+    .itl-sheet .itl-leaveat button { min-width: 36px; }
+    .itl-sheet .itl-until-close { margin-top: 0.3rem; font-size: 0.78rem; }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

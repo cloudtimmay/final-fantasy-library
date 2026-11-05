@@ -1658,7 +1658,8 @@ test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
     ], {}, '10:00')
     await expect(block(page, 'Pinned Visit').locator('.itl-time')).toHaveText('📌 13:00 · until 14:15')
     await expect(block(page, 'Too Late')).toHaveAttribute('data-start', String(t('14:15')))
-    await expect(block(page, 'Too Late').locator('.itl-badge')).toHaveText('⚠️ Arrives after your leave time (14:00)')
+    // A visit of no length is the smallest block: one line, the warning as ⚠️ (in full in the sheet).
+    await expect(block(page, 'Too Late').locator('.itl-icons .itl-icon')).toHaveAttribute('title', '⚠️ Arrives after your leave time (14:00)')
     await block(page, 'Too Late').click()
     expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⚠️ Arrives after your leave time (14:00)')
     await expect(page.locator('#itl-ed-dur')).toHaveValue('0')
@@ -1929,5 +1930,56 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
     await expect(page.locator('#itl-train-shot-msg')).toHaveText('⚠️ The arrival time must be HH:MM.')
     await expect(page.locator('#itl-train-form')).toBeHidden()
     expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train.departure).toBe('15:55')
+  })
+})
+
+test.describe('/itinerary on a phone: short visits at the default zoom', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  // Every visible part of the block is wholly inside it — nothing cut in half.
+  async function expectNothingCut(b: ReturnType<Page['locator']>) {
+    const box = (await b.boundingBox())!
+    const parts = await b.evaluate((el) => [...el.querySelectorAll('*')].map((c) => {
+      const r = c.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, w: r.width, h: r.height }
+    }).filter((r) => r.w > 0 && r.h > 0))
+    for (const p of parts) {
+      expect(p.top).toBeGreaterThanOrEqual(box.y - 0.5)
+      expect(p.bottom).toBeLessThanOrEqual(box.y + box.height + 0.5)
+    }
+  }
+
+  test('a 10-minute and a 20-minute block: one line with name, time, area and icons; everything in full in the sheet', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`SQEX CAPSULE GARDEN ${Date.now()}`), area: 'Ikebukuro', openingHours: '10:00 - 19:00', latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 10, fixedTime: '18:56', shopId: shop._id }, // the real case
+      { name: 'Twenty Min Stop', hours: '10:00 - 19:30', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 20, fixedTime: '19:20' },
+      { name: 'After', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, fixedTime: '20:00' },
+    ], {}, '18:30')
+    await expect(page.locator('.itl-grid')).toHaveAttribute('data-px', '2.25') // the default zoom
+    for (const [name, height] of [['SQEX CAPSULE', 30], ['Twenty Min Stop', 45]] as const) {
+      const b = block(page, name)
+      await expect(b).toHaveCSS('height', `${height}px`)
+      await expect(b).toHaveClass(/itl-compact/)
+      await expect(b.locator('.itl-first')).toBeVisible()
+      await expect(b.locator('.itl-leaveby, .itl-hours')).toHaveCount(0) // whole rows gone, not cut
+      await expect(b.locator('.itl-icons .itn-reminder')).toHaveText('⏰') // the reminder, as an icon
+      await expectNothingCut(b)
+    }
+    // 10 minutes: one line, the warning as ⚠️. 20 minutes: room for the warning row itself.
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-badges')).toHaveCount(0)
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-icons .itl-icon')).toHaveText('⚠️')
+    await expect(block(page, 'Twenty Min Stop').locator('.itl-badges')).toBeVisible()
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-first')).toContainText('📍 Ikebukuro')
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-icon')).toHaveAttribute('title', /Closes 19:00 \(you leave 19:06\)/)
+    // The long block keeps its full layout.
+    await expect(block(page, 'After')).not.toHaveClass(/itl-compact/)
+
+    // The sheet has it all.
+    await block(page, 'SQEX CAPSULE').locator('.itl-name').click()
+    const lines = await page.locator('#itl-detail-lines li').allTextContents()
+    expect(lines.some((l) => l.startsWith('Leave by 19:'))).toBe(true)
+    expect(lines).toContain('⚠️ Closes 19:00 (you leave 19:06)')
+    await expect(page.locator('#itl-detail-lines .itn-reminder')).toHaveText('⏰ Reminder')
   })
 })

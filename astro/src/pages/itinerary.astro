@@ -428,6 +428,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         grid.appendChild(el)
       })
 
+      // Blocks that turn out too short for their rows switch to the compact form (after the grid
+      // is in the page, where their height can be measured).
+      // Per block, the icons standing in for its rows: ⚠️ for the warnings, 🚆 the train line, ⏰ the
+      // "Leave by" line's reminder.
+      const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string }[] = []
       // Stops: side by side in columns where they overlap (layoutTimeline).
       layout.stops.forEach((item) => {
         const el = document.createElement('div')
@@ -488,15 +493,29 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
         const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train))}</span>` : ''
+        const firstLine = () => `<span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
+            area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>`
+        // For a block too short for all its rows (see below): small icons on the first line —
+        // ⚠️ (its title lists the warnings), 🚆 the train, ⏰ the reminder link.
+        const problems = [
+          ...(midnight ? ['After midnight'] : []), ...(lastTrain ? [LAST_TRAIN_MESSAGE] : []),
+          ...(closed ? [hoursWarning!.message] : []), ...warnings,
+        ]
+        compactCandidates.push({
+          el,
+          warn: problems.length ? `<span class="itl-icon" title="${esc(problems.join(' · '))}">⚠️</span>` : '',
+          train: s.train ? `<span class="itl-icon itl-icon-train" title="${esc(trainSummary(s.train))}">🚆</span>` : '',
+          reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.leaveBy, shopById, true) : '',
+        })
+        // Rows in order of importance: a short block drops them from the bottom (see below).
         el.innerHTML = `
-          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
-            area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>
-          ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
+          ${firstLine()}
           ${actions}
+          ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
           ${leaveBy}
-          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
-          ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}`
+          ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}
+          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}`
         grid.appendChild(el)
       })
 
@@ -536,6 +555,25 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       now.hidden = true
       grid.appendChild(now)
       dayEl.appendChild(grid)
+      // A block too short for all its rows: whole rows go, least important first (the hours, the
+      // "Hours not understood" note, the "Leave by" line, the train line, the warnings, the
+      // buttons), until the rest fits — never a
+      // row cut in half. What went shows as an icon on the first line; a 10-minute visit is then
+      // just "name · time · area" with its icons. The edit sheet has everything in full.
+      const fits = (el: HTMLElement) => el.scrollHeight <= el.clientHeight + 1
+      for (const c of compactCandidates) {
+        if (fits(c.el)) continue
+        const first = c.el.querySelector('.itl-first') as HTMLElement
+        const rows = [...c.el.children].filter((r) => r !== first) as HTMLElement[]
+        const gone = new Set<string>()
+        for (let i = rows.length - 1; i >= 0 && !fits(c.el); i--) {
+          gone.add(rows[i].className.split(' ')[0])
+          rows[i].remove()
+        }
+        const icons = (gone.has('itl-badges') ? c.warn : '') + (gone.has('itl-train-line') ? c.train : '') + (gone.has('itl-leaveby') ? c.reminder : '')
+        c.el.classList.add('itl-compact')
+        if (icons) first.insertAdjacentHTML('beforeend', `<span class="itl-icons">${icons}</span>`)
+      }
       // Room at the end so the last hour scrolls fully into view above the fixed bottom nav on
       // mobile: the nav's own height (0 where it's hidden, on wider screens) plus the safe area.
       const end = document.createElement('div')
@@ -1551,6 +1589,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-tr-transfer-head button { background: none; border: none; color: var(--muted); cursor: pointer; min-width: 32px; min-height: 32px; }
     .itl-train-error { color: #e74c3c; font-size: 0.82rem; font-weight: 600; margin: 0.3rem 0; }
     .itl-train-error[hidden] { display: none; }
+    .itl-icons { display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; margin-left: 0.25rem; font-size: 0.72rem; }
+    .itl-icons .itn-reminder { margin: 0; padding: 0 0.2rem; font-size: 0.72rem; line-height: 1.2; }
+    .itl-block.itl-compact { justify-content: flex-start; }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

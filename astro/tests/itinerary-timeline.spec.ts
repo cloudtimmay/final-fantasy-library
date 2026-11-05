@@ -1833,7 +1833,22 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
 test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const icsOf = (href: string) => decodeURIComponent(href.slice('data:text/calendar;charset=utf-8,'.length)).replace(/\r\n /g, '')
-  // The long leg Shinjuku → Yokohama (into SURUGA-YA, the second stop).
+  // The real route (walk 5 min): Yamanote, Tokaido Shinkansen Hikari 701, Tokaido Line.
+  const LEGS = [
+    { line: 'Yamanote Line', train: 'local', fromStation: 'Akihabara', departure: '06:47', platform: '3', toStation: 'Tokyo', arrival: '06:51' },
+    { line: 'Tokaido Shinkansen', train: 'Hikari 701', fromStation: 'Tokyo', departure: '07:03', platform: '15', toStation: 'Shizuoka', arrival: '08:02' },
+    { line: 'Tokaido Line', train: 'local', fromStation: 'Shizuoka', departure: '08:07', platform: '2', toStation: 'Higashi-Shizuoka', arrival: '08:10' },
+  ]
+  const SUMMARY = '🚆 06:47 Yamanote → Tokyo · 07:03 Shinkansen Hikari 701 (15) → Shizuoka · 08:07 Tokaido → Higashi-Shizuoka 08:10'
+  // A day for it: the hotel near the base, then the shop in Shizuoka.
+  const DAY = [
+    { name: 'Hotel Breakfast', hours: '', tag: '', slot: '', lat: 35.698, lng: 139.771, dur: 30 },
+    { name: 'Shizuoka Hobby Square', hours: '', tag: '', slot: '', lat: 34.9718, lng: 138.3889, dur: 90 },
+  ]
+  const card = (page: Page, i: number) => page.locator('#itl-tr-legs .itl-tr-leg').nth(i)
+  async function fillLeg(page: Page, i: number, l: Record<string, string>) {
+    for (const [key, value] of Object.entries(l)) await card(page, i).locator(`.itl-tr-l-${key}`).fill(value)
+  }
   const openLeg = async (page: Page) => {
     const band = page.locator('.itl-travel[data-index="1"]')
     await expect(band).toHaveClass(/itl-travel-plan/)
@@ -1841,71 +1856,102 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await band.click()
     await expect(page.locator('#itl-train')).toBeVisible()
   }
-  const fill = async (page: Page, v: Record<string, string>) => {
-    for (const [id, value] of Object.entries(v)) await page.locator(`#itl-tr-${id}`).fill(value)
-  }
 
-  test('manual entry: saved on the stop, the stop before leaves for it, the next stop starts after it; the reminder names the train', async ({ page, sanity, trackDoc }) => {
-    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+  test('the real route entered leg by leg: cards in order, saved as legs, the schedule, the display and the reminder', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await openLeg(page)
-    const maps = page.locator('#itl-train-maps')
-    await expect(maps).toHaveAttribute('href', /travelmode=transit/)
-    await expect(maps).toHaveAttribute('target', '_blank')
+    await expect(page.locator('#itl-train-maps')).toHaveAttribute('href', /travelmode=transit/)
     await page.locator('#itl-train-manual').click()
-    await fill(page, { line: 'Shonan-Shinjuku Line', train: 'Rapid 2501', from: 'Shinjuku', dep: '15:55', platform: '3', to: 'Yokohama', arr: '16:28' })
-    await page.locator('#itl-tr-add-transfer').click()
-    await page.locator('.itl-tr-x-station').fill('Musashi-Kosugi')
-    await page.locator('.itl-tr-x-arr').fill('16:10')
-    await page.locator('.itl-tr-x-line').fill('Tokyu Toyoko Line')
-    await page.locator('.itl-tr-x-dep').fill('16:14')
+    await expect(page.locator('#itl-tr-legs .itl-tr-leg')).toHaveCount(1)
+    await page.locator('#itl-tr-walk').fill('5')
+    await fillLeg(page, 0, LEGS[0])
+    await expect(card(page, 0).locator('.itl-tr-leg-title')).toHaveText('1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51')
+    await page.locator('#itl-tr-add-leg').click()
+    await expect(card(page, 1).locator('.itl-tr-l-fromStation')).toHaveValue('Tokyo') // starts where the last one arrived
+    await fillLeg(page, 1, LEGS[2]) // the wrong one first …
+    await page.locator('#itl-tr-add-leg').click()
+    await fillLeg(page, 2, LEGS[1])
+    await card(page, 2).locator('.itl-tr-up').click() // … and moved into place
+    await expect(page.locator('.itl-tr-leg-title')).toHaveText([
+      '1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51',
+      '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02',
+      '3. Tokaido Line local · Shizuoka 08:07 (platform 2) → Higashi-Shizuoka 08:10',
+    ])
     await page.locator('#itl-tr-save').click()
     await expect(page.locator('#itl-travel-editor')).toBeHidden()
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train, { timeout: 10000 }).toEqual({ walkToStationMin: 5, legs: LEGS })
 
-    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.departure, { timeout: 10000 }).toBe('15:55')
-    expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train).toMatchObject({ line: 'Shonan-Shinjuku Line', train: 'Rapid 2501', platform: '3', arrival: '16:28', transfers: [{ station: 'Musashi-Kosugi', arrival: '16:10', departure: '16:14' }] })
-    // The leg: SURUGA-YA starts at 16:28 + 5; Yellow Submarine (until 15:51) must leave by 15:45.
-    await expect(block(page, 'SURUGA-YA')).toHaveAttribute('data-start', String(t('16:33')))
-    await expect(block(page, 'SURUGA-YA').locator('.itl-train-line')).toHaveText('🚆 Shonan-Shinjuku Line Rapid 2501 · 15:55 platform 3 → Yokohama 16:28 · +1 transfer')
-    // The existing rule for a stop before an anchor: "doesn't fit" (the same as before a fixed time).
-    await expect(block(page, 'Yellow Submarine').locator('.itl-badge')).toHaveText("⚠️ Doesn't fit before 15:55 (6 min short)")
-    await expect(page.locator('.itl-travel[data-index="1"]')).toHaveText('🚆 15:55')
-    const ics = icsOf((await block(page, 'Yellow Submarine').locator('.itn-reminder').getAttribute('href'))!)
-    expect(ics).toContain('SUMMARY:Leave Yellow Submarine Shinjuku 15:45 JST for the 15:55 train → SURUGA-YA Marui City Yokohama')
+    // The schedule: leave the hotel by 06:47 − 10 − 5; the shop from 08:10 + 5.
+    await expect(block(page, 'Shizuoka Hobby Square')).toHaveAttribute('data-start', String(t('08:15')))
+    await expect(block(page, 'Shizuoka Hobby Square').locator('.itl-train-line')).toHaveText(SUMMARY)
+    await expect(page.locator('.itl-travel[data-index="1"]')).toHaveText('🚆 06:47')
+    const ics = icsOf((await block(page, 'Hotel Breakfast').locator('.itn-reminder').getAttribute('href'))!)
+    expect(ics).toContain('SUMMARY:Leave Hotel Breakfast 06:32 JST for the 06:47 train → Shizuoka Hobby Square')
+    // The sheet: everything in full.
+    await block(page, 'Shizuoka Hobby Square').locator('.itl-name').click()
+    const lines = await page.locator('#itl-detail-lines li').allTextContents()
+    expect(lines).toEqual(expect.arrayContaining([SUMMARY, '🚶 5 min to the first station', '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02']))
   })
 
-  test('invalid or out-of-order times are refused and nothing is saved', async ({ page, sanity, trackDoc }) => {
-    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+  test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [DAY[0], { ...DAY[1], fixedTime: '09:30', train: { walkToStationMin: 5, legs: LEGS } }], {}, '06:00')
+    const b = block(page, 'Shizuoka Hobby Square')
+    await b.locator('.itl-name').click()
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('💡 Arrives 08:15, 75 min before 09:30. A later train may be possible.')
+  })
+
+  test('times out of order across the legs are refused and nothing is saved', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await openLeg(page)
     await page.locator('#itl-train-manual').click()
-    await fill(page, { dep: '16:30', arr: '16:10' })
+    await fillLeg(page, 0, LEGS[0])
+    await page.locator('#itl-tr-add-leg').click()
+    await fillLeg(page, 1, { ...LEGS[1], departure: '06:49' }) // before the first train arrives
     await page.locator('#itl-tr-save').click()
-    await expect(page.locator('#itl-tr-error')).toHaveText('The times must be in order: departure, each transfer, then arrival.')
+    await expect(page.locator('#itl-tr-error')).toHaveText('The times must be in order: each leg departs before it arrives, and the next leg departs after that.')
     await expect(page.locator('#itl-train-form')).toBeVisible()
     expect(saves.length).toBe(0)
   })
 
-  test('tapping the train line opens it to edit; Remove takes it off', async ({ page, sanity, trackDoc }) => {
-    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+  test('a train saved the old way (with transfers) opens as legs; tapping the train line opens it; Remove takes it off', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await page.evaluate(() => {
-      // @ts-ignore - the page's test hook
+      // @ts-ignore - the page's test hook: the first version's shape
       const itl = window.__itl
-      itl.state[0].stops[1].train = { line: 'JR', train: '1', fromStation: 'Shinjuku', departure: '15:55', platform: '3', toStation: 'Yokohama', arrival: '16:28', transfers: [] }
+      itl.state[0].stops[1].train = { line: 'Yamanote Line', train: 'local', fromStation: 'Akihabara', departure: '06:47', platform: '3', toStation: 'Shizuoka', arrival: '08:02', transfers: [{ station: 'Tokyo', line: 'Tokaido Shinkansen', arrival: '06:51', departure: '07:03', platform: '15' }] }
       itl.render()
     })
-    await block(page, 'SURUGA-YA').locator('.itl-train-line').click()
-    await expect(page.locator('#itl-train-summary')).toHaveText('🚆 JR 1 · 15:55 platform 3 → Yokohama 16:28')
+    await block(page, 'Shizuoka Hobby Square').locator('.itl-train-line').click()
+    await expect(page.locator('#itl-train-summary')).toHaveText('🚆 06:47 Yamanote → Tokyo · 07:03 Shinkansen → Shizuoka 08:02')
     await expect(page.locator('#itl-detail')).toBeHidden() // not the stop's sheet
+    await page.locator('#itl-train-manual').click()
+    await expect(page.locator('.itl-tr-leg-title')).toHaveText([
+      '1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51',
+      '2. Tokaido Shinkansen · Tokyo 07:03 (platform 15) → Shizuoka 08:02',
+    ])
+    await page.locator('#itl-tr-cancel').click()
     await page.locator('#itl-train-remove').click()
-    await expect(block(page, 'SURUGA-YA').locator('.itl-train-line')).toHaveCount(0)
+    await expect(block(page, 'Shizuoka Hobby Square').locator('.itl-train-line')).toHaveCount(0)
     await expect.poll(() => saves.length > 0 && 'train' in saves[saves.length - 1].days['2026-12-05'].stops[1], { timeout: 10000 }).toBe(false)
   })
 })
 
 test.describe('/itinerary on a phone: a train from a screenshot', () => {
   const shot = () => ({ name: 'route.png', mimeType: 'image/png', buffer: uniquePng() })
-  const READ = { line: 'Shonan-Shinjuku Line', train: 'Rapid 2501', fromStation: 'Shinjuku', departure: '15:55', platform: '3', toStation: 'Yokohama', arrival: '16:28', transfers: [] }
+  const READ = {
+    walkToStationMin: 5,
+    legs: [
+      { line: 'Yamanote Line', train: 'local', fromStation: 'Akihabara', departure: '06:47', platform: '3', toStation: 'Tokyo', arrival: '06:51' },
+      { line: 'Tokaido Shinkansen', train: 'Hikari 701', fromStation: 'Tokyo', departure: '07:03', platform: '15', toStation: 'Shizuoka', arrival: '08:02' },
+      { line: 'Tokaido Line', train: 'local', fromStation: 'Shizuoka', departure: '08:07', platform: '2', toStation: 'Higashi-Shizuoka', arrival: '08:10' },
+    ],
+  }
+  const DAY = [
+    { name: 'Hotel Breakfast', hours: '', tag: '', slot: '', lat: 35.698, lng: 139.771, dur: 30 },
+    { name: 'Shizuoka Hobby Square', hours: '', tag: '', slot: '', lat: 34.9718, lng: 138.3889, dur: 90 },
+  ]
 
-  test('the reading fills the form to check; nothing is saved until Save train; an error is shown and nothing changes', async ({ page, sanity, trackDoc }) => {
+  test('the legs read fill the cards to check; nothing is saved until Save train; an error is shown and nothing changes', async ({ page, sanity, trackDoc }) => {
     let calls = 0
     let reply: { status: number; body: unknown } = { status: 200, body: { ok: true, train: READ } }
     await page.route('**/api/train-from-screenshot', async (route) => {
@@ -1913,27 +1959,30 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
       expect(route.request().postDataJSON().image).toMatch(/^[A-Za-z0-9+/=]+$/) // raw base64
       await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
     })
-    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await page.locator('.itl-travel[data-index="1"]').click()
     await page.locator('#itl-train-shot').setInputFiles(shot())
     await expect(page.locator('#itl-train-shot-msg')).toHaveText('Read from the screenshot — check it, then Save train.')
-    await expect(page.locator('#itl-tr-dep')).toHaveValue('15:55')
-    await expect(page.locator('#itl-tr-arr')).toHaveValue('16:28')
-    await expect(page.locator('#itl-tr-line')).toHaveValue('Shonan-Shinjuku Line')
+    await expect(page.locator('#itl-tr-walk')).toHaveValue('5')
+    await expect(page.locator('.itl-tr-leg-title')).toHaveText([
+      '1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51',
+      '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02',
+      '3. Tokaido Line local · Shizuoka 08:07 (platform 2) → Higashi-Shizuoka 08:10',
+    ])
     expect(calls).toBe(1)
     expect(saves.length).toBe(0) // nothing yet
     // Corrected before saving.
-    await page.locator('#itl-tr-platform').fill('4')
+    await page.locator('#itl-tr-legs .itl-tr-leg').nth(1).locator('.itl-tr-l-platform').fill('14')
     await page.locator('#itl-tr-save').click()
-    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.platform, { timeout: 10000 }).toBe('4')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.legs?.[1]?.platform, { timeout: 10000 }).toBe('14')
 
     // A reading the endpoint refused (invalid times): the message, and the saved train stays.
-    reply = { status: 422, body: { error: 'The arrival time must be HH:MM.' } }
+    reply = { status: 422, body: { error: 'Train 2: the arrival time must be HH:MM.' } }
     await page.locator('.itl-travel[data-index="1"]').click()
     await page.locator('#itl-train-shot').setInputFiles(shot())
-    await expect(page.locator('#itl-train-shot-msg')).toHaveText('⚠️ The arrival time must be HH:MM.')
+    await expect(page.locator('#itl-train-shot-msg')).toHaveText('⚠️ Train 2: the arrival time must be HH:MM.')
     await expect(page.locator('#itl-train-form')).toBeHidden()
-    expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train.departure).toBe('15:55')
+    expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train.legs[0].departure).toBe('06:47')
   })
 })
 

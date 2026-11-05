@@ -4,8 +4,8 @@ import { TRAIN_SCREENSHOT_PROMPT, trainFromModelText } from '../../lib/train-pla
 
 export const prerender = false
 
-// "🚆 Plan train" → "📷 From a screenshot" on the timeline: reads the line, train, times,
-// platforms and transfers from a screenshot of a route. Same patterns as identify-product.ts.
+// "🚆 Plan train" → "📷 From a screenshot" on the timeline: reads each train leg of a route (line,
+// train name, stations, times, platform) and the walk to the first station from a screenshot. Same patterns as identify-product.ts.
 // Nothing is saved here — the page shows the result in its form to check first.
 
 // One place to change the model (the same as identify-product.ts).

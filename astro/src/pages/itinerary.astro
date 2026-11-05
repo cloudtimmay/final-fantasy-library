@@ -131,18 +131,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           <button id="itl-train-remove" type="button" class="itl-train-btn itl-train-remove" hidden>🗑️ Remove train</button>
         </div>
         <form id="itl-train-form" class="itl-train-form" hidden>
-          <div class="itl-train-grid">
-            <label>Line <input id="itl-tr-line" type="text" maxlength="60" placeholder="Tokaido Line" /></label>
-            <label>Train <input id="itl-tr-train" type="text" maxlength="60" placeholder="Rapid 1234" /></label>
-            <label>From station <input id="itl-tr-from" type="text" maxlength="60" /></label>
-            <label>Departs <input id="itl-tr-dep" type="time" required /></label>
-            <label>Platform <input id="itl-tr-platform" type="text" maxlength="60" /></label>
-            <label>Walk to station <span><input id="itl-tr-walk" type="number" min="0" max="60" step="1" /> min</span></label>
-            <label>To station <input id="itl-tr-to" type="text" maxlength="60" /></label>
-            <label>Arrives <input id="itl-tr-arr" type="time" required /></label>
-          </div>
-          <div id="itl-tr-transfers" class="itl-tr-transfers"></div>
-          <button id="itl-tr-add-transfer" type="button" class="itl-train-btn">＋ Transfer</button>
+          <!-- The trip as Google Maps shows it: the walk to the first station, then one card per
+               train in order (lib/train-plan.ts). Cards are built in the script. -->
+          <label class="itl-tr-walk">Walk to the first station <span><input id="itl-tr-walk" type="number" min="0" max="60" step="1" /> min</span></label>
+          <ol id="itl-tr-legs" class="itl-tr-legs"></ol>
+          <button id="itl-tr-add-leg" type="button" class="itl-train-btn">＋ Add a train</button>
           <p id="itl-tr-error" class="itl-train-error" hidden></p>
           <div class="itl-train-actions">
             <button id="itl-tr-save" type="submit" class="itl-train-btn itl-train-save">Save train</button>
@@ -280,7 +273,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
-    import { validateTrain, trainSummary, type TrainPlan, type TrainTransfer } from '../lib/train-plan'
+    import { validateTrain, trainSummary, trainLegText, trainDeparture, type TrainLeg } from '../lib/train-plan'
+    import { trainEarlyHint } from '../lib/itinerary-schedule'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { transitRouteUrl } from '../lib/itinerary-schedule'
@@ -423,7 +417,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const legTrain = !tr.back ? day.stops[tr.index]?.train : undefined
         if (legTrain) {
           el.classList.add('itl-travel-train')
-          el.textContent = `🚆 ${legTrain.departure}`
+          el.textContent = `🚆 ${trainDeparture(legTrain)}`
         } else {
           el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
           // A long leg offers "🚆 Plan train" (a label under the time, drawn by CSS).
@@ -518,6 +512,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
           ${leaveBy}
+          ${x.trainEarly ? `<span class="itl-hint">💡 ${esc(trainEarlyHint(x.trainEarly))}</span>` : ''}
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}`
         grid.appendChild(el)
@@ -798,40 +793,50 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const trainPanel = document.querySelector('#itl-train') as HTMLElement
     const trainForm = document.querySelector('#itl-train-form') as HTMLFormElement
     const trainError = document.querySelector('#itl-tr-error') as HTMLElement
-    const transfersEl = document.querySelector('#itl-tr-transfers') as HTMLElement
+    const legsEl = document.querySelector('#itl-tr-legs') as HTMLOListElement
     const trEl = (id: string) => document.querySelector(`#itl-tr-${id}`) as HTMLInputElement
     let trainLeg: { day: PlanDay; idx: number } | null = null
-    function transferRowHtml(x: Partial<TrainTransfer> = {}): string {
-      return `<div class="itl-tr-transfer">
-        <span class="itl-tr-transfer-head">Transfer <button type="button" class="itl-tr-transfer-remove" aria-label="Remove this transfer">✕</button></span>
-        <label>Station <input class="itl-tr-x-station" type="text" maxlength="60" value="${esc(x.station || '')}" /></label>
-        <label>Arrives <input class="itl-tr-x-arr" type="time" value="${esc(x.arrival || '')}" /></label>
-        <label>Line <input class="itl-tr-x-line" type="text" maxlength="60" value="${esc(x.line || '')}" /></label>
-        <label>Departs <input class="itl-tr-x-dep" type="time" value="${esc(x.departure || '')}" /></label>
-        <label>Platform <input class="itl-tr-x-platform" type="text" maxlength="60" value="${esc(x.platform || '')}" /></label>
-      </div>`
+    // One card per train, in order: its title (the leg as the sheet shows it), its fields, ▲▼ ✕.
+    const LEG_FIELDS: [keyof TrainLeg, string, string][] = [
+      ['line', 'Line', 'text'], ['train', 'Train', 'text'], ['fromStation', 'From', 'text'], ['departure', 'Departs', 'time'],
+      ['platform', 'Platform', 'text'], ['toStation', 'To', 'text'], ['arrival', 'Arrives', 'time'],
+    ]
+    const PLACEHOLDER: Partial<Record<keyof TrainLeg, string>> = { line: 'Tokaido Shinkansen', train: 'Hikari 701', platform: '15' }
+    function legCardHtml(l: Partial<TrainLeg> = {}): string {
+      return `<li class="itl-tr-leg">
+        <div class="itl-tr-leg-head"><span class="itl-tr-leg-title"></span>
+          <span class="itl-tr-leg-tools">
+            <button type="button" class="itl-tr-up" aria-label="Move up">▲</button>
+            <button type="button" class="itl-tr-down" aria-label="Move down">▼</button>
+            <button type="button" class="itl-tr-remove" aria-label="Remove this train">✕</button>
+          </span></div>
+        <div class="itl-train-grid">${LEG_FIELDS.map(([key, label, type]) =>
+          `<label>${label} <input class="itl-tr-l-${key}" type="${type}"${type === 'text' ? ' maxlength="60"' : ''} placeholder="${esc(PLACEHOLDER[key] || '')}" value="${esc(l[key] || '')}" /></label>`).join('')}</div>
+      </li>`
     }
-    // Fill the form (from the saved train, or a screenshot reading) and show it.
-    function fillTrainForm(t: Partial<TrainPlan>) {
-      trEl('line').value = t.line || ''; trEl('train').value = t.train || ''; trEl('from').value = t.fromStation || ''
-      trEl('dep').value = t.departure || ''; trEl('platform').value = t.platform || ''; trEl('to').value = t.toStation || ''
-      trEl('arr').value = t.arrival || ''; trEl('walk').value = t.walkToStationMin != null ? String(t.walkToStationMin) : ''
-      transfersEl.innerHTML = (t.transfers || []).map(transferRowHtml).join('')
+    const readLeg = (card: Element): TrainLeg => Object.fromEntries(LEG_FIELDS.map(([key]) => [key, (card.querySelector(`.itl-tr-l-${key}`) as HTMLInputElement).value])) as TrainLeg
+    // The cards' numbers, titles and ▲▼ follow their order.
+    function refreshLegs() {
+      const cards = [...legsEl.querySelectorAll('.itl-tr-leg')]
+      cards.forEach((card, i) => {
+        ;(card.querySelector('.itl-tr-leg-title') as HTMLElement).textContent = trainLegText(readLeg(card), i)
+        ;(card.querySelector('.itl-tr-up') as HTMLButtonElement).disabled = i === 0
+        ;(card.querySelector('.itl-tr-down') as HTMLButtonElement).disabled = i === cards.length - 1
+        ;(card.querySelector('.itl-tr-remove') as HTMLButtonElement).disabled = cards.length === 1
+      })
+    }
+    // Fill the editor (from the saved train in either shape, or a screenshot reading) and show it.
+    function fillTrainForm(t: unknown) {
+      const v = t ? validateTrain(t) : null
+      const train = v && 'train' in v ? v.train : { legs: [] as TrainLeg[] }
+      trEl('walk').value = train.walkToStationMin != null ? String(train.walkToStationMin) : ''
+      legsEl.innerHTML = (train.legs.length ? train.legs : [{}]).map(legCardHtml).join('')
+      refreshLegs()
       trainError.hidden = true
       trainForm.hidden = false
     }
     function readTrainForm() {
-      return {
-        line: trEl('line').value, train: trEl('train').value, fromStation: trEl('from').value, departure: trEl('dep').value,
-        platform: trEl('platform').value, toStation: trEl('to').value, arrival: trEl('arr').value, walkToStationMin: trEl('walk').value,
-        transfers: [...transfersEl.querySelectorAll<HTMLElement>('.itl-tr-transfer')].map((row) => ({
-          station: (row.querySelector('.itl-tr-x-station') as HTMLInputElement).value,
-          arrival: (row.querySelector('.itl-tr-x-arr') as HTMLInputElement).value,
-          line: (row.querySelector('.itl-tr-x-line') as HTMLInputElement).value,
-          departure: (row.querySelector('.itl-tr-x-dep') as HTMLInputElement).value,
-          platform: (row.querySelector('.itl-tr-x-platform') as HTMLInputElement).value,
-        })),
-      }
+      return { walkToStationMin: trEl('walk').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
     }
     function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }) {
       const train = day.stops[idx].train
@@ -877,10 +882,22 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         shotMsg.textContent = '⚠️ Network error — try again.'
       }
     })
-    document.querySelector('#itl-tr-add-transfer')!.addEventListener('click', () => transfersEl.insertAdjacentHTML('beforeend', transferRowHtml()))
-    transfersEl.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('.itl-tr-transfer-remove')
-      if (btn) btn.closest('.itl-tr-transfer')!.remove()
+    document.querySelector('#itl-tr-add-leg')!.addEventListener('click', () => {
+      // A new train starts where the last one arrived.
+      const cards = legsEl.querySelectorAll('.itl-tr-leg')
+      const last = cards.length ? readLeg(cards[cards.length - 1]) : null
+      legsEl.insertAdjacentHTML('beforeend', legCardHtml(last ? { fromStation: last.toStation } : {}))
+      refreshLegs()
+    })
+    legsEl.addEventListener('input', refreshLegs)
+    legsEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button')
+      const card = btn?.closest('.itl-tr-leg') as HTMLElement | null
+      if (!btn || !card) return
+      if (btn.classList.contains('itl-tr-remove')) card.remove()
+      else if (btn.classList.contains('itl-tr-up') && card.previousElementSibling) card.previousElementSibling.before(card)
+      else if (btn.classList.contains('itl-tr-down') && card.nextElementSibling) card.nextElementSibling.after(card)
+      refreshLegs()
     })
     document.querySelector('#itl-tr-cancel')!.addEventListener('click', () => { trainForm.hidden = true })
     trainForm.addEventListener('submit', (e) => {
@@ -939,6 +956,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
       else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
       if (x.arrivesAfterLeave != null) lines.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
+      // The train here, in full: the whole trip, then each train.
+      const trainV = s.train ? validateTrain(s.train) : null
+      if (trainV && 'train' in trainV) {
+        lines.push(trainSummary(trainV.train))
+        if (trainV.train.walkToStationMin != null) lines.push(`🚶 ${trainV.train.walkToStationMin} min to the first station`)
+        trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i)))
+      }
+      if (x.trainLateMin != null) lines.push(`⚠️ The train arrives ${x.trainLateMin} min too late for the fixed time`)
+      if (x.trainEarly) lines.push(`💡 ${trainEarlyHint(x.trainEarly)}`)
       const hoursWarning = stopHoursWarning(s, shopById, day.day, x.start, x.end)
       if (hoursWarning) lines.push(hoursWarning.note ? hoursWarning.message : `⚠️ ${hoursWarning.message}`)
       if (afterMidnight(x)) lines.push(`⚠️ After midnight (${formatClock(x.start)})`)
@@ -1582,15 +1608,21 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-train-btn[hidden] { display: none; }
     .itl-train-remove { border-color: #e74c3c; color: #e74c3c; }
     .itl-train-save { border-color: #2ecc71; font-weight: 600; }
-    .itl-train-grid, .itl-tr-transfer { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.6rem; }
+    .itl-train-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.6rem; }
     .itl-train-form label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.78rem; color: var(--muted); }
     .itl-train-form label span { display: flex; align-items: center; gap: 0.3rem; color: var(--text); }
     .itl-train-form input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem; font-size: 0.9rem; min-height: 34px; box-sizing: border-box; width: 100%; }
     .itl-train-form label span input { width: 5rem; }
     .itl-train-form[hidden] { display: none; }
-    .itl-tr-transfer { margin: 0.5rem 0; padding: 0.4rem; border: 1px dashed var(--border); border-radius: 6px; }
-    .itl-tr-transfer-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 600; }
-    .itl-tr-transfer-head button { background: none; border: none; color: var(--muted); cursor: pointer; min-width: 32px; min-height: 32px; }
+    .itl-tr-walk { margin-bottom: 0.4rem; }
+    .itl-tr-legs { list-style: none; margin: 0.3rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .itl-tr-leg { padding: 0.45rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+    .itl-tr-leg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.4rem; margin-bottom: 0.35rem; }
+    .itl-tr-leg-title { font-size: 0.82rem; font-weight: 600; overflow-wrap: anywhere; }
+    .itl-tr-leg-tools { display: flex; gap: 0.2rem; flex-shrink: 0; }
+    .itl-tr-leg-tools button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; min-width: 32px; min-height: 32px; cursor: pointer; }
+    .itl-tr-leg-tools button:disabled { opacity: 0.35; cursor: default; }
+    .itl-hint { font-size: 0.68rem; color: #6b9fd4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .itl-train-error { color: #e74c3c; font-size: 0.82rem; font-weight: 600; margin: 0.3rem 0; }
     .itl-train-error[hidden] { display: none; }
     .itl-icons { display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; margin-left: 0.25rem; font-size: 0.72rem; }

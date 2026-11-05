@@ -69,6 +69,12 @@ export type TrainTimes = { departure: number; arrival: number; walkToStationMin?
 // Time to get to the platform before the train leaves, and from the arrival platform to the stop.
 export const TRAIN_PLATFORM_MIN = 10
 export const TRAIN_EXIT_WALK_MIN = 5
+export const TRAIN_EARLY_HINT_MIN = 30
+// "Arrives 08:22, 68 min before 09:30. A later train may be possible."
+export function trainEarlyHint(e: { arrival: number; fixedTime: number }): string {
+  const c = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  return `Arrives ${c(e.arrival)}, ${e.fixedTime - e.arrival} min before ${c(e.fixedTime)}. A later train may be possible.`
+}
 // The latest the stop before a train leg can end.
 export function trainLeaveBy(t: TrainTimes): number {
   return t.departure - TRAIN_PLATFORM_MIN - Math.max(0, t.walkToStationMin || 0)
@@ -91,6 +97,9 @@ export type ScheduledStop = {
   visited: boolean // already left (actualEnd set)
   arrivesAfterLeave: number | null // its leaveAt, when you get there at or after it
   trainLateMin: number | null // a fixed-time stop: its train arrives this much too late for it
+  // A fixed-time stop its train reaches more than TRAIN_EARLY_HINT_MIN early: when you arrive, and
+  // the fixed time (a later train may do).
+  trainEarly: { arrival: number; fixedTime: number } | null
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -150,6 +159,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
       arrivesAfterLeave: late ? leaveAt : null,
       trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
+      trainEarly: s.fixedTime != null && trainArrival != null && s.fixedTime - trainArrival > TRAIN_EARLY_HINT_MIN ? { arrival: trainArrival, fixedTime: s.fixedTime } : null,
     })
     clock = end
   })

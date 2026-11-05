@@ -3,6 +3,7 @@
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
+import { trainEarlyHint } from './itinerary-schedule'
 import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
@@ -132,9 +133,13 @@ const LEG_SOURCE: Record<string, string> = { manual: 'entered by the trip owner'
 // TIGHT_CONNECTION_MIN spare, on top of the LEAVE_BUFFER_MIN already counted) to a fixed-time stop.
 export const TIGHT_CONNECTION_MIN = 10
 export function scheduleReviewItems(names: string[], schedule: ReviewScheduleStop[], segments: SegmentOverrun[] = []) {
-  const leaveItems = schedule.flatMap((sc, i) => sc.sched.arrivesAfterLeave != null
+  const leaveItems: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = schedule.flatMap((sc, i) => sc.sched.arrivesAfterLeave != null
     ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: arrives after your leave time (${formatClock(sc.sched.arrivesAfterLeave)}).`, suggestion: 'Leave the stop before it earlier, or change the leave time.' }]
     : [])
+  // A chosen train arriving much earlier than a fixed time: a tip.
+  leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.trainEarly
+    ? [{ severity: 'tip' as const, stopIndex: i, message: `${names[i]}: ${trainEarlyHint(sc.sched.trainEarly)}`, suggestion: null }]
+    : []))
   // A chosen train arriving too late for a fixed-time stop.
   leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.trainLateMin != null
     ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: the chosen train arrives ${sc.sched.trainLateMin} min too late for its fixed time.`, suggestion: 'Take an earlier train.' }]

@@ -8,6 +8,7 @@ import { transitRouteUrl, leaveReminderIcs, leaveRemindersIcs, reminderTitle, ty
 import { formatClock } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 import { cdnImage } from './image-url'
+import { trainDeparture } from './train-plan'
 import { FOUND_STATUS_LABELS, type FoundItem } from './shop-found'
 import { formatPriceNokFirst } from './price-display'
 
@@ -370,8 +371,8 @@ function reminderFor(day: PlanDay, si: number, leaveBy: number, shopById: Map<st
   const key = keyOf(si)
   const before = day.stops.slice(0, si).filter((_, i) => keyOf(i) === key).length
   const from = resolveStop(day.stops[si], shopById), to = resolveStop(day.stops[si + 1], shopById)
-  const train = day.stops[si + 1].train
-  return { date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to), key: before ? `${key}-${before + 1}` : key, ...(train?.departure ? { trainDeparture: train.departure } : {}) }
+  const departure = trainDeparture(day.stops[si + 1].train)
+  return { date: day.day, leaveBy, from: from.name, to: to.name, routeUrl: transitRouteUrl(from, to), key: before ? `${key}-${before + 1}` : key, ...(departure ? { trainDeparture: departure } : {}) }
 }
 
 // "⏰ Reminders for this day": every leave-by time on the day (the same ones that get a

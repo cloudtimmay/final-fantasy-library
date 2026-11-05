@@ -5,4 +5,5 @@ export default defineCliConfig({
     projectId: 'ip4i779g',
     dataset: 'production',
   },
+  studioHost: 'fflibrary',
 })

@@ -9,13 +9,17 @@ import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
 // The itinerary: a calendar-style day view of the plan. The same plan as the list
 // (/itinerary-list): the same data (loadItineraryPageData),
 // the same timetable (itinerary-plan.ts computeDayTimes) and the same saved format.
-const { BASE, shops, savedState, plan, trip, days, labels, flight } = await loadItineraryPageData(Astro.url)
-// "Found here" per shop, for the edit sheet (the shop page's list).
-const { found, rate: foundRate } = await loadShopFinds()
-// "✅ Bought" in that strip: the same choices as /edit-price — who buys it, and the trips (with
-// who has a budget on each, for public/trip-select.js).
-let priceTrips: Awaited<ReturnType<typeof fetchTrips>> = []
-try { priceTrips = await fetchTrips() } catch (e) { priceTrips = [] }
+// All fetched at the same time (the page waits for the slowest, not for all of them in turn):
+// the plan's data; "Found here" per shop, for the edit sheet (the shop page's list); and for
+// "✅ Bought" in that strip, the same choices as /edit-price — the trips, with who has a budget
+// on each (public/trip-select.js).
+const [pageData, shopFinds, priceTrips] = await Promise.all([
+  loadItineraryPageData(Astro.url),
+  loadShopFinds(),
+  fetchTrips().catch((): Awaited<ReturnType<typeof fetchTrips>> => []),
+])
+const { BASE, shops, savedState, plan, trip, days, labels, flight } = pageData
+const { found, rate: foundRate } = shopFinds
 // ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
 const requestedDay = Astro.url.searchParams.get('day') || ''
 // ?now=YYYY-MM-DDTHH:MM (Tokyo time) stands in for the clock on this page — to try "I'm here

@@ -109,41 +109,53 @@ export const PLAN = [
 ]
 
 export async function loadItineraryPageData(url: URL) {
-  let shops: any[] = []
+  // The shops, the saved plan and the trip are fetched at the same time, not one after another
+  // (the page waits for the slowest instead of all of them added up).
+  const [shops, savedState, trip] = await Promise.all([loadShops(), loadSavedState(), loadTrip(url)])
+  return pageDataFrom(shops, savedState, trip)
+}
+
+type PageTrip = { _id: string; label?: string; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string }
+
+async function loadShops(): Promise<any[]> {
   try {
-    shops = await sanity.fetch(`
+    return await sanity.fetch(`
       *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
         _id, shopName, area, placeType, openingHours, latitude, longitude, note, address,
         "photos": photos[defined(asset)]{ caption, "url": asset->url }
       } | order(area asc, shopName asc)
     `)
-  } catch (e) { shops = [] }
+  } catch (e) { return [] }
+}
 
-  // Saved plan (synced across devices). Null the first time.
-  let savedState: string | null = null
+// Saved plan (synced across devices). Null the first time.
+async function loadSavedState(): Promise<string | null> {
   try {
     const doc = await sanity.fetch(`*[_id == "itineraryState"][0]{ data }`)
-    if (doc && typeof doc.data === 'string') savedState = doc.data
-  } catch (e) { savedState = null }
+    return doc && typeof doc.data === 'string' ? doc.data : null
+  } catch (e) { return null }
+}
 
-  const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
-
-  // The days shown: the trip's days in Tokyo (Trip Settings → First/Last day in Tokyo) — not
-  // its Start/End date, which are the travel dates (leaving home / getting home). The trip is
-  // ?trip=<id>, else the same default /spending picks. Without Tokyo days set, the plan's own
-  // dates are shown, with a hint to fill them in.
-  let trip: { _id: string; label?: string; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string } | null = null
+// The trip: ?trip=<id>, else the same default /spending picks.
+async function loadTrip(url: URL): Promise<PageTrip | null> {
   try {
     const trips = await fetchTripsForSpending()
     const requestedTripId = url.searchParams.get('trip')
     const picked = trips.find((t) => t._id === requestedTripId) || pickDefaultTrip(trips)
-    if (picked) {
-      trip = await sanity.fetch(
-        `*[_id == $id][0]{ _id, label, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
-        { id: picked._id }
-      )
-    }
-  } catch (e) { trip = null }
+    if (!picked) return null
+    return await sanity.fetch(
+      `*[_id == $id][0]{ _id, label, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
+      { id: picked._id }
+    )
+  } catch (e) { return null }
+}
+
+function pageDataFrom(shops: any[], savedState: string | null, trip: PageTrip | null) {
+  const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
+
+  // The days shown: the trip's days in Tokyo (Trip Settings → First/Last day in Tokyo) — not
+  // its Start/End date, which are the travel dates (leaving home / getting home). Without Tokyo
+  // days set, the plan's own dates are shown, with a hint to fill them in.
   const tripDays = dateRange(trip?.firstTokyoDay, trip?.lastTokyoDay)
   const usingTripDays = tripDays.length > 0
   const days = usingTripDays ? tripDays : plan.map((d) => d.day)

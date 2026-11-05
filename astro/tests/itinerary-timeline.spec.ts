@@ -135,6 +135,10 @@ test.describe('/itinerary: the "now" line on a phone set to Norwegian time', () 
 })
 
 test.describe('/itinerary: tap an empty spot to add a stop', () => {
+  // These open the timeline (and the list) several times each; under the parallel run they timed
+  // out twice at the default 30 s. The page now loads its data in parallel (much faster); this
+  // margin is on top of that.
+  test.describe.configure({ timeout: 60_000 })
   // A tap on the grid itself (left of the blocks) at `hhmm`.
   async function tapAt(page: Page, hhmm: string) {
     const grid = page.locator('.itl-grid')

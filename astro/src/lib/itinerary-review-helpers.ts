@@ -3,7 +3,7 @@
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
-import { LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
+import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
   name: string
@@ -221,17 +221,24 @@ export function hoursReviewItems(names: string[], hours: Array<string | null>, w
   return items
 }
 
-// A day that runs too late, and trains after the last trains, for Check day — the same rules
-// as the timeline (itinerary-schedule.ts lateDay / lastTrainLegs), computed, not left to the model.
-export function lateDayReviewItems(names: string[], sched: DaySchedule) {
+// The stops closed when you get there (the same check as the pages) — for the day warning.
+export function closedStopIndexes(hours: Array<string | null>, weekday: number | null, visits: { start: number; end: number }[], date: string | null = null): number[] {
+  return hours.map((h, i) => (closedOnArrival(checkHours(h, weekday, visits[i].start, visits[i].end, date)) ? i : -1)).filter((i) => i >= 0)
+}
+
+// The day warning for Check day — the same rule as the timeline and the list
+// (itinerary-schedule.ts dayWarning: a late train back to the base, or closed stops) — and the
+// other train legs after the last trains; computed, not left to the model.
+export function dayWarningReviewItems(names: string[], sched: DaySchedule, closed: number[]) {
   const items: { severity: 'warning'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
-  const late = lateDay(sched)
-  if (late) {
-    const after = late.lateStops.map((i) => `${names[i]} ${formatClock(sched.stops[i].start)}`).join(', ')
-    items.push({ severity: 'warning', stopIndex: null, message: lateDayMessage(late) + (after ? ` (${after})` : ''), suggestion: 'Move the late stops to a day with room.' })
+  const w = dayWarning(sched, closed)
+  if (w) {
+    const involved = w.involved.map((i) => `${names[i]} ${formatClock(sched.stops[i].start)}`).join(', ')
+    items.push({ severity: 'warning', stopIndex: null, message: `${dayWarningMessages(w).join(' ')} (${involved})`, suggestion: 'Move them to another day.' })
   }
   for (const leg of lastTrainLegs(sched)) {
     const back = leg.index >= names.length
+    if (back) continue // in the day warning above
     items.push({
       severity: 'warning',
       stopIndex: back ? names.length - 1 : leg.index,

@@ -1388,7 +1388,7 @@ test.describe('/itinerary on a phone: the base at the start and end of the day',
   })
 })
 
-test.describe('/itinerary on a phone: a day that runs too late', () => {
+test.describe('/itinerary on a phone: the day warning (a late train back, closed stops)', () => {
   // The real example: stops at 00:12 (DAISO, 10:00–22:00), 01:58 (Takadanobaba Mikado,
   // 10:00–23:30) and 03:03, back at the base at 03:48. No coordinates, so no travel time between
   // them — the times are exactly these.
@@ -1400,7 +1400,7 @@ test.describe('/itinerary on a phone: a day that runs too late', () => {
   ]
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
 
-  test('the day warning with the end time and count, "After midnight" and closed badges, and moving a late stop away', async ({ page, sanity, trackDoc }) => {
+  test('the real late day: closed stops give the day warning, "After midnight" and closed badges, and moving one away', async ({ page, sanity, trackDoc }) => {
     const { saves } = await openTimeline(page, sanity, trackDoc, LATE_DAY, {}, '22:00')
     // The other day, with one stop ending 11:00.
     await page.evaluate(() => {
@@ -1411,8 +1411,9 @@ test.describe('/itinerary on a phone: a day that runs too late', () => {
       itl.render()
     })
     const late = page.locator('#itl-late')
-    await expect(late.locator('.itl-late-msg')).toHaveText('⚠️ This day ends at 03:48. 3 stops start after 23:00. Move some to another day.')
-    await expect(late.locator('.itl-late-name')).toHaveText(['DAISO · 00:12', 'Takadanobaba Mikado · 01:58', 'Last Stop · 03:03'])
+    // DAISO and Mikado are closed when you get there; no train back (no coordinates: no trip).
+    await expect(late.locator('.itl-late-msg')).toHaveText(['⚠️ 2 stops are closed at the planned time.'])
+    await expect(late.locator('.itl-late-name')).toHaveText(['DAISO · 00:12', 'Takadanobaba Mikado · 01:58'])
     await expect(late.locator('.itl-late-move').first().locator('option')).toHaveText(['Move to…', 'Sun 6 Dec, ends 11:00'])
 
     await expect(block(page, 'DAISO').locator('.itl-late-badge')).toHaveText('After midnight')
@@ -1422,10 +1423,10 @@ test.describe('/itinerary on a phone: a day that runs too late', () => {
     await expect(block(page, 'Evening Stop').locator('.itl-late-badge')).toHaveCount(0) // starts 22:00
     await expect(page.locator('.itl-base-end')).toHaveText('🏠 Back at base ~03:48')
 
-    // Move DAISO to Sunday: it leaves the warning, the day ends earlier, and it's saved there.
+    // Move DAISO to Sunday: it leaves the warning (Mikado, now at 00:12, is still closed) and it's saved there.
     await late.locator('.itl-late-item', { hasText: 'DAISO' }).locator('select').selectOption('2026-12-06')
-    await expect(late.locator('.itl-late-msg')).toHaveText('⚠️ This day ends at 02:02. 2 stops start after 23:00. Move some to another day.')
-    await expect(late.locator('.itl-late-name')).toHaveText(['Takadanobaba Mikado · 00:12', 'Last Stop · 01:17'])
+    await expect(late.locator('.itl-late-msg')).toHaveText(['⚠️ 1 stop is closed at the planned time.'])
+    await expect(late.locator('.itl-late-name')).toHaveText(['Takadanobaba Mikado · 00:12'])
     await expect(block(page, 'DAISO')).toHaveCount(0)
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].stops.some((s: any) => s.name === 'DAISO'), { timeout: 10000 }).toBe(true)
     expect(saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Evening Stop', 'Takadanobaba Mikado', 'Last Stop'])
@@ -1446,14 +1447,16 @@ test.describe('/itinerary on a phone: a day that runs too late', () => {
   })
 
   test('the same rules in Check day, the list and the "Next" banner', async ({ page, sanity, trackDoc }) => {
-    const { lateDayReviewItems } = await import('../src/lib/itinerary-review-helpers')
+    const { dayWarningReviewItems, closedStopIndexes } = await import('../src/lib/itinerary-review-helpers')
     const { scheduleDay, nextLeave } = await import('../src/lib/itinerary-schedule')
     const inputs = LATE_DAY.map((s) => ({ name: s.name, lat: null, lng: null, durationMin: s.dur, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null }))
     const sched = scheduleDay(inputs, t('22:00'), BASE)
-    expect(lateDayReviewItems(LATE_DAY.map((s) => s.name), sched)).toEqual([{
+    const closed = closedStopIndexes(LATE_DAY.map((s) => s.hours), 6, sched.stops.map((x) => ({ start: x.start, end: x.end })), '2026-12-05')
+    expect(closed).toEqual([1, 2])
+    expect(dayWarningReviewItems(LATE_DAY.map((s) => s.name), sched, closed)).toEqual([{
       severity: 'warning', stopIndex: null,
-      message: 'This day ends at 03:48. 3 stops start after 23:00. Move some to another day. (DAISO 00:12, Takadanobaba Mikado 01:58, Last Stop 03:03)',
-      suggestion: 'Move the late stops to a day with room.',
+      message: '2 stops are closed at the planned time. (DAISO 00:12, Takadanobaba Mikado 01:58)',
+      suggestion: 'Move them to another day.',
     }])
     // A leave-by after midnight is on the next date; a late train is passed on to the banner.
     const next = nextLeave([{ date: '2026-12-05', from: 'A', to: 'B', leaveBy: t('00:20') + 1440, lastTrain: true }], new Date('2026-12-06T00:10:00+09:00'))
@@ -1468,6 +1471,38 @@ test.describe('/itinerary on a phone: a day that runs too late', () => {
       // @ts-ignore - globals of the list's inline script
       state[0].stops = stops; state[0].startTime = '22:00'; render()
     }, LATE_DAY)
-    await expect(page.locator('.day-card').first().locator('.day-late')).toHaveText('⚠️ This day ends at 03:48. 3 stops start after 23:00. Move some to another day.')
+    await expect(page.locator('.day-card').first().locator('.day-late')).toHaveText(['⚠️ 2 stops are closed at the planned time.'])
+  })
+})
+
+test.describe('/itinerary on a phone: when there is no day warning, and the late train back', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const AKIBA = { lat: 35.698917, lng: 139.774798 } // a walk from the base
+
+  test('Don Quijote Akihabara (open 24 hours) at 23:07, walking back before the last trains: no day warning', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Don Quijote Akihabara', hours: 'Open 24 hours', tag: '', slot: '', ...AKIBA, dur: 45, fixedTime: '23:07' },
+    ], {}, '22:30')
+    await expect(block(page, 'Don Quijote')).toBeVisible()
+    await expect(page.locator('#itl-late')).toBeHidden()
+    await expect(block(page, 'Don Quijote').locator('.itl-hours-badge')).toHaveCount(0)
+  })
+
+  test('a train back to the base after the cut-off: the day warning with its time, and the stop that sets it', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Yokohama Late', hours: '', tag: '', slot: '', lat: 35.464556, lng: 139.624649, dur: 30, fixedTime: '23:50' },
+    ], {}, '22:00')
+    await expect(page.locator('#itl-late .itl-late-msg')).toHaveText(['⚠️ The trip back to the base leaves at 00:20. Trains may not run.'])
+    await expect(page.locator('#itl-late .itl-late-name')).toHaveText(['Yokohama Late · 23:50'])
+  })
+
+  test('two stops closed at their planned time', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Too Early', hours: '11:00–20:00', tag: '', slot: '', lat: null, lng: null, dur: 30, fixedTime: '09:00' },
+      { name: 'Open Then', hours: '10:00–20:00', tag: '', slot: '', lat: null, lng: null, dur: 30, fixedTime: '12:00' },
+      { name: 'Closed Saturdays', hours: '10:00–20:00, closed Sat', tag: '', slot: '', lat: null, lng: null, dur: 30, fixedTime: '14:00' },
+    ], {}, '08:30')
+    await expect(page.locator('#itl-late .itl-late-msg')).toHaveText(['⚠️ 2 stops are closed at the planned time.'])
+    await expect(page.locator('#itl-late .itl-late-name')).toHaveText(['Too Early · 09:00', 'Closed Saturdays · 14:00'])
   })
 })

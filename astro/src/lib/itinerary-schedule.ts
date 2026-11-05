@@ -285,10 +285,10 @@ export function nextLeave(entries: LeaveEntry[], now: Date = new Date()): (Leave
   return next ? { ...next, inMin: next.leaveBy - t.minutes } : null
 }
 
-// --- A day that runs too late (the timeline's day warning, the list, Check day) -------------
-// A day should be over — back at the base — by DAY_LATEST_END_MIN; after midnight shops are
-// mostly closed and the last trains (around midnight) may have gone.
-export const DAY_LATEST_END_MIN = 23 * 60
+// --- The day warning (the timeline, the list, Check day, the "Next" banner) -----------------
+// Only for what really breaks a day: the trip back to the base by train leaving after the last
+// trains, or stops that are closed when you get there. A late evening by itself is fine (a shop
+// open 24 hours at 23:07 with a walk back is no problem).
 export const LAST_TRAIN_MIN = 24 * 60 // a train leg leaving at or after this may not run
 export const LAST_TRAIN_MESSAGE = 'Trains may not run (last trains around midnight)'
 
@@ -297,17 +297,29 @@ const clock = (m: number) => {
   return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`
 }
 
-// The day ends (back at the base) after `latest`: when, and the stops that start after it.
-export function lateDay(sched: DaySchedule, latest: number = DAY_LATEST_END_MIN): { end: number; latest: number; lateStops: number[] } | null {
-  if (!sched.stops.length || sched.end <= latest) return null
-  return { end: sched.end, latest, lateStops: sched.stops.map((x, i) => (x.start > latest ? i : -1)).filter((i) => i >= 0) }
+// `closed`: the stops closed at their planned time (opening hours are checked by the caller,
+// itinerary-plan.ts closedStops — this module doesn't read hours). `involved`: the stops "Move
+// to…" offers — the closed ones, and for a late train back the stops that end after the last
+// trains (else the last stop, which sets when you leave).
+export type DayWarning = { returnTrain: number | null; closed: number[]; involved: number[] }
+export function dayWarning(sched: DaySchedule, closed: number[]): DayWarning | null {
+  const back = lastTrainLegs(sched).find((l) => l.index === sched.stops.length)
+  if (!back && !closed.length) return null
+  let late: number[] = []
+  if (back) {
+    late = sched.stops.map((x, i) => (x.end > LAST_TRAIN_MIN ? i : -1)).filter((i) => i >= 0)
+    if (!late.length) late = [sched.stops.length - 1]
+  }
+  return { returnTrain: back ? back.departs : null, closed, involved: [...new Set([...closed, ...late])].sort((a, b) => a - b) }
 }
-// "This day ends at 03:48. 3 stops start after 23:00. Move some to another day."
-export function lateDayMessage(l: { end: number; latest: number; lateStops: number[] }): string {
-  const n = l.lateStops.length
-  return n
-    ? `This day ends at ${clock(l.end)}. ${n} stop${n === 1 ? ' starts' : 's start'} after ${clock(l.latest)}. Move some to another day.`
-    : `This day ends at ${clock(l.end)}, after ${clock(l.latest)}. Move some stops to another day.`
+// "The trip back to the base leaves at 00:20. Trains may not run." / "2 stops are closed at the
+// planned time."
+export function dayWarningMessages(w: DayWarning): string[] {
+  const out: string[] = []
+  if (w.returnTrain != null) out.push(`The trip back to the base leaves at ${clock(w.returnTrain)}. Trains may not run.`)
+  const n = w.closed.length
+  if (n) out.push(`${n} stop${n === 1 ? ' is' : 's are'} closed at the planned time.`)
+  return out
 }
 // A visit that starts after midnight (the day's own date, minutes past 24:00).
 export const afterMidnight = (x: ScheduledStop) => x.start >= 1440

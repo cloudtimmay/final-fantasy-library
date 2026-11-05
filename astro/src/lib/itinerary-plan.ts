@@ -6,7 +6,7 @@
 // Both pages' scripts are `is:inline` and reach this through a module script that puts it on
 // `window.__routeOptimizer` (see itinerary-list.astro).
 
-import { scheduleDay, type DaySchedule, type ScheduleStopInput } from './itinerary-schedule'
+import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival } from './opening-hours'
 import { isIsoDate, weekdayIndex } from './trip-dates'
@@ -379,4 +379,16 @@ export function stopHoursWarning(s: PlanStop, shopById: Map<string, PlanShop>, d
 export function hoursWarningAt(text: string | null | undefined, dayIso: string, start: number, end: number) {
   const c = checkHours(text, dayWeekday(dayIso), start, end, isIsoDate(dayIso) ? dayIso : null)
   return closedOnArrival(c) || c.kind === 'closes-during' ? visitWarning(c) : null
+}
+
+// The stops closed when you get there on their day (opening hours on the day's weekday and date).
+export function closedStops(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): number[] {
+  const date = isIsoDate(day.day) ? day.day : null
+  return day.stops
+    .map((s, i) => (closedOnArrival(checkHours(stopHoursText(s, shopById).text, dayWeekday(day.day), sched.stops[i].start, sched.stops[i].end, date)) ? i : -1))
+    .filter((i) => i >= 0)
+}
+// The day's warning (itinerary-schedule.ts dayWarning): a late train back to the base, or closed stops.
+export function dayWarningFor(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): DayWarning | null {
+  return dayWarning(sched, closedStops(day, sched, shopById))
 }

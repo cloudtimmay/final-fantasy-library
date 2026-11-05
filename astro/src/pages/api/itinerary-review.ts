@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, lateDayReviewItems, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
 import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
@@ -107,8 +107,9 @@ export const POST: APIRoute = async ({ request }) => {
   const weekday = isIsoDate(body.dayDate) ? weekdayIndex(body.dayDate) : null
   const visits = stops.map((s, i) => (daySchedule ? { start: daySchedule.stops[i].start, end: daySchedule.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
   const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits, isIsoDate(body.dayDate) ? body.dayDate : null)
-  // A day running past 23:00 (back at the base) and trains after the last trains.
-  const lateItems = daySchedule ? lateDayReviewItems(stops.map((s) => s.name), daySchedule) : []
+  // The day warning (a late train back to the base, closed stops) and late train legs.
+  const closedIdx = closedStopIndexes(openingHoursByStop, weekday, visits, isIsoDate(body.dayDate) ? body.dayDate : null)
+  const lateItems = daySchedule ? dayWarningReviewItems(stops.map((s) => s.name), daySchedule, closedIdx) : []
 
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.

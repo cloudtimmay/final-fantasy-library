@@ -40,10 +40,10 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
        "itinerary-lib-ready" event this one sends. -->
   <script>
     import { optimizeRoute, estimateLeg, extractNoteTravelMinutes } from '../lib/route-optimizer'
-    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
+    import { scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
     import * as itineraryPlan from '../lib/itinerary-plan'
     import * as itineraryUi from '../lib/itinerary-ui'
-    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, lateDay, lateDayMessage, lastTrainLegs, LAST_TRAIN_MESSAGE }
+    window.__routeOptimizer = { ...itineraryPlan, ...itineraryUi, optimizeRoute, estimateLeg, extractNoteTravelMinutes, scheduleDay, transitRouteUrl, leaveReminderIcs, nextLeave, LEAVE_BUFFER_MIN, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE }
     // The inline script's first render waits for this (see itineraryLibReady there).
     window.dispatchEvent(new Event('itinerary-lib-ready'))
   </script>
@@ -246,11 +246,11 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     // "Next: leave <stop> by HH:MM (in N min)" during the trip — today's next leave-by time in
     // Tokyo (src/lib/itinerary-schedule.ts nextLeave), refreshed by render() and every minute.
     const nextEl = document.querySelector('#itn-next')
-    // A day ending after 23:00 (src/lib/itinerary-schedule.ts lateDay — the same rule as the
-    // timeline, where its stops can be moved to another day in one go).
-    function lateDayHtml(sched) {
-      const late = LIB().lateDay(sched)
-      return late ? `<div class="day-late">⚠️ ${esc(LIB().lateDayMessage(late))}</div>` : ''
+    // The day warning: a late train back to the base, or closed stops (src/lib/itinerary-plan.ts
+    // dayWarningFor — the same rule as the timeline, where the stops can be moved in one go).
+    function lateDayHtml(day, sched) {
+      const w = LIB().dayWarningFor(day, sched, shopById)
+      return w ? LIB().dayWarningMessages(w).map((m) => `<div class="day-late">⚠️ ${esc(m)}</div>`).join('') : ''
     }
     function updateNextBanner() {
       if (!nextEl || !window.__routeOptimizer) return
@@ -264,6 +264,9 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
           if (x.leaveBy == null || !day.stops[si + 1]) return
           entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy, lastTrain: lateTrains.has(si + 1) })
         })
+        // And the trip back to the base after the last stop (the day warning's late train).
+        const last = sched.stops[sched.stops.length - 1]
+        if (last) entries.push({ date: day.day, from: resolveStop(day.stops[day.stops.length - 1]).name, to: 'the base', leaveBy: last.end, lastTrain: lateTrains.has(day.stops.length) })
       })
       const next = window.__routeOptimizer.nextLeave(entries)
       nextEl.hidden = !next
@@ -365,7 +368,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
               ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
-              ${lateDayHtml(sched)}
+              ${lateDayHtml(day, sched)}
             </div>
             <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>
           </div>

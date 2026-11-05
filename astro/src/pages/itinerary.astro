@@ -182,7 +182,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script>
     import {
-      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning,
+      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
@@ -200,7 +200,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { optimizeRoute } from '../lib/route-optimizer'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
-    import { lateDay, lateDayMessage, lastTrainLegs, afterMidnight, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
+    import { dayWarningMessages, lastTrainLegs, afterMidnight, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
     import { formatDayShortEn } from '../lib/trip-dates'
     import { tokyoNow } from '../lib/trip-dates'
 
@@ -462,20 +462,21 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     tickEveryMinute()
 
-    // --- A day that ends too late (itinerary-schedule.ts lateDay) -------------------------------
-    // "⚠️ This day ends at 03:48. 3 stops start after 23:00. Move some to another day." and the
-    // stops after 23:00, each with "Move to…" every other Tokyo day and when it ends now — so
-    // they can go to a day with room. Moving saves like every other edit here.
+    // --- The day warning (itinerary-plan.ts dayWarningFor) ---------------------------------------
+    // "⚠️ The trip back to the base leaves at 00:20. Trains may not run." / "⚠️ 2 stops are
+    // closed at the planned time." and the stops involved, each with "Move to…" every other Tokyo
+    // day and when it ends now — so they can go to a day with room. Moving saves like every other
+    // edit here.
     const lateEl = document.querySelector('#itl-late') as HTMLElement
     function renderLateDay(day: PlanDay, sched: ReturnType<typeof computeDayTimes>['sched']) {
-      const late = lateDay(sched)
+      const late = dayWarningFor(day, sched, shopById)
       lateEl.hidden = !late
       if (!late) { lateEl.replaceChildren(); return }
       const others = state.filter((d) => d !== day && days.includes(d.day)).map((d) => {
         const ends = d.stops.length ? `ends ${formatClock(computeDayTimes(d, base, shopById).baseEnd)}` : 'no stops yet'
         return `<option value="${esc(d.day)}">${esc(formatDayShortEn(d.day))}, ${ends}</option>`
       }).join('')
-      lateEl.innerHTML = `<p class="itl-late-msg">⚠️ ${esc(lateDayMessage(late))}</p>` + (late.lateStops.length ? `<ul class="itl-late-list">${late.lateStops.map((i) => `
+      lateEl.innerHTML = dayWarningMessages(late).map((m) => `<p class="itl-late-msg">⚠️ ${esc(m)}</p>`).join('') + (late.involved.length ? `<ul class="itl-late-list">${late.involved.map((i) => `
         <li class="itl-late-item" data-index="${i}"><span class="itl-late-name">${esc(resolveStop(day.stops[i], shopById).name)} · ${formatClock(sched.stops[i].start)}</span>
           <select class="itl-late-move" data-index="${i}" aria-label="Move to another day"><option value="">Move to…</option>${others}</select></li>`).join('')}</ul>` : '')
     }

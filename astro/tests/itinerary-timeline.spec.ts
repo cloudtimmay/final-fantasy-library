@@ -890,6 +890,47 @@ test.describe('itinerary: the linked shop\'s photos', () => {
     await expect(strip).toBeHidden()
   })
 
+  test('a tall block shows a small photo (the shop\'s first, else the newest find), a short one none; the photo opens the lightbox, the rest the sheet', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
+    // A shop with no photos of its own, only a find with a photo.
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'block-thumb-find.png' })
+    uploadedAssets.push(asset._id)
+    const finds = await sanity.create({ _type: 'shopNote', shopName: testName(`Thumb Finds Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
+    trackDoc(finds._id)
+    const price = await sanity.create({
+      _type: 'priceEntry', productName: testName('Thumb Find'), jan: uniqueJan(), price: 2200, currency: 'JPY', sourceType: 'japanStore',
+      shop: { _type: 'reference', _ref: finds._id, _weak: true }, status: 'considering', seenAt: '2026-11-03T10:00:00Z',
+      image: { _type: 'image', asset: { _type: 'reference', _ref: asset._id } },
+    })
+    trackDoc(price._id)
+    await openTimeline(page, sanity, trackDoc, [
+      ...stops(shop._id), // 60 min each: 135 px at the default zoom
+      { name: 'Short Thumb Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 20, shopId: shop._id }, // 45 px
+      { name: 'Finds Thumb Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId: finds._id },
+    ], {}, '10:00')
+    const blocks = page.locator('.itl-block')
+    const tall = blocks.filter({ has: page.locator('.itl-name', { hasText: shop.shopName }) }).first()
+    const thumb = tall.locator('.itl-thumb')
+    await expect(thumb).toBeVisible()
+    await expect(thumb).toHaveAttribute('src', /^https:\/\/cdn\.sanity\.io\/images\/.+w=96&fit=max&auto=format$/)
+    expect((await thumb.boundingBox())!.width).toBeLessThanOrEqual(46)
+    // The short block for the same shop: none.
+    const short = blocks.nth(2)
+    await expect(short).toHaveAttribute('data-dur', '20')
+    await expect(short.locator('.itl-thumb')).toHaveCount(0)
+    // No photo of its own: the find's.
+    await expect(blocks.filter({ has: page.locator('.itl-name', { hasText: finds.shopName }) }).locator('.itl-thumb')).toBeVisible()
+    await expect(blocks.filter({ has: page.locator('.itl-name', { hasText: 'No Shop Stop' }) }).locator('.itl-thumb')).toHaveCount(0)
+
+    await thumb.click()
+    await expect(page.locator('dialog.lb-dialog')).toBeVisible()
+    await expect(page.locator('.lb-img')).toHaveAttribute('src', /w=2000/)
+    await page.locator('.lb-close').click()
+    await expect(page.locator('#itl-detail')).toBeHidden() // the photo, not the sheet
+    await tall.locator('.itl-name').click()
+    await expect(page.locator('#itl-detail')).toBeVisible()
+  })
+
   test('the list\'s ⋯ panel shows the same strip', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))

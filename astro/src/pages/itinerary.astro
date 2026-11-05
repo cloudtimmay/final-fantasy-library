@@ -272,6 +272,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
+    import { cdnImage } from '../lib/image-url'
     import { fromTimelineQuery } from '../lib/timeline-back'
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
@@ -290,6 +291,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
     const { plan, days, labels, flight, base, shops, savedState } = DATA
     const foundByShop: Record<string, FoundItem[]> = DATA.found || {}
+    // A block's thumbnail (tall blocks only): the linked shop's first photo, else the newest
+    // "Found here" photo (lib/shop-found.ts lists them newest first), else none.
+    const THUMB_MIN_PX = 72
+    function blockPhoto(s: PlanStop): string | null {
+      if (!s.shopId) return null
+      const photo = (shopById.get(s.shopId)?.photos || []).find((p) => p && p.url)
+      return photo ? photo.url : (foundByShop[s.shopId] || []).find((f) => f.imageUrl)?.imageUrl || null
+    }
     const foundRate: number | null = DATA.foundRate ?? null
     // The trip's own rate, for the train fares' ≈ NOK.
     const tripRate: number | null = DATA.tripRate ?? null
@@ -516,8 +525,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           train: s.train ? `<span class="itl-icon itl-icon-train" title="${esc(trainSummary(s.train))}">🚆</span>` : '',
           reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.leaveBy, shopById, true) : '',
         })
+        // A small photo on the left of a tall block; a tap opens it in the lightbox (public/
+        // lightbox.js takes the tap before the block's own handler), anywhere else the sheet.
+        const photo = item.height >= THUMB_MIN_PX ? blockPhoto(s) : null
+        if (photo) el.classList.add('itl-has-thumb')
+        const thumb = photo ? `<img class="itl-thumb" src="${esc(cdnImage(photo, 96))}" data-lightbox="${esc(cdnImage(photo, 2000))}" alt="${esc(r.name)} photo" loading="lazy" />` : ''
         // Rows in order of importance: a short block drops them from the bottom (see below).
-        el.innerHTML = `
+        el.innerHTML = `${thumb}
           ${firstLine()}
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
@@ -574,7 +588,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       for (const c of compactCandidates) {
         if (fits(c.el)) continue
         const first = c.el.querySelector('.itl-first') as HTMLElement
-        const rows = [...c.el.children].filter((r) => r !== first) as HTMLElement[]
+        const rows = [...c.el.children].filter((r) => r !== first && !r.classList.contains('itl-thumb')) as HTMLElement[]
         const gone = new Set<string>()
         for (let i = rows.length - 1; i >= 0 && !fits(c.el); i--) {
           gone.add(rows[i].className.split(' ')[0])
@@ -1650,6 +1664,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-icons { display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; margin-left: 0.25rem; font-size: 0.72rem; }
     .itl-icons .itn-reminder { margin: 0; padding: 0 0.2rem; font-size: 0.72rem; line-height: 1.2; }
     .itl-block.itl-compact { justify-content: flex-start; }
+    .itl-block.itl-has-thumb { padding-left: calc(0.45rem + 48px); }
+    .itl-thumb {
+      position: absolute; left: 0.35rem; top: 0.3rem; width: 44px; height: 44px; object-fit: cover;
+      border-radius: 4px; background: var(--bg); border: 1px solid var(--border);
+    }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

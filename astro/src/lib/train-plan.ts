@@ -97,3 +97,32 @@ export function trainSummary(t: TrainPlan): string {
   const n = t.transfers.length
   return `🚆 ${name ? `${name} · ` : ''}${t.departure}${t.platform ? ` platform ${t.platform}` : ''} → ${t.toStation ? `${t.toStation} ` : ''}${t.arrival}${n ? ` · +${n} transfer${n === 1 ? '' : 's'}` : ''}`
 }
+
+// --- Reading a train from a screenshot (/api/train-from-screenshot) ---------------------------
+export const TRAIN_SCREENSHOT_PROMPT = `The image is a screenshot of a public-transport route in Japan (Google Maps, Navitime, Jorudan, a station app or similar). Read the train journey shown in it.
+
+Respond with ONLY a JSON object (no other text, no markdown code fences) with exactly these fields:
+- line: the first train's line, e.g. "Tokaido Line". "" if not shown.
+- train: the train's name or number, e.g. "Rapid 1234" or "Hikari 645". "" if not shown.
+- fromStation: the station the first train leaves from. "" if not shown.
+- departure: the first train's departure time, 24-hour "HH:MM".
+- platform: the first train's platform, e.g. "3". "" if not shown.
+- toStation: the final station. "" if not shown.
+- arrival: the arrival time at the final station, 24-hour "HH:MM".
+- transfers: an array, one object per change of train, in order, each with station, line (of the next train), arrival ("HH:MM" at that station), departure ("HH:MM" of the next train) and platform ("" if not shown). [] when there is no change.
+
+Read only what the screenshot shows; never invent times. If the departure or arrival time can't be read, use "" for it.`
+
+// The model's text -> a validated train, or why not. The answer may come wrapped in a code fence
+// or after some other text; only a JSON object counts, and only when every time is valid HH:MM
+// and in order (validateTrain).
+export function trainFromModelText(text: string): { train: TrainPlan } | { error: string } {
+  const cleaned = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+  let parsed: unknown = null
+  try { parsed = JSON.parse(cleaned) } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/)
+    if (match) { try { parsed = JSON.parse(match[0]) } catch {} }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'Could not read a train from the screenshot.' }
+  return validateTrain(parsed)
+}

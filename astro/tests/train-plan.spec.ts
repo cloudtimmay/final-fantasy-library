@@ -82,3 +82,17 @@ test.describe('/itinerary-list keeps a chosen train', () => {
     expect(saves[saves.length - 1].days[day].stops[0].train).toEqual(TRAIN)
   })
 })
+
+test.describe('reading a train from a screenshot (lib/train-plan.ts trainFromModelText)', () => {
+  test('a JSON answer, fenced or after other text; invalid or out-of-order times are refused', async () => {
+    const { trainFromModelText } = await import('../src/lib/train-plan')
+    const answer = JSON.stringify({ ...TRAIN, transfers: [{ station: 'Shinagawa', line: 'Tokaido Line', arrival: '11:08', departure: '11:15', platform: '2' }] })
+    expect(trainFromModelText(answer)).toMatchObject({ train: { departure: '11:00', arrival: '12:15', transfers: [{ station: 'Shinagawa' }] } })
+    expect(trainFromModelText('```json\n' + answer + '\n```')).toMatchObject({ train: { line: 'Tokaido Line' } })
+    expect(trainFromModelText('Here is the route:\n' + answer)).toMatchObject({ train: { train: 'Rapid 1234' } })
+    expect(trainFromModelText(JSON.stringify({ ...TRAIN, departure: '' }))).toEqual({ error: 'The departure time must be HH:MM.' })
+    expect(trainFromModelText(JSON.stringify({ ...TRAIN, arrival: '10:30' }))).toEqual({ error: 'The times must be in order: departure, each transfer, then arrival.' })
+    expect(trainFromModelText(JSON.stringify({ ...TRAIN, transfers: [{ station: 'X', arrival: '12:40', departure: '12:45' }] }))).toEqual({ error: 'The times must be in order: departure, each transfer, then arrival.' })
+    expect(trainFromModelText('I could not read this image.')).toEqual({ error: 'Could not read a train from the screenshot.' })
+  })
+})

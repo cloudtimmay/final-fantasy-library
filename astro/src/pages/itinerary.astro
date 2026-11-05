@@ -119,9 +119,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div id="itl-train" class="itl-train" hidden>
         <p class="itl-train-head">🚆 Plan train</p>
         <p id="itl-train-summary" class="itl-train-summary" hidden></p>
+        <p id="itl-train-shot-msg" class="itl-train-summary" hidden></p>
         <div class="itl-train-actions">
           <a id="itl-train-maps" class="itl-train-btn" href="https://www.google.com/maps" target="_blank" rel="noopener">🗺️ Transit in Google Maps</a>
           <button id="itl-train-manual" type="button" class="itl-train-btn">✏️ Enter train</button>
+          <label class="itl-train-btn">📷 From a screenshot<input id="itl-train-shot" type="file" accept="image/*" hidden /></label>
           <button id="itl-train-remove" type="button" class="itl-train-btn itl-train-remove" hidden>🗑️ Remove train</button>
         </div>
         <form id="itl-train-form" class="itl-train-form" hidden>
@@ -252,6 +254,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   </div>
 
   <script is:inline src="/trip-select.js"></script>
+  <script is:inline src="/resize-image.js"></script>
   <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '' })}></script>
 
   <script>
@@ -800,9 +803,37 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-train-remove') as HTMLElement).hidden = !train
       ;(document.querySelector('#itl-train-manual') as HTMLElement).textContent = train ? '✏️ Edit train' : '✏️ Enter train'
       trainForm.hidden = true
+      ;(document.querySelector('#itl-train-shot-msg') as HTMLElement).hidden = true
     }
     document.querySelector('#itl-train-manual')!.addEventListener('click', () => {
       if (trainLeg) fillTrainForm(trainLeg.day.stops[trainLeg.idx].train || {})
+    })
+    // "📷 From a screenshot": the route's screenshot is read by /api/train-from-screenshot and put in
+    // the same form to check and correct — nothing is saved before "Save train".
+    const shotMsg = document.querySelector('#itl-train-shot-msg') as HTMLElement
+    const shotInput = document.querySelector('#itl-train-shot') as HTMLInputElement
+    shotInput.addEventListener('change', async () => {
+      const file = shotInput.files && shotInput.files[0]
+      shotInput.value = ''
+      if (!file || !trainLeg) return
+      shotMsg.hidden = false
+      shotMsg.textContent = 'Reading the screenshot…'
+      try {
+        let img: File = file
+        // The AI calls' size (public/resize-image.js): 1024 px, JPEG 0.8.
+        try { const resize = (window as any).resizeImage; if (resize) img = await resize(file, 1024, 0.8) } catch (e) { img = file }
+        const dataUrl: string = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(img) })
+        const res = await fetch('/api/train-from-screenshot', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl.slice(dataUrl.indexOf(',') + 1) }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.train) { shotMsg.textContent = `⚠️ ${data.error || 'Could not read the screenshot.'}`; return }
+        fillTrainForm(data.train)
+        shotMsg.textContent = 'Read from the screenshot — check it, then Save train.'
+      } catch (e) {
+        shotMsg.textContent = '⚠️ Network error — try again.'
+      }
     })
     document.querySelector('#itl-tr-add-transfer')!.addEventListener('click', () => transfersEl.insertAdjacentHTML('beforeend', transferRowHtml()))
     transfersEl.addEventListener('click', (e) => {

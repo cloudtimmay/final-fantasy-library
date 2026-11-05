@@ -1895,3 +1895,39 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect.poll(() => saves.length > 0 && 'train' in saves[saves.length - 1].days['2026-12-05'].stops[1], { timeout: 10000 }).toBe(false)
   })
 })
+
+test.describe('/itinerary on a phone: a train from a screenshot', () => {
+  const shot = () => ({ name: 'route.png', mimeType: 'image/png', buffer: uniquePng() })
+  const READ = { line: 'Shonan-Shinjuku Line', train: 'Rapid 2501', fromStation: 'Shinjuku', departure: '15:55', platform: '3', toStation: 'Yokohama', arrival: '16:28', transfers: [] }
+
+  test('the reading fills the form to check; nothing is saved until Save train; an error is shown and nothing changes', async ({ page, sanity, trackDoc }) => {
+    let calls = 0
+    let reply: { status: number; body: unknown } = { status: 200, body: { ok: true, train: READ } }
+    await page.route('**/api/train-from-screenshot', async (route) => {
+      calls++
+      expect(route.request().postDataJSON().image).toMatch(/^[A-Za-z0-9+/=]+$/) // raw base64
+      await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+    })
+    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await page.locator('#itl-train-shot').setInputFiles(shot())
+    await expect(page.locator('#itl-train-shot-msg')).toHaveText('Read from the screenshot — check it, then Save train.')
+    await expect(page.locator('#itl-tr-dep')).toHaveValue('15:55')
+    await expect(page.locator('#itl-tr-arr')).toHaveValue('16:28')
+    await expect(page.locator('#itl-tr-line')).toHaveValue('Shonan-Shinjuku Line')
+    expect(calls).toBe(1)
+    expect(saves.length).toBe(0) // nothing yet
+    // Corrected before saving.
+    await page.locator('#itl-tr-platform').fill('4')
+    await page.locator('#itl-tr-save').click()
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.platform, { timeout: 10000 }).toBe('4')
+
+    // A reading the endpoint refused (invalid times): the message, and the saved train stays.
+    reply = { status: 422, body: { error: 'The arrival time must be HH:MM.' } }
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await page.locator('#itl-train-shot').setInputFiles(shot())
+    await expect(page.locator('#itl-train-shot-msg')).toHaveText('⚠️ The arrival time must be HH:MM.')
+    await expect(page.locator('#itl-train-form')).toBeHidden()
+    expect(saves[saves.length - 1].days['2026-12-05'].stops[1].train.departure).toBe('15:55')
+  })
+})

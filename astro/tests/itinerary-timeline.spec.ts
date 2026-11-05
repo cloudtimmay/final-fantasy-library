@@ -1710,3 +1710,117 @@ test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
     expect(saves[saves.length - 1].days[day].stops[0].leaveAt).toBe('12:30')
   })
 })
+
+test.describe('linking stops to shops (lib/stop-linking.ts)', () => {
+  test('exact and close name matches, never across clearly different names; the diagnosis', async () => {
+    const { nameMatch, suggestShop, linkSuggestions, linkDiagnosis } = await import('../src/lib/stop-linking')
+    expect(nameMatch('🍜 Super Potato', 'Super potato')).toEqual({ kind: 'exact', score: 1 })
+    expect(nameMatch('AKIHABARA KOTOBUKIYA', 'Akihabara Kotobukiya')!.kind).toBe('exact')
+    expect(nameMatch('Yellow Submarine RPG Shop', 'Yellow Submarine Akihabara RPG Shop')!.kind).toBe('close')
+    expect(nameMatch('BOOKOFF Akihabara Ekimae', 'BOOKOFF Akihabara Ekimae Store')!.kind).toBe('close')
+    expect(nameMatch('Yodobashi Camera Akiba', 'Yodobashi Camera Multimedia Akiba')!.kind).toBe('close')
+    expect(nameMatch('Yellow Submarine Shinjuku', 'Yellow Submarine Akihabara RPG Shop')).toBeNull()
+    expect(nameMatch('Animate', 'animate Ikebukuro Flagship Store')).toBeNull() // another branch
+    expect(nameMatch('Lunch', 'Lunch Box Cafe Shinjuku')).toBeNull()
+    const shops = [
+      { _id: 's1', shopName: 'Super potato', area: 'Akihabara' },
+      { _id: 's2', shopName: 'Yellow Submarine Akihabara RPG Shop', area: 'Akihabara' },
+      { _id: 's3', shopName: 'Super Potato Outlet', area: 'Osaka' },
+    ]
+    expect(suggestShop('Super Potato', shops)).toMatchObject({ shop: { _id: 's1' }, kind: 'exact' })
+    const days = [
+      { day: '2026-12-01', stops: [{ name: 'Super Potato' }, { name: 'Linked', shopId: 's2' }, { name: 'Yellow Submarine RPG Shop' }, { name: '🍜 Tsujita' }, { name: 'Gone', shopId: 'deleted' }] },
+    ]
+    expect(linkSuggestions(days, shops).map((r) => [r.index, r.suggestion?.shop._id ?? null, r.suggestion?.kind ?? null])).toEqual([
+      [0, 's1', 'exact'], [2, 's2', 'close'], [3, null, null], [4, null, null],
+    ])
+    expect(linkDiagnosis(days, shops)).toEqual([
+      { day: '2026-12-01', name: 'Super Potato', linked: false, shopName: null, area: null, missingShop: false },
+      { day: '2026-12-01', name: 'Linked', linked: true, shopName: 'Yellow Submarine Akihabara RPG Shop', area: 'Akihabara', missingShop: false },
+      { day: '2026-12-01', name: 'Yellow Submarine RPG Shop', linked: false, shopName: null, area: null, missingShop: false },
+      { day: '2026-12-01', name: '🍜 Tsujita', linked: false, shopName: null, area: null, missingShop: false },
+      { day: '2026-12-01', name: 'Gone', linked: false, shopName: null, area: null, missingShop: true },
+    ])
+  })
+})
+
+test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const row = (page: Page, name: string) => page.locator('.itl-link-row').filter({ has: page.locator('.itl-link-name', { hasText: name }) })
+  async function shops(sanity: any, trackDoc: (id: string) => void) {
+    const r = Math.random().toString(36).slice(2, 7)
+    const exact = await sanity.create({ _type: 'shopNote', shopName: testName(`Kumo${r} Games`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    const close = await sanity.create({ _type: 'shopNote', shopName: testName(`Zebra${r} Retro Games Akihabara`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    const other = await sanity.create({ _type: 'shopNote', shopName: testName(`Ocelot${r} Books`), area: 'Nakano', latitude: 35.7, longitude: 139.77 })
+    for (const d of [exact, close, other]) trackDoc(d._id)
+    return { r, exact, close, other }
+  }
+  const stop = (name: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 })
+
+  test('the review list (exact ticked, close not, a picker per row); Link selected saves shopId and the area shows', async ({ page, sanity, trackDoc }) => {
+    const { r, exact, close, other } = await shops(sanity, trackDoc)
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { ...stop(exact.shopName), note: 'my own note' },
+      stop(`Zebra${r} Retro Games`),
+      stop(`Handwritten${r} Thing`),
+    ], {}, '10:00')
+    await page.locator('#itl-link-btn').click()
+    await expect(page.locator('#itl-link')).toBeVisible()
+    const rExact = row(page, exact.shopName), rClose = row(page, `Zebra${r} Retro Games`), rNone = row(page, `Handwritten${r} Thing`)
+    await expect(rExact.locator('.itl-link-check')).toBeChecked()
+    await expect(rExact.locator('.itl-link-shop')).toHaveValue(exact._id)
+    await expect(rExact.locator('.itl-link-kind')).toHaveText('exact')
+    await expect(rExact.locator('.itl-link-area')).toHaveText('📍 Akihabara')
+    await expect(rClose.locator('.itl-link-check')).not.toBeChecked()
+    await expect(rClose.locator('.itl-link-shop')).toHaveValue(close._id)
+    await expect(rClose.locator('.itl-link-kind')).toHaveText('close')
+    await expect(rNone.locator('.itl-link-check')).not.toBeChecked()
+    await expect(rNone.locator('.itl-link-shop')).toHaveValue('')
+    // Nothing saved yet.
+    expect(saves.length).toBe(0)
+
+    // Pick a shop for the hand-written one: it gets ticked; the close one stays unticked.
+    await rNone.locator('.itl-link-shop').selectOption(other._id)
+    await expect(rNone.locator('.itl-link-check')).toBeChecked()
+    await expect(rNone.locator('.itl-link-area')).toHaveText('📍 Nakano')
+    await page.locator('#itl-link-save').click()
+    await expect(page.locator('#itl-link-msg')).toHaveText('Linked 2 stops ✓')
+    await expect.poll(() => saves.length > 0 ? saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.shopId ?? null) : null, { timeout: 10000 })
+      .toEqual([exact._id, null, other._id])
+    expect(saves[saves.length - 1].days['2026-12-05'].stops[0]).toMatchObject({ name: exact.shopName, note: 'my own note', dur: 30 }) // its own fields stay
+    // The list now only has the close one left; the linked blocks show their area on the first line.
+    await expect(page.locator('.itl-link-row .itl-link-name', { hasText: `Zebra${r}` })).toHaveCount(1)
+    await expect(block(page, exact.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Akihabara')
+    await expect(block(page, other.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Nakano')
+    await expect(block(page, `Zebra${r} Retro Games`).locator('.itl-area')).toHaveCount(0)
+  })
+
+  test('"🔗 Link to shop" in the edit sheet for one unlinked stop', async ({ page, sanity, trackDoc }) => {
+    const { r, close } = await shops(sanity, trackDoc)
+    const { saves } = await openTimeline(page, sanity, trackDoc, [stop(`Zebra${r} Retro Games`)], {}, '10:00')
+    await block(page, `Zebra${r}`).click()
+    const link = page.locator('#itl-ed-link')
+    await expect(link).toBeVisible()
+    await expect(page.locator('#itl-ed-link-shop')).toHaveValue(close._id) // the suggestion
+    await page.locator('#itl-ed-link-save').click()
+    await expect(link).toBeHidden() // linked now
+    await expect(block(page, close.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Akihabara')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[0].shopId, { timeout: 10000 }).toBe(close._id)
+  })
+
+  test('the area on the first line, right of the time; the name is never hidden; a short block still shows it', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`A Rather Long Shop Name For The First Line ${Date.now()}`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'x', hours: '10:00 - 21:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, shopId: shop._id },
+      { name: 'Next', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], {}, '10:00')
+    const b = block(page, 'A Rather Long')
+    await expect(b.locator('.itl-first')).toHaveText(/^\[test\] A Rather Long .* · 10:\d\d–10:\d\d · 📍 Akihabara$/)
+    const name = (await b.locator('.itl-name').boundingBox())!, box = (await b.boundingBox())!
+    expect(name.width).toBeGreaterThan(40) // never squeezed away
+    expect(name.y + name.height).toBeLessThanOrEqual(box.y + box.height)
+    // A 30-minute block with a "Leave by" line and hours still shows every row it has room for in order.
+    await expect(b.locator('.itl-first')).toBeVisible()
+  })
+})

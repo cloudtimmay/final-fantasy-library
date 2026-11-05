@@ -60,6 +60,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <span id="itl-dayroute" class="itl-dayroute"></span>
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
       <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
+      <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
       <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
       <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
     </div>
@@ -79,6 +80,19 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <div id="itl-check-results" class="itl-panel" hidden></div>
     <!-- "⏰ Reminders for this day": every leave-by time, checked by default, in one .ics file
          (itinerary-ui.ts dayReminders / remindersHref). The items are built in the script. -->
+    <!-- "🔗 Link stops to shops": the unlinked stops of every day with a suggested shop
+         (lib/stop-linking.ts); nothing is saved until "Link selected". Rows built in the script. -->
+    <div id="itl-link" class="itl-panel itl-link" hidden>
+      <div class="itl-rem-head">
+        <strong>🔗 Link stops to shops</strong>
+        <button id="itl-link-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <p class="itl-rem-note">A linked stop shows the shop's area, hours, photos and finds. Exact name matches are ticked; check the close ones.</p>
+      <ul id="itl-link-list" class="itl-link-list"></ul>
+      <p id="itl-link-empty" class="itl-rem-empty" hidden>Every stop is linked to a shop.</p>
+      <button id="itl-link-save" type="button" class="itl-daybtn">Link selected</button>
+      <p id="itl-link-msg" class="itl-rem-note" hidden></p>
+    </div>
     <div id="itl-reminders" class="itl-panel itl-reminders" hidden>
       <div class="itl-rem-head">
         <strong>⏰ Reminders for this day</strong>
@@ -128,6 +142,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <!-- The linked shop's photos (itinerary-ui.ts shopPhotoStripHtml) — or, when it has none, a
            link to add some on its page — and what was found there (foundStripHtml). -->
       <div id="itl-ed-photos" hidden></div>
+      <div id="itl-ed-link" class="itl-sheet-row" hidden>
+        <label>🔗 Link to shop <select id="itl-ed-link-shop"></select></label>
+        <button id="itl-ed-link-save" type="button">Link</button>
+      </div>
       <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
       <div id="itl-ed-found" hidden></div>
       <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts). -->
@@ -224,6 +242,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { fromTimelineQuery } from '../lib/timeline-back'
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
+    import { linkSuggestions, suggestShop } from '../lib/stop-linking'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { dayWarningMessages, lastTrainLegs, afterMidnight, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
@@ -420,11 +439,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (lastTrain ? '<span class="itl-late-badge" title="' + esc(LAST_TRAIN_MESSAGE) + '">🚆 Last trains</span>' : '')
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
-        // The linked shop's area, right under the name (a stop written by hand has none).
+        // The first line: "<name> · HH:MM–HH:MM · 📍 <area>" — the name is never hidden; the time
+        // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
         el.innerHTML = `
-          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span></span>
-          ${area ? `<span class="itl-area">📍 ${esc(area)}</span>` : ''}
+          <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
+            area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${actions}
           ${leaveBy}
@@ -758,6 +778,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ed('dur').value = String(s.leaveAt ? x.end - x.start : inputs[idx].durationMin)
       ed('dur').disabled = !!s.leaveAt
       ed('leaveat').value = s.leaveAt || ''
+      // "🔗 Link to shop" for a stop without one (or whose shop is gone).
+      const unlinked = !s.shopId || !shopById.has(s.shopId)
+      ;(document.querySelector('#itl-ed-link') as HTMLElement).hidden = !unlinked
+      if (unlinked) (document.querySelector('#itl-ed-link-shop') as HTMLSelectElement).innerHTML = shopPickerOptions(suggestShop(s.name, shops || [])?.shop._id || null)
       ;(document.querySelector('#itl-ed-leaveat-clear') as HTMLButtonElement).hidden = !s.leaveAt
       // "Until closing": the shop's closing time that day (hidden when unknown or open 24 hours).
       const closes = closingTimeFor(s, shopById, day.day, x.start)
@@ -919,6 +943,71 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (item && item.kind === 'price' && item.status === 'considering') openBought(item)
     })
 
+    // --- Linking stops to shops (lib/stop-linking.ts) ----------------------------------------------
+    // The shop picker: every shop by area (the add-stop picker's grouping), value = its _id.
+    function shopPickerOptions(selected: string | null): string {
+      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || []).map(({ area, items }) =>
+        `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
+          const id = (shops || [])[i]._id
+          return `<option value="${esc(id)}"${id === selected ? ' selected' : ''}>${esc(name)}</option>`
+        }).join('')}</optgroup>`).join('')
+    }
+    const linkPanel = document.querySelector('#itl-link') as HTMLElement
+    const linkList = document.querySelector('#itl-link-list') as HTMLUListElement
+    const linkMsg = document.querySelector('#itl-link-msg') as HTMLElement
+    const shopArea = (id: string) => (id ? shopById.get(id)?.area || '' : '')
+    function openLinking() {
+      const rows = linkSuggestions(state, shops || [])
+      linkList.innerHTML = rows.map((r) => {
+        const id = r.suggestion?.shop._id || ''
+        return `<li class="itl-link-row" data-day="${esc(r.day)}" data-index="${r.index}">
+          <label class="itl-link-stop"><input type="checkbox" class="itl-link-check"${r.suggestion?.kind === 'exact' ? ' checked' : ''} />
+            <span><span class="itl-link-day">${esc(formatDayShortEn(r.day))}</span> · <span class="itl-link-name">${esc(r.name || '(no name)')}</span></span></label>
+          <span class="itl-link-to">→ <select class="itl-link-shop" aria-label="Shop">${shopPickerOptions(id)}</select>
+            <span class="itl-link-kind">${r.suggestion ? (r.suggestion.kind === 'exact' ? 'exact' : 'close') : ''}</span>
+            <span class="itl-link-area">${shopArea(id) ? `📍 ${esc(shopArea(id))}` : ''}</span></span>
+        </li>`
+      }).join('')
+      ;(document.querySelector('#itl-link-empty') as HTMLElement).hidden = rows.length > 0
+      ;(document.querySelector('#itl-link-save') as HTMLElement).hidden = rows.length === 0
+      linkMsg.hidden = true
+      linkPanel.hidden = false
+      linkPanel.scrollIntoView({ block: 'nearest' })
+    }
+    document.querySelector('#itl-link-btn')!.addEventListener('click', () => { if (linkPanel.hidden) openLinking(); else linkPanel.hidden = true })
+    document.querySelector('#itl-link-close')!.addEventListener('click', () => { linkPanel.hidden = true })
+    // Choosing a shop ticks the row; "leave unlinked" unticks it.
+    linkList.addEventListener('change', (e) => {
+      const sel = (e.target as HTMLElement).closest('.itl-link-shop') as HTMLSelectElement | null
+      if (!sel) return
+      const row = sel.closest('.itl-link-row') as HTMLElement
+      ;(row.querySelector('.itl-link-check') as HTMLInputElement).checked = !!sel.value
+      ;(row.querySelector('.itl-link-kind') as HTMLElement).textContent = ''
+      ;(row.querySelector('.itl-link-area') as HTMLElement).textContent = shopArea(sel.value) ? `📍 ${shopArea(sel.value)}` : ''
+    })
+    // "Link selected": shopId on the ticked stops (their own fields stay), then the usual save.
+    document.querySelector('#itl-link-save')!.addEventListener('click', () => {
+      let n = 0
+      linkList.querySelectorAll<HTMLElement>('.itl-link-row').forEach((row) => {
+        const shopId = (row.querySelector('.itl-link-shop') as HTMLSelectElement).value
+        if (!(row.querySelector('.itl-link-check') as HTMLInputElement).checked || !shopId) return
+        const stop = state.find((d) => d.day === row.dataset.day)?.stops[Number(row.dataset.index)]
+        if (stop) { stop.shopId = shopId; n++ }
+      })
+      if (!n) { linkMsg.hidden = false; linkMsg.textContent = 'Nothing selected.'; return }
+      changed()
+      openLinking()
+      linkMsg.hidden = false
+      linkMsg.textContent = `Linked ${n} stop${n === 1 ? '' : 's'} ✓`
+    })
+    // The sheet: one unlinked stop, the same picker with its suggestion.
+    document.querySelector('#itl-ed-link-save')!.addEventListener('click', withStop((s) => {
+      const shopId = (document.querySelector('#itl-ed-link-shop') as HTMLSelectElement).value
+      if (!shopId) return
+      s.shopId = shopId
+      changed()
+    }))
+
     document.querySelector('#itl-ed-delete')!.addEventListener('click', withStop((s, idx, day) => {
       if (!confirm(`Delete "${resolveStop(s, shopById).name}" from ${day.date}?`)) return
       removeStop(day, idx)
@@ -992,7 +1081,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
       currentDay = tab.dataset.day!
       checkMarks = {}
-      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true; remPanel.hidden = true
+      checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true; remPanel.hidden = true; linkPanel.hidden = true
       closeSheet()
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
         t.classList.toggle('active', t === tab)
@@ -1089,10 +1178,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-block.itl-fixed { border-left-color: #6b9fd4; background: rgba(107,159,212,0.1); }
     .itl-block.itl-warn-fit, .itl-block.itl-warn-leave { border-left-color: #e74c3c; }
     .itl-block.itl-warn-closed { border-left-color: #e0a04c; }
+    /* Every row keeps its height: a short block cuts off the last rows, it never squeezes one to
+       nothing (a row with overflow: hidden would otherwise shrink away — the area did). */
+    .itl-block > * { flex-shrink: 0; }
     .itl-first { display: flex; align-items: baseline; min-width: 0; line-height: 1.3; }
-    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 3em; flex: 0 1 auto; }
-    .itl-sep { color: var(--muted); white-space: pre; flex-shrink: 0; }
-    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .itl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; max-width: 100%; }
+    .itl-rest { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .itl-sep { color: var(--muted); white-space: pre; }
+    .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
     .itl-hours { font-size: 0.7rem; color: var(--muted); }
     /* The link at the right edge, so a tap in the middle of a short block still opens its sheet. */
     .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
@@ -1113,7 +1206,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-late-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
     .itl-late-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.6rem; font-size: 0.85rem; }
     .itl-late-move { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.4rem; font-size: 0.85rem; min-height: 36px; max-width: 100%; }
-    .itl-area { font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+    .itl-area { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
     .itl-hours-note { font-size: 0.68rem; color: var(--muted); font-style: italic; }
     .itl-travel {
       position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;
@@ -1267,6 +1360,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-leaveat input { flex: 1; min-width: 0; }
     .itl-sheet .itl-leaveat button { min-width: 36px; }
     .itl-sheet .itl-until-close { margin-top: 0.3rem; font-size: 0.78rem; }
+    .itl-link-list { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .itl-link-row { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+    .itl-link-stop { display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; }
+    .itl-link-stop input { width: 18px; height: 18px; margin-top: 0.1rem; flex-shrink: 0; }
+    .itl-link-day { color: var(--muted); }
+    .itl-link-to { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; padding-left: 1.6rem; }
+    .itl-link-shop { max-width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem; font-size: 0.85rem; min-height: 34px; }
+    .itl-link-kind { font-size: 0.72rem; color: var(--accent); font-weight: 600; }
+    .itl-link-area { font-size: 0.75rem; color: var(--muted); }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

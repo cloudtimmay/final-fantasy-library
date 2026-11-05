@@ -1506,3 +1506,18 @@ test.describe('/itinerary on a phone: when there is no day warning, and the late
     await expect(page.locator('#itl-late .itl-late-name')).toHaveText(['Too Early · 09:00', 'Closed Saturdays · 14:00'])
   })
 })
+
+test.describe('/itinerary on a phone: areas', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+
+  test('a linked shop\'s area on its block; a stop written by hand shows none', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Area Shop ${Date.now()}`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Linked', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, shopId: shop._id, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Hand Written Stop', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30 },
+    ], {}, '10:00')
+    await expect(block(page, shop.shopName).locator('.itl-area')).toHaveText('📍 Akihabara')
+    await expect(block(page, 'Hand Written Stop').locator('.itl-area')).toHaveCount(0)
+  })
+})

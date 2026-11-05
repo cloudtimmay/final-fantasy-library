@@ -388,8 +388,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (lastTrain ? '<span class="itl-late-badge" title="' + esc(LAST_TRAIN_MESSAGE) + '">🚆 Last trains</span>' : '')
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
+        // The linked shop's area, right under the name (a stop written by hand has none).
+        const area = s.shopId ? shopById.get(s.shopId)?.area : null
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-sep"> · </span><span class="itl-time">${esc(time)}</span></span>
+          ${area ? `<span class="itl-area">📍 ${esc(area)}</span>` : ''}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${actions}
           ${leaveBy}
@@ -1030,6 +1033,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-late-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
     .itl-late-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.3rem 0.6rem; font-size: 0.85rem; }
     .itl-late-move { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.4rem; font-size: 0.85rem; min-height: 36px; max-width: 100%; }
+    .itl-area { font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
     .itl-hours-note { font-size: 0.68rem; color: var(--muted); font-style: italic; }
     .itl-travel {
       position: absolute; right: 0.2rem; width: calc(var(--itl-lane) - 0.4rem); box-sizing: border-box;

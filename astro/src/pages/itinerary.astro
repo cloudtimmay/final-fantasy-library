@@ -114,6 +114,36 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-travel-editor-close" type="button" aria-label="Close">✕</button>
       </div>
       <div id="itl-travel-edit" class="itn-travel-edit"></div>
+      <!-- "🚆 Plan train" (legs over TRAIN_PLAN_MIN_LEG minutes, or with a train): look it up in
+           Google Maps, then add it by hand or from a screenshot (lib/train-plan.ts). -->
+      <div id="itl-train" class="itl-train" hidden>
+        <p class="itl-train-head">🚆 Plan train</p>
+        <p id="itl-train-summary" class="itl-train-summary" hidden></p>
+        <div class="itl-train-actions">
+          <a id="itl-train-maps" class="itl-train-btn" href="https://www.google.com/maps" target="_blank" rel="noopener">🗺️ Transit in Google Maps</a>
+          <button id="itl-train-manual" type="button" class="itl-train-btn">✏️ Enter train</button>
+          <button id="itl-train-remove" type="button" class="itl-train-btn itl-train-remove" hidden>🗑️ Remove train</button>
+        </div>
+        <form id="itl-train-form" class="itl-train-form" hidden>
+          <div class="itl-train-grid">
+            <label>Line <input id="itl-tr-line" type="text" maxlength="60" placeholder="Tokaido Line" /></label>
+            <label>Train <input id="itl-tr-train" type="text" maxlength="60" placeholder="Rapid 1234" /></label>
+            <label>From station <input id="itl-tr-from" type="text" maxlength="60" /></label>
+            <label>Departs <input id="itl-tr-dep" type="time" required /></label>
+            <label>Platform <input id="itl-tr-platform" type="text" maxlength="60" /></label>
+            <label>Walk to station <span><input id="itl-tr-walk" type="number" min="0" max="60" step="1" /> min</span></label>
+            <label>To station <input id="itl-tr-to" type="text" maxlength="60" /></label>
+            <label>Arrives <input id="itl-tr-arr" type="time" required /></label>
+          </div>
+          <div id="itl-tr-transfers" class="itl-tr-transfers"></div>
+          <button id="itl-tr-add-transfer" type="button" class="itl-train-btn">＋ Transfer</button>
+          <p id="itl-tr-error" class="itl-train-error" hidden></p>
+          <div class="itl-train-actions">
+            <button id="itl-tr-save" type="submit" class="itl-train-btn itl-train-save">Save train</button>
+            <button id="itl-tr-cancel" type="button" class="itl-train-btn">Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <form id="itl-add" class="itl-add" hidden>
@@ -243,8 +273,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
+    import { validateTrain, trainSummary, type TrainPlan, type TrainTransfer } from '../lib/train-plan'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
+    import { transitRouteUrl } from '../lib/itinerary-schedule'
+    // "🚆 Plan train" is offered on legs longer than this.
+    const TRAIN_PLAN_MIN_LEG = 20
     import { dayWarningMessages, lastTrainLegs, afterMidnight, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
     import { formatDayShortEn } from '../lib/trip-dates'
     import { tokyoNow } from '../lib/trip-dates'
@@ -379,7 +413,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
         el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
         el.dataset.index = String(tr.index)
-        el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
+        const legTrain = !tr.back ? day.stops[tr.index]?.train : undefined
+        if (legTrain) {
+          el.classList.add('itl-travel-train')
+          el.textContent = `🚆 ${legTrain.departure}`
+        } else {
+          el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
+          // A long leg offers "🚆 Plan train" (a label under the time, drawn by CSS).
+          if (!tr.back && !tr.chip && tr.minutes > TRAIN_PLAN_MIN_LEG) el.classList.add('itl-travel-plan')
+        }
         grid.appendChild(el)
       })
 
@@ -442,11 +484,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // The first line: "<name> · HH:MM–HH:MM · 📍 <area>" — the name is never hidden; the time
         // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
+        const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train))}</span>` : ''
         el.innerHTML = `
           <span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
             area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${actions}
+          ${trainLine}
           ${leaveBy}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}`
@@ -697,9 +741,92 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         travelEditor.hidden = true
         saveState(); render()
       })
+      openTrain(day, idx, sched.stops[idx].travelIn, from, to)
       travelEditor.hidden = false
       travelEditor.scrollIntoView({ block: 'nearest' })
     }
+
+    // --- "🚆 Plan train" on a leg (lib/train-plan.ts; scheduled by itinerary-schedule.ts) ---------
+    // Google Maps opens the transit route; the train is then entered by hand (or read from a
+    // screenshot) and saved on the stop after the leg, like a typed-in travel time. Nothing is
+    // saved before "Save train".
+    const trainPanel = document.querySelector('#itl-train') as HTMLElement
+    const trainForm = document.querySelector('#itl-train-form') as HTMLFormElement
+    const trainError = document.querySelector('#itl-tr-error') as HTMLElement
+    const transfersEl = document.querySelector('#itl-tr-transfers') as HTMLElement
+    const trEl = (id: string) => document.querySelector(`#itl-tr-${id}`) as HTMLInputElement
+    let trainLeg: { day: PlanDay; idx: number } | null = null
+    function transferRowHtml(x: Partial<TrainTransfer> = {}): string {
+      return `<div class="itl-tr-transfer">
+        <span class="itl-tr-transfer-head">Transfer <button type="button" class="itl-tr-transfer-remove" aria-label="Remove this transfer">✕</button></span>
+        <label>Station <input class="itl-tr-x-station" type="text" maxlength="60" value="${esc(x.station || '')}" /></label>
+        <label>Arrives <input class="itl-tr-x-arr" type="time" value="${esc(x.arrival || '')}" /></label>
+        <label>Line <input class="itl-tr-x-line" type="text" maxlength="60" value="${esc(x.line || '')}" /></label>
+        <label>Departs <input class="itl-tr-x-dep" type="time" value="${esc(x.departure || '')}" /></label>
+        <label>Platform <input class="itl-tr-x-platform" type="text" maxlength="60" value="${esc(x.platform || '')}" /></label>
+      </div>`
+    }
+    // Fill the form (from the saved train, or a screenshot reading) and show it.
+    function fillTrainForm(t: Partial<TrainPlan>) {
+      trEl('line').value = t.line || ''; trEl('train').value = t.train || ''; trEl('from').value = t.fromStation || ''
+      trEl('dep').value = t.departure || ''; trEl('platform').value = t.platform || ''; trEl('to').value = t.toStation || ''
+      trEl('arr').value = t.arrival || ''; trEl('walk').value = t.walkToStationMin != null ? String(t.walkToStationMin) : ''
+      transfersEl.innerHTML = (t.transfers || []).map(transferRowHtml).join('')
+      trainError.hidden = true
+      trainForm.hidden = false
+    }
+    function readTrainForm() {
+      return {
+        line: trEl('line').value, train: trEl('train').value, fromStation: trEl('from').value, departure: trEl('dep').value,
+        platform: trEl('platform').value, toStation: trEl('to').value, arrival: trEl('arr').value, walkToStationMin: trEl('walk').value,
+        transfers: [...transfersEl.querySelectorAll<HTMLElement>('.itl-tr-transfer')].map((row) => ({
+          station: (row.querySelector('.itl-tr-x-station') as HTMLInputElement).value,
+          arrival: (row.querySelector('.itl-tr-x-arr') as HTMLInputElement).value,
+          line: (row.querySelector('.itl-tr-x-line') as HTMLInputElement).value,
+          departure: (row.querySelector('.itl-tr-x-dep') as HTMLInputElement).value,
+          platform: (row.querySelector('.itl-tr-x-platform') as HTMLInputElement).value,
+        })),
+      }
+    }
+    function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }) {
+      const train = day.stops[idx].train
+      trainLeg = { day, idx }
+      trainPanel.hidden = !train && leg.minutes <= TRAIN_PLAN_MIN_LEG
+      // Google Maps' links take no departure time (see the report), so it opens for now.
+      ;(document.querySelector('#itl-train-maps') as HTMLAnchorElement).href = transitRouteUrl(from, to)
+      const summary = document.querySelector('#itl-train-summary') as HTMLElement
+      summary.hidden = !train
+      summary.textContent = train ? trainSummary(train) : ''
+      ;(document.querySelector('#itl-train-remove') as HTMLElement).hidden = !train
+      ;(document.querySelector('#itl-train-manual') as HTMLElement).textContent = train ? '✏️ Edit train' : '✏️ Enter train'
+      trainForm.hidden = true
+    }
+    document.querySelector('#itl-train-manual')!.addEventListener('click', () => {
+      if (trainLeg) fillTrainForm(trainLeg.day.stops[trainLeg.idx].train || {})
+    })
+    document.querySelector('#itl-tr-add-transfer')!.addEventListener('click', () => transfersEl.insertAdjacentHTML('beforeend', transferRowHtml()))
+    transfersEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.itl-tr-transfer-remove')
+      if (btn) btn.closest('.itl-tr-transfer')!.remove()
+    })
+    document.querySelector('#itl-tr-cancel')!.addEventListener('click', () => { trainForm.hidden = true })
+    trainForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      if (!trainLeg) return
+      const v = validateTrain(readTrainForm())
+      if ('error' in v) { trainError.hidden = false; trainError.textContent = v.error; return }
+      trainLeg.day.stops[trainLeg.idx].train = v.train
+      travelEditor.hidden = true
+      checkMarks = {}
+      saveState(); render()
+    })
+    document.querySelector('#itl-train-remove')!.addEventListener('click', () => {
+      if (!trainLeg) return
+      delete trainLeg.day.stops[trainLeg.idx].train
+      travelEditor.hidden = true
+      checkMarks = {}
+      saveState(); render()
+    })
     dayEl.addEventListener('click', (e) => {
       const travel = (e.target as HTMLElement).closest('.itl-travel') as HTMLElement | null
       if (travel && !travel.classList.contains('itl-travel-back')) openTravelEditor(Number(travel.dataset.index))
@@ -1018,6 +1145,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const block = target.closest('.itl-block') as HTMLElement | null
       if (!block || target.closest('.itn-reminder')) return
       const idx = Number(block.dataset.index)
+      if (target.closest('.itl-train-line')) { openTravelEditor(idx); return }
       if (target.closest('.itl-here')) { markNow('here', currentDayPlan(), idx); return }
       if (target.closest('.itl-leave')) { markNow('leave', currentDayPlan(), idx); return }
       showDetails(idx)
@@ -1369,6 +1497,29 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-link-shop { max-width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem; font-size: 0.85rem; min-height: 34px; }
     .itl-link-kind { font-size: 0.72rem; color: var(--accent); font-weight: 600; }
     .itl-link-area { font-size: 0.75rem; color: var(--muted); }
+    .itl-travel.itl-travel-plan::after { content: '🚆 Plan train'; display: block; font-size: 0.62rem; color: var(--accent); font-weight: 600; }
+    .itl-travel { flex-direction: column; }
+    .itl-travel.itl-travel-train { color: var(--text); font-weight: 600; }
+    .itl-train-line { font-size: 0.7rem; font-weight: 600; color: #6b9fd4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .itl-train { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    .itl-train-head { margin: 0 0 0.3rem; font-weight: 600; font-size: 0.9rem; }
+    .itl-train-summary { margin: 0 0 0.4rem; font-size: 0.85rem; }
+    .itl-train-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0; }
+    .itl-train-btn { background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 0.35rem 0.6rem; font-size: 0.82rem; min-height: 34px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+    .itl-train-btn[hidden] { display: none; }
+    .itl-train-remove { border-color: #e74c3c; color: #e74c3c; }
+    .itl-train-save { border-color: #2ecc71; font-weight: 600; }
+    .itl-train-grid, .itl-tr-transfer { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.6rem; }
+    .itl-train-form label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.78rem; color: var(--muted); }
+    .itl-train-form label span { display: flex; align-items: center; gap: 0.3rem; color: var(--text); }
+    .itl-train-form input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem; font-size: 0.9rem; min-height: 34px; box-sizing: border-box; width: 100%; }
+    .itl-train-form label span input { width: 5rem; }
+    .itl-train-form[hidden] { display: none; }
+    .itl-tr-transfer { margin: 0.5rem 0; padding: 0.4rem; border: 1px dashed var(--border); border-radius: 6px; }
+    .itl-tr-transfer-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 600; }
+    .itl-tr-transfer-head button { background: none; border: none; color: var(--muted); cursor: pointer; min-width: 32px; min-height: 32px; }
+    .itl-train-error { color: #e74c3c; font-size: 0.82rem; font-weight: 600; margin: 0.3rem 0; }
+    .itl-train-error[hidden] { display: none; }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>
 </Base>

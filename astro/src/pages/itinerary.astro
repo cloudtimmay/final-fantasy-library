@@ -42,6 +42,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button type="button" role="tab" class:list={['itl-tab', { active: d === initialDay }]} data-day={d} aria-selected={d === initialDay ? 'true' : 'false'}>{labels[d]}</button>
       ))}
     </div>
+    <!-- The day's areas in visiting order (itinerary-plan.ts dayAreas). -->
+    <p id="itl-day-areas" class="itl-day-areas" hidden></p>
 
     <div class="itl-toolbar">
       <p class="itl-hint">Tap an empty spot to add a stop there.</p>
@@ -182,7 +184,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script>
     import {
-      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor,
+      buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes,
@@ -295,6 +297,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       dayEl.replaceChildren()
       if (!day) return
       renderDayBar(day)
+      const areas = dayAreas(day, shopById)
+      const areasEl = document.querySelector('#itl-day-areas') as HTMLElement
+      areasEl.textContent = areas.join(' · ')
+      areasEl.hidden = !areas.length
       const { sched, inputs, baseStart } = computeDayTimes(day, base, shopById)
       renderLateDay(day, sched)
       // Train legs after the last trains: the stop they go to (or back to the base).
@@ -978,6 +984,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-nav-link:hover { color: var(--accent); }
     .itl-save-status { font-size: 0.75rem; color: var(--muted); }
     .itl-beta { font-size: 0.7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.4rem; vertical-align: middle; }
+    .itl-day-areas { margin: -0.2rem 0 0.6rem; font-size: 0.9rem; font-weight: 600; color: var(--text); }
     .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
     .itl-tab {
       flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);

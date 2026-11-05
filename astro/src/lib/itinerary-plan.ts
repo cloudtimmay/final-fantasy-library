@@ -392,3 +392,15 @@ export function closedStops(day: PlanDay, sched: DaySchedule, shopById: Map<stri
 export function dayWarningFor(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): DayWarning | null {
   return dayWarning(sched, closedStops(day, sched, shopById))
 }
+
+// The areas a day visits, in visiting order without repeats ("Akihabara · Shinjuku · Yokohama"):
+// each linked shop's area. A day whose stops have none shows the plan's own area for the day,
+// as the list (/itinerary-list) does.
+export function dayAreas(day: PlanDay, shopById: Map<string, PlanShop>): string[] {
+  const out: string[] = []
+  for (const s of day.stops) {
+    const area = s.shopId ? shopById.get(s.shopId)?.area : null
+    if (area && !out.includes(area)) out.push(area)
+  }
+  return out.length ? out : day.area ? [day.area] : []
+}

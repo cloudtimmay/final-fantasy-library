@@ -1521,3 +1521,26 @@ test.describe('/itinerary on a phone: areas', () => {
     await expect(block(page, 'Hand Written Stop').locator('.itl-area')).toHaveCount(0)
   })
 })
+
+test.describe('/itinerary on a phone: the day\'s areas', () => {
+  test('under the tabs, the areas in visiting order without repeats; the plan\'s own area when no stop has one', async ({ page, sanity, trackDoc }) => {
+    const mk = (name: string, area: string) => sanity.create({ _type: 'shopNote', shopName: testName(`${name} ${Date.now()}`), area, latitude: 35.7, longitude: 139.77 })
+    const [a1, s1, a2, y1] = [await mk('Akiba One', 'Akihabara'), await mk('Shinjuku One', 'Shinjuku'), await mk('Akiba Two', 'Akihabara'), await mk('Yoko One', 'Yokohama')]
+    for (const d of [a1, s1, a2, y1]) trackDoc(d._id)
+    const linked = (id: string) => ({ name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, shopId: id })
+    await openTimeline(page, sanity, trackDoc, [
+      linked(a1._id), linked(s1._id), { name: 'Lunch', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30 }, linked(a2._id), linked(y1._id),
+    ], {}, '10:00')
+    await expect(page.locator('#itl-day-areas')).toHaveText('Akihabara · Shinjuku · Yokohama')
+    // A day whose stops have no area: the plan's area for that day, as the list shows it.
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Hand Written', hours: '', tag: '', slot: '', lat: null, lng: null, dur: 30 }]
+      itl.state[1].area = 'Nakano'
+      itl.render()
+    })
+    await expect(page.locator('#itl-day-areas')).toHaveText('Nakano')
+  })
+})

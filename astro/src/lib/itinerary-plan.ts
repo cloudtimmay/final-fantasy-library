@@ -263,8 +263,9 @@ export function checkDayRequestBody(
 export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; lng: number | null }; shopById: Map<string, PlanShop> }) {
   const startTime = parseClock(day.startTime)
   const start = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? { lat: ctx.base.lat, lng: ctx.base.lng } : null
-  const stops = day.stops.map((s) => {
+  const stops = day.stops.map((s, i) => {
     const r = resolveStop(s, ctx.shopById)
+    const train = trainTimes(s.train)
     return {
       lat: r.lat,
       lng: r.lng,
@@ -273,6 +274,9 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
       leaveAt: parseClock(s.leaveAt),
+      train,
+      // A train leg stays intact: the stop after it and the stop before it keep their places.
+      locked: !!train || !!trainTimes(day.stops[i + 1]?.train),
     }
   })
   return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day), date: isIsoDate(day.day) ? day.day : null }

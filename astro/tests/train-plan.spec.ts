@@ -96,3 +96,25 @@ test.describe('reading a train from a screenshot (lib/train-plan.ts trainFromMod
     expect(trainFromModelText('I could not read this image.')).toEqual({ error: 'Could not read a train from the screenshot.' })
   })
 })
+
+test.describe('Suggest route with a planned train', () => {
+  test('the train leg stays intact (the stops before and after it keep their places); the others are reordered around it', async () => {
+    const { optimizeRoute } = await import('../src/lib/route-optimizer')
+    const { optimizerInput } = await import('../src/lib/itinerary-plan')
+    const at = (lat: number, name: string, extra: Record<string, unknown> = {}) => ({ name, hours: '', tag: '', slot: '', lat, lng: 139.77, dur: 30, ...extra })
+    // Far, Near, Before Train, After Train (the train leg), Far2, Near2: badly ordered around it.
+    const day = {
+      day: '2026-12-05', date: '5. des', area: '', note: '', startTime: '10:00',
+      stops: [at(35.75, 'Far'), at(35.698, 'Near'), at(35.70, 'Before Train'), at(35.465, 'After Train', { train: { ...TRAIN, departure: '12:00', arrival: '12:40' } }), at(35.47, 'Far2'), at(35.466, 'Near2')],
+    }
+    const input = optimizerInput(day as any, { base: BASE, shopById: new Map() })
+    expect(input.stops.map((s) => !!s.locked)).toEqual([false, false, true, true, false, false])
+    const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
+    expect(result.order.indexOf(2)).toBe(2) // Before Train
+    expect(result.order.indexOf(3)).toBe(3) // After Train, right after it
+    expect(new Set(result.order)).toEqual(new Set([0, 1, 2, 3, 4, 5]))
+    expect(result.order.slice(0, 2)).toEqual([1, 0]) // the near one first now
+    // The train sets the time after the leg.
+    expect(result.suggested.times[3]).toBe(t('12:40') + TRAIN_EXIT_WALK_MIN)
+  })
+})

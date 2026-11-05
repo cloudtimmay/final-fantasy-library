@@ -19,7 +19,17 @@ export type OptimizerStop = {
   openingHours: string | null // free text, e.g. "10:00–20:00, closed Tue"
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
+  // A planned train on the leg INTO this stop (lib/train-plan.ts trainTimes): you arrive with it.
+  train?: { departure: number; arrival: number; walkToStationMin?: number | null } | null
+  // Stays in its position, like a fixed-time stop: the stops on both sides of a train leg, so the
+  // leg stays intact (the same two stops, in that order, next to each other).
+  locked?: boolean
 }
+
+// Matches itinerary-schedule.ts (TRAIN_PLATFORM_MIN / TRAIN_EXIT_WALK_MIN; that module imports
+// this one, so the numbers are repeated here rather than imported).
+const TRAIN_PLATFORM_MIN = 10
+const TRAIN_EXIT_WALK_MIN = 5
 
 export type RouteSchedule = {
   times: number[] // planned start time (minutes since midnight) per stop, in `order`
@@ -112,7 +122,12 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
   const times: number[] = []
 
   order.forEach((stop, i) => {
-    if (stop.fixedTime != null) {
+    if (stop.train) {
+      // The planned train: missing it (still busy at its leave-by) costs like a closed shop.
+      const leaveBy = stop.train.departure - TRAIN_PLATFORM_MIN - Math.max(0, stop.train.walkToStationMin || 0)
+      if (clock > leaveBy) closedCount++
+      clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + TRAIN_EXIT_WALK_MIN
+    } else if (stop.fixedTime != null) {
       clock = stop.fixedTime
     } else {
       const preferMinutes = i === 0 ? extractNoteTravelMinutes(stop.note) : null
@@ -237,8 +252,10 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
     return { order: [], currentOrder, suggested: current, current, usedFirstStopAsStart, improved: false }
   }
 
-  const fixedIdx = currentOrder.filter((i) => stops[i].fixedTime != null)
-  const movableIdx = currentOrder.filter((i) => stops[i].fixedTime == null)
+  // Fixed-time stops and the stops of a train leg keep their places; the rest are ordered around them.
+  const stays = (i: number) => stops[i].fixedTime != null || !!stops[i].locked
+  const fixedIdx = currentOrder.filter(stays)
+  const movableIdx = currentOrder.filter((i) => !stays(i))
   const bestMovable = bestMovableOrder(stops, movableIdx, fixedIdx, startTime, effectiveStart, weekday, date)
 
   const order: number[] = new Array(stops.length)

@@ -6,7 +6,7 @@ export const tripSettings = defineType({
   title: 'Trip Settings',
   type: 'document',
   icon: () => '⚙️',
-  fieldsets: [{ name: 'itinerary', title: 'Itinerary: days in Tokyo and the flight home', options: { collapsible: true } }],
+  fieldsets: [{ name: 'itinerary', title: 'Itinerary: days in Tokyo, the arrival and the flight home', options: { collapsible: true } }],
   fields: [
     defineField({ name: 'label', title: 'Label', type: 'string', initialValue: 'Japan trip', description: 'Just a name for this settings document' }),
     defineField({ name: 'startDate', title: 'Start date', type: 'date' }),
@@ -42,6 +42,30 @@ export const tripSettings = defineType({
           if (!value || !doc?.firstTokyoDay) return true
           return value >= doc.firstTokyoDay ? true : 'Last day should not be before the first day'
         }).warning(),
+    }),
+    // The arrival in Japan: on its day the itinerary starts at the landing time + immigration and
+    // baggage + the trip from the airport to the base (astro/src/lib/itinerary-page-data.ts).
+    defineField({
+      name: 'arrivalDate',
+      title: 'Arrival in Japan: date',
+      type: 'date',
+      fieldset: 'itinerary',
+      description: 'The day the flight lands in Japan. Empty = the first day in Tokyo.',
+    }),
+    defineField({
+      name: 'arrivalTime',
+      title: 'Arrival in Japan: landing time',
+      type: 'string',
+      fieldset: 'itinerary',
+      description: 'Local Japan time, HH:MM (e.g. 07:55).',
+      validation: (R) => R.regex(/^([01]\d|2[0-3]):[0-5]\d$/, { name: 'HH:MM' }),
+    }),
+    defineField({
+      name: 'arrivalAirport',
+      title: 'Arrival in Japan: airport',
+      type: 'string',
+      fieldset: 'itinerary',
+      options: { list: [{ title: 'Narita International Airport', value: 'Narita' }, { title: 'Haneda Airport', value: 'Haneda' }], layout: 'radio' },
     }),
     defineField({
       name: 'flightHomeDate',

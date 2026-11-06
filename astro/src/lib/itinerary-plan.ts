@@ -13,6 +13,7 @@ import { isIsoDate, weekdayIndex } from './trip-dates'
 import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN } from './itinerary-review-helpers'
 import { trainLeaveBy } from './itinerary-schedule'
+import { PLACE_TYPE_INFO } from './place-types'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -46,6 +47,10 @@ export type PlanDay = {
   // from the base to the airport. Saved with the day.
   returnTrain?: TrainPlan
   airportTrain?: TrainPlan
+  // The day's bases (dayBases): a shop's id (usually a hotel) or TRIP_BASE_KEY; unset = the
+  // default (the start: the night before's end base; the end: the start).
+  startBase?: string
+  endBase?: string
 }
 export type PlanTemplateDay = { day: string; date: string; area: string; note?: string; stops: PlanStop[] }
 export type PlanShop = {
@@ -53,20 +58,17 @@ export type PlanShop = {
   openingHours?: string | null
   address?: string | null; area?: string | null
   photos?: { caption?: string | null; url: string }[] | null // shopNote.photos (floor guides …)
-  placeType?: string | null // shopNote.placeType: shop | restaurant | sight | other
+  placeType?: string | null // shopNote.placeType (lib/place-types.ts): shop | restaurant | sight | hotel | other
 }
 
 // The shopNote schema's place type icons (sanity/schemaTypes/shopNote.ts). A shop saved without a
 // type counts as a shop (its initial value), as on /prices; an unknown value as "other".
-export const PLACE_TYPE_ICONS: Record<string, { icon: string; label: string }> = {
-  shop: { icon: '🛍️', label: 'Shop' }, restaurant: { icon: '🍜', label: 'Restaurant' },
-  sight: { icon: '🗼', label: 'Sight to see' }, other: { icon: '📌', label: 'Other' },
-}
+export const PLACE_TYPE_ICONS: Record<string, { icon: string; label: string }> = PLACE_TYPE_INFO
 export function placeTypeIcon(shop: PlanShop | null | undefined): { icon: string; label: string } | null {
   if (!shop) return null
   return PLACE_TYPE_ICONS[shop.placeType || 'shop'] || PLACE_TYPE_ICONS.other
 }
-export type SavedDay = { startTime?: string; stops?: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan }
+export type SavedDay = { startTime?: string; stops?: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan; startBase?: string; endBase?: string }
 export type SavedDays = Record<string, SavedDay>
 
 export function parseClock(s: unknown): number | null {
@@ -119,9 +121,10 @@ export function manualTravelFor(day: { stops: PlanStop[] }, si: number, shopById
 // The day's timetable from the shared schedule (itinerary-schedule.ts): fixed-time stops are
 // anchors, everything else runs forward, with leave-by times and warnings.
 // `times`: each stop's start; `sched`: the full schedule; `inputs`: what it was computed from.
+// `base`: the trip's base, or the day's own start and end bases (dayBases).
 export function computeDayTimes(
   day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan },
-  base: RoutePoint,
+  base: RoutePoint | { start: RoutePoint; end: RoutePoint },
   shopById: Map<string, PlanShop>
 ): { baseStart: number; times: number[]; baseEnd: number; sched: DaySchedule; inputs: ScheduleStopInput[] } {
   let start = parseClock(day.startTime)
@@ -142,7 +145,9 @@ export function computeDayTimes(
       train: trainTimes(s.train),
     }
   })
-  const sched = scheduleDay(inputs, start, base, { returnTrain: trainTimes(day.returnTrain) })
+  const startBase = 'start' in base ? base.start : base
+  const endBase = 'start' in base ? base.end : base
+  const sched = scheduleDay(inputs, start, startBase, { returnTrain: trainTimes(day.returnTrain), endBase })
   return { baseStart: start, times: sched.stops.map((x) => x.start), baseEnd: sched.end, sched, inputs }
 }
 
@@ -173,6 +178,8 @@ export function planDayEntry(iso: string, s: SavedDay | undefined, templateByDay
     startTime: saved && !(own && saved === DEFAULT_START) ? saved : own || DEFAULT_START,
     ...(s && s.returnTrain ? { returnTrain: s.returnTrain } : {}),
     ...(s && s.airportTrain ? { airportTrain: s.airportTrain } : {}),
+    ...(s && typeof s.startBase === 'string' && s.startBase ? { startBase: s.startBase } : {}),
+    ...(s && typeof s.endBase === 'string' && s.endBase ? { endBase: s.endBase } : {}),
     stops: s && Array.isArray(s.stops) ? s.stops : t ? t.stops.slice() : [],
   }
 }
@@ -199,6 +206,8 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
     // Only when there is one, so a plan without them saves exactly as before.
     if (d.returnTrain) saved.returnTrain = d.returnTrain
     if (d.airportTrain) saved.airportTrain = d.airportTrain
+    if (d.startBase) saved.startBase = d.startBase
+    if (d.endBase) saved.endBase = d.endBase
     all[d.day] = saved
   })
   return JSON.stringify({ v: 2, days: all })
@@ -554,4 +563,38 @@ export function leaveFixFor(sched: DaySchedule, idx: number, flightLatest: numbe
   if (!x || !(x.doesntFit || x.leaveEarlierMin)) return null
   const t = latestLeaveFor(sched, idx, flightLatest)
   return t != null && t > x.start ? t : null
+}
+
+// --- A base per day (hotels) ----------------------------------------------------------------
+// Each day starts at its start base and ends at its end base: a shop (usually a 🏨 hotel) or the
+// trip's base. Unset: the start is where the day before ended (the first day: the trip's base),
+// the end is the start. A trip that never sets one keeps its single base.
+export const TRIP_BASE_KEY = '__trip__'
+export type DayBase = RoutePoint & { name: string; key: string }
+export type DayBases = { start: DayBase; end: DayBase; changes: boolean }
+export function dayBases(days: { day: string; startBase?: string; endBase?: string }[], tripBase: { name?: string; lat: number | null; lng: number | null }, shopById: Map<string, PlanShop>): Map<string, DayBases> {
+  // Named plainly "Base" in lines like "🏨 Base → Hotel B" (the trip's own label is longer).
+  const trip: DayBase = { name: 'Base', lat: tripBase.lat, lng: tripBase.lng, key: TRIP_BASE_KEY }
+  // A shop without coordinates still names the base, but the trips are timed from the trip's base.
+  const resolve = (key: string | undefined): DayBase | null => {
+    if (!key) return null
+    if (key === TRIP_BASE_KEY) return trip
+    const shop = shopById.get(key)
+    if (!shop) return null
+    const has = typeof shop.latitude === 'number' && typeof shop.longitude === 'number'
+    return { name: shop.shopName || 'Base', lat: has ? shop.latitude! : trip.lat, lng: has ? shop.longitude! : trip.lng, key }
+  }
+  const out = new Map<string, DayBases>()
+  let before = trip
+  for (const d of [...days].sort((a, b) => a.day.localeCompare(b.day))) {
+    const start = resolve(d.startBase) || before
+    const end = resolve(d.endBase) || start
+    out.set(d.day, { start, end, changes: start.key !== end.key })
+    before = end
+  }
+  return out
+}
+// "🏨 Hotel A → Hotel B" for a day that changes base; '' otherwise.
+export function dayBasesLine(b: DayBases | undefined): string {
+  return b && b.changes ? `🏨 ${b.start.name} → ${b.end.name}` : ''
 }

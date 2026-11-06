@@ -53,6 +53,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     </div>
     <!-- The day's areas in visiting order (itinerary-plan.ts dayAreas). -->
     <p id="itl-day-areas" class="itl-day-areas" hidden></p>
+    <!-- A day that changes hotel: "🏨 Hotel A → Hotel B" (itinerary-plan.ts dayBases). -->
+    <p id="itl-day-hotels" class="itl-day-fares" hidden></p>
     <p id="itl-day-fares" class="itl-day-fares" hidden></p>
     <!-- The arrival day: "✈️ Landing 07:55 at Haneda Airport" (Trip Settings). -->
     <p id="itl-arrival" class="itl-day-fares" hidden></p>
@@ -73,10 +75,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
       <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
       <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
+      <button id="itl-base-btn" type="button" class="itl-daybtn">🏨 Base</button>
       <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
       <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
       <span id="itl-here-hint" class="itl-here-hint" hidden>I'm here now appears on trip days. Use 🧪 Test time to try it.</span>
     </div>
+    <!-- "🏨 Base": where this day starts and ends — a hotel (or any place), else the defaults. -->
+    <form id="itl-base-form" class="itl-test-form itl-base-form" hidden>
+      <label>Start <select id="itl-base-start" aria-label="Start base"></select></label>
+      <label>End <select id="itl-base-end" aria-label="End base"></select></label>
+      <button id="itl-base-save" type="submit" class="itl-daybtn">Save</button>
+      <button id="itl-base-cancel" type="button" class="itl-daybtn">Cancel</button>
+    </form>
     <!-- "🧪 Test time": pretend it's this date and time in Tokyo — the same as ?now=. -->
     <form id="itl-test-form" class="itl-test-form" hidden>
       <select id="itl-test-date" aria-label="Test date">
@@ -272,7 +282,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, placeTypeIcon, latestLeaveFor, leaveFixFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -376,6 +386,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
       : tokyoNow()
 
+    // The day's bases (itinerary-plan.ts dayBases): its own hotel(s), else the night before's,
+    // else the trip's base — worked out over all the trip's days, in order.
+    const basesOf = (day: PlanDay) => dayBases(state, base, shopById).get(day.day) || { start: { ...base, key: TRIP_BASE_KEY }, end: { ...base, key: TRIP_BASE_KEY }, changes: false }
     // "Fix: leave at HH:MM" for a warning that leaving earlier fixes (itinerary-plan.ts leaveFixFor).
     const fixButton = (t: number | null) => t == null ? '' : `<button type="button" class="itl-fix" data-time="${formatClock(t)}">Fix: leave at ${formatClock(t)}</button>`
     const flightDeadlineFor = (day: PlanDay) => flightDeadline(day, flight)?.leaveBy ?? null
@@ -392,7 +405,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const stop = day.stops[idx]
       const now = nowTokyo().minutes
       if (kind === 'here') markHereNow(stop, now)
-      else markLeavingNow(stop, now, computeDayTimes(day, base, shopById).sched.stops[idx].start)
+      else markLeavingNow(stop, now, computeDayTimes(day, basesOf(day), shopById).sched.stops[idx].start)
       checkMarks = {}
       saveState(); render()
     }
@@ -414,7 +427,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const areasEl = document.querySelector('#itl-day-areas') as HTMLElement
       areasEl.textContent = areas.join(' · ')
       areasEl.hidden = !areas.length
-      const { sched, inputs, baseStart } = computeDayTimes(day, base, shopById)
+      const { sched, inputs, baseStart } = computeDayTimes(day, basesOf(day), shopById)
       shownSched = { day: day.day, sched }
       // Outside the trip with the real clock, nothing shows "I'm here now": say how to try it.
       hereHint.hidden = !testTimeEl.hidden || days.includes(nowTokyo().date)
@@ -424,6 +437,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const faresEl = document.querySelector('#itl-day-fares') as HTMLElement
       faresEl.textContent = dayTrainFaresText(fares, tripRate)
       faresEl.hidden = !faresEl.textContent
+      const hotelsEl = document.querySelector('#itl-day-hotels') as HTMLElement
+      hotelsEl.textContent = dayBasesLine(basesOf(day))
+      hotelsEl.hidden = !hotelsEl.textContent
       const arrivalEl = document.querySelector('#itl-arrival') as HTMLElement
       arrivalEl.textContent = DATA.arrival && DATA.arrival.date === day.day ? DATA.arrival.line : ''
       arrivalEl.hidden = !arrivalEl.textContent
@@ -608,7 +624,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const startEl = document.createElement('div')
         startEl.className = 'itl-base itl-base-start'
         startEl.style.top = `${offsetFor(baseStart, range, px)}px`
-        startEl.textContent = `🏠 Start: base · ${formatClock(baseStart)}`
+        const dayBase = basesOf(day)
+        startEl.textContent = dayBase.start.key === TRIP_BASE_KEY ? `🏠 Start: base · ${formatClock(baseStart)}` : `🏨 Start: ${dayBase.start.name} · ${formatClock(baseStart)}`
         grid.appendChild(startEl)
         const endEl = document.createElement('div')
         // On the flight day, back at the base after the time to leave for the airport is a problem.
@@ -616,7 +633,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         endEl.className = 'itl-base itl-base-end' + (late ? ' itl-base-late' : '')
         endEl.style.top = `${offsetFor(sched.end, range, px)}px`
         endEl.dataset.minutes = String(sched.end)
-        endEl.textContent = `🏠 Back at base ~${formatClock(sched.end)}` + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
+        endEl.textContent = (dayBase.end.key === TRIP_BASE_KEY ? `🏠 Back at base ~${formatClock(sched.end)}` : `🏨 Back at ${dayBase.end.name} ~${formatClock(sched.end)}`) + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
           + (lateTrains.has(day.stops.length) ? ` — 🚆 ${LAST_TRAIN_MESSAGE}` : '')
         if (lateTrains.has(day.stops.length)) endEl.classList.add('itl-base-late')
         grid.appendChild(endEl)
@@ -718,7 +735,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       lateEl.hidden = !late
       if (!late) { lateEl.replaceChildren(); return }
       const others = state.filter((d) => d !== day && days.includes(d.day)).map((d) => {
-        const ends = d.stops.length ? `ends ${formatClock(computeDayTimes(d, base, shopById).baseEnd)}` : 'no stops yet'
+        const ends = d.stops.length ? `ends ${formatClock(computeDayTimes(d, basesOf(d), shopById).baseEnd)}` : 'no stops yet'
         return `<option value="${esc(d.day)}">${esc(formatDayShortEn(d.day))}, ${ends}</option>`
       }).join('')
       lateEl.innerHTML = dayWarningMessages(late).map((m) => `<p class="itl-late-msg">⚠️ ${esc(m)}</p>`).join('') + (late.involved.length ? `<ul class="itl-late-list">${late.involved.map((i) => `
@@ -752,7 +769,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     function openReminders() {
       const day = currentDayPlan()
-      remItems = dayReminders(day, computeDayTimes(day, base, shopById).sched, shopById)
+      remItems = dayReminders(day, computeDayTimes(day, basesOf(day), shopById).sched, shopById)
       remList.innerHTML = remItems.map((r, i) => `<li><label class="itl-rem-item"><input type="checkbox" class="itl-rem-check" data-index="${i}" checked /> <span>${esc(r.title)}</span></label></li>`).join('')
       ;(document.querySelector('#itl-rem-empty') as HTMLElement).hidden = remItems.length > 0
       remAdd.download = `leave-reminders-${day.day}.ics`
@@ -793,7 +810,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // (itinerary-plan.ts dayRouteUrls — the list's own links; more than 10 points come in parts).
     function renderDayBar(day: PlanDay) {
       startInput.value = day.startTime
-      const urls = dayRouteUrls(day.stops.map((s) => resolveStop(s, shopById)), base)
+      const urls = dayRouteUrls(day.stops.map((s) => resolveStop(s, shopById)), basesOf(day).start)
       dayRouteEl.innerHTML = urls
         .map((u, i) => `<a class="itl-dayroute-link" href="${esc(u)}" target="_blank" rel="noopener">🗺️ ${urls.length > 1 ? `Route part ${i + 1}` : 'Route for the day'}</a>`)
         .join('')
@@ -807,7 +824,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       loadLeaflet().then((ok) => {
         if (!ok || !mapSection.open || currentDayPlan() !== day) return
         if (mapInstance) { try { mapInstance.remove() } catch (e) {} }
-        mapInstance = drawDayMap(mapEl, day, base, shopById)
+        mapInstance = drawDayMap(mapEl, day, basesOf(day).start, shopById)
       })
     }
     mapSection.addEventListener('toggle', () => { if (mapSection.open) drawMap(currentDayPlan()) })
@@ -829,7 +846,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     checkBtn.addEventListener('click', async () => {
       const day = currentDayPlan()
-      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base, shopById, flight }), {
+      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base: basesOf(day).start, shopById, flight }), {
         stopName: (i) => (day.stops[i] ? resolveStop(day.stops[i], shopById).name : `Stop ${i + 1}`),
         onStopClick: (i) => scrollToBlock(i),
       })
@@ -847,7 +864,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     routeBtn.addEventListener('click', () => {
       const day = currentDayPlan()
       if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
-      const input = optimizerInput(day, { base, shopById })
+      const input = optimizerInput(day, { base: basesOf(day).start, shopById })
       const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
       renderRouteSuggestion(routePanel, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
@@ -875,8 +892,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     function openTravelEditor(idx: number) {
       const day = currentDayPlan()
       if (!day.stops[idx]) return
-      const { sched } = computeDayTimes(day, base, shopById)
-      const from = idx === 0 ? { name: 'Base', lat: base.lat, lng: base.lng } : resolveStop(day.stops[idx - 1], shopById)
+      const { sched } = computeDayTimes(day, basesOf(day), shopById)
+      const startBase = basesOf(day).start
+      const from = idx === 0 ? { name: startBase.key === TRIP_BASE_KEY ? 'Base' : startBase.name, lat: startBase.lat, lng: startBase.lng } : resolveStop(day.stops[idx - 1], shopById)
       const to = resolveStop(day.stops[idx], shopById)
       ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
       // With a planned train the time is the train's (walks + first departure to last arrival);
@@ -1046,8 +1064,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     function openLastLegEditor(kind: 'return' | 'airport') {
       const day = currentDayPlan()
       if (!day.stops.length && kind === 'return') return
-      const { sched } = computeDayTimes(day, base, shopById)
-      const baseStop = { name: 'Base', lat: base.lat, lng: base.lng }
+      const { sched } = computeDayTimes(day, basesOf(day), shopById)
+      const endBase = basesOf(day).end
+      const baseStop = { name: endBase.key === TRIP_BASE_KEY ? 'Base' : endBase.name, lat: endBase.lat, lng: endBase.lng }
       const airport = flight ? { name: `${flight.airport} Airport`, lat: null, lng: null } : { name: 'Airport', lat: null, lng: null }
       const from = kind === 'return' ? resolveStop(day.stops[day.stops.length - 1], shopById) : baseStop
       const to = kind === 'return' ? baseStop : airport
@@ -1092,7 +1111,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const day = sheetDay()
       const idx = sheetIdx()
       if (idx < 0) { closeSheet(); return }
-      const { sched, inputs } = computeDayTimes(day, base, shopById)
+      const { sched, inputs } = computeDayTimes(day, basesOf(day), shopById)
       const x = sched.stops[idx]
       const s = day.stops[idx]
       const lines: (string | { html: string })[] = [] // text, escaped below — or ready HTML
@@ -1214,7 +1233,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (idx >= 0) fn(sheetStop!, idx, sheetDay())
     }
     ed('dur').addEventListener('change', withStop((s) => { setStopDuration(s, ed('dur').value); changed() }))
-    ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, base, shopById); changed() }))
+    ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, basesOf(day).start, shopById); changed() }))
     ed('leaveat').addEventListener('change', withStop((s) => { setLeaveAt(s, ed('leaveat').value); changed() }))
     document.querySelector('#itl-ed-leaveat-clear')!.addEventListener('click', withStop((s) => { setLeaveAt(s, ''); changed() }))
     document.querySelector('#itl-ed-latest')!.addEventListener('click', withStop((s) => {
@@ -1474,7 +1493,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const dur = parseInt(addDur.value, 10)
       if (!isNaN(dur) && dur > 0) stop.dur = dur
       // In the order after the last stop starting at or before the tapped time — not pinned to it.
-      const { times } = computeDayTimes(day, base, shopById)
+      const { times } = computeDayTimes(day, basesOf(day), shopById)
       const at = insertIndexForTime(times, addMinutes)
       day.stops.splice(at, 0, stop)
       addForm.hidden = true
@@ -1500,6 +1519,41 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       } catch (e) {}
       render()
     }))
+
+    // --- "🏨 Base": the day's start and end base ----------------------------------------------
+    // Saved on the day (startBase/endBase); "" keeps the default (the night before's / the start).
+    const baseForm = document.querySelector('#itl-base-form') as HTMLFormElement
+    const baseStartSel = document.querySelector('#itl-base-start') as HTMLSelectElement
+    const baseEndSel = document.querySelector('#itl-base-end') as HTMLSelectElement
+    function baseOptions(defaultLabel: string, selected: string | undefined) {
+      const opt = (v: string, label: string) => `<option value="${esc(v)}"${(selected || '') === v ? ' selected' : ''}>${esc(label)}</option>`
+      const named = (shops || []).filter((s: PlanShop) => s.shopName)
+      const hotels = named.filter((s: PlanShop) => s.placeType === 'hotel')
+      const others = named.filter((s: PlanShop) => s.placeType !== 'hotel')
+      return opt('', defaultLabel) + opt(TRIP_BASE_KEY, '🏠 The trip base')
+        + (hotels.length ? `<optgroup label="🏨 Hotels">${hotels.map((s: PlanShop) => opt(s._id, s.shopName!)).join('')}</optgroup>` : '')
+        + (others.length ? `<optgroup label="Other places">${others.map((s: PlanShop) => opt(s._id, s.shopName!)).join('')}</optgroup>` : '')
+    }
+    document.querySelector('#itl-base-btn')!.addEventListener('click', () => {
+      const day = currentDayPlan()
+      const i = state.indexOf(day)
+      const before = i > 0 ? basesOf(state[i - 1]).end : null
+      baseStartSel.innerHTML = baseOptions(before ? `Where the day before ended (${before.name})` : 'The trip base', day.startBase)
+      baseEndSel.innerHTML = baseOptions('Same as the start', day.endBase)
+      baseForm.hidden = !baseForm.hidden
+    })
+    document.querySelector('#itl-base-cancel')!.addEventListener('click', () => { baseForm.hidden = true })
+    baseForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      const day = currentDayPlan()
+      if (baseStartSel.value) day.startBase = baseStartSel.value
+      else delete day.startBase
+      if (baseEndSel.value) day.endBase = baseEndSel.value
+      else delete day.endBase
+      baseForm.hidden = true
+      checkMarks = {}
+      saveState(); render()
+    })
 
     // --- "🧪 Test time": the ?now= override, set from the day bar --------------------------------
     // Kept in the address (?now=YYYY-MM-DDTHH:MM, Tokyo time) so a reload keeps it; the label above

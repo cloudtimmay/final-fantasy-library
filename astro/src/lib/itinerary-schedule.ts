@@ -132,7 +132,8 @@ function legBetween(from: RoutePoint, to: ScheduleStopInput, fromBase: boolean):
 
 // `opts.returnTrain`: a train planned for the trip back to the base — the last stop must be left by
 // its leave-by (an anchor like a train into a stop), and the day ends at its arrival + the walk.
-export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint, opts: { returnTrain?: TrainTimes | null } = {}): DaySchedule {
+// `opts.endBase`: where the day ends, when not where it started (a hotel change): the trip back goes there.
+export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint, opts: { returnTrain?: TrainTimes | null; endBase?: RoutePoint | null } = {}): DaySchedule {
   const legs = stops.map((s, i) => legBetween(i === 0 ? base : stops[i - 1], s, i === 0))
 
   // Forward: arrival, start and end of every stop.
@@ -285,7 +286,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   const returnLeg: TravelLeg | null = !last ? null
     : backByTrain != null ? { minutes: Math.max(0, backByTrain - out[lastIdx].end), source: 'train', mode: 'train' }
     : (() => {
-      const est = estimateLeg(last, base)
+      const est = estimateLeg(last, opts.endBase || base)
       return { minutes: est ? est.minutes : 0, source: 'estimate' as const, mode: est ? est.mode : null }
     })()
   const end = !out.length ? startTime : backByTrain != null ? Math.max(backByTrain, out[lastIdx].end) : out[lastIdx].end + (returnLeg ? returnLeg.minutes : 0)

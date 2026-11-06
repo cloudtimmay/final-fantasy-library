@@ -4,7 +4,8 @@ import {
   planDocIdFor, planSaveDoc, planStoreKey, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, countdownTrips, nextCountdown,
   ORIGINAL_PLAN_DOC_ID, withFlightDays,
 } from '../src/lib/trip-plans'
-import { buildPlanState, shopOptionGroups, TRIP_SHOPS_GROUP } from '../src/lib/itinerary-plan'
+import { buildPlanState, shopOptionGroups, TRIP_SHOPS_GROUP, dayBases, dayBasesLine, computeDayTimes, serializePlan, TRIP_BASE_KEY } from '../src/lib/itinerary-plan'
+import { estimateLeg } from '../src/lib/route-optimizer'
 
 // Several trips, each with its own plan (lib/trip-plans.ts). The December 2026 trip keeps the
 // original `itineraryState` document, read and written exactly as before; never written here —
@@ -235,5 +236,50 @@ test.describe('/itinerary with several trips', () => {
     // Only reordered: the rest are still there (the "All trips" filter is untouched).
     await expect(page.locator('#trip-filter')).toHaveValue('')
     expect(await page.locator('.note-card').count()).toBeGreaterThan(1)
+  })
+})
+
+// --- A base per day (hotels) -------------------------------------------------------------------
+const TRIP_BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
+const HOTELS = new Map<string, any>([
+  ['hotel-a', { _id: 'hotel-a', shopName: 'Hotel A Shinjuku', placeType: 'hotel', latitude: 35.6905, longitude: 139.7005 }],
+  ['hotel-b', { _id: 'hotel-b', shopName: 'Hotel B Shizuoka', placeType: 'hotel', latitude: 34.9718, longitude: 138.3889 }],
+])
+const days = (...d: Record<string, unknown>[]) => d.map((x, i) => ({ day: `2027-02-2${i + 1}`, date: '', area: '', note: '', startTime: '09:00', stops: [], ...x })) as any[]
+
+test.describe('a base per day (lib/itinerary-plan.ts dayBases)', () => {
+  test('changing hotel mid-trip; the end carried to the next day; the trip base on the first day; back to it when chosen', () => {
+    const b = dayBases(days({}, { endBase: 'hotel-a' }, {}, { endBase: 'hotel-b' }, { startBase: TRIP_BASE_KEY }), TRIP_BASE, HOTELS)
+    const names = [...b.values()].map((x) => [x.start.name, x.end.name, x.changes])
+    expect(names).toEqual([
+      ['Base', 'Base', false],
+      ['Base', 'Hotel A Shinjuku', true],
+      ['Hotel A Shinjuku', 'Hotel A Shinjuku', false], // carried over
+      ['Hotel A Shinjuku', 'Hotel B Shizuoka', true],
+      ['Base', 'Base', false],
+    ])
+    expect(dayBasesLine(b.get('2027-02-22'))).toBe('🏨 Base → Hotel A Shinjuku')
+    expect(dayBasesLine(b.get('2027-02-23'))).toBe('')
+    // An unknown shop id is ignored (the default).
+    expect(dayBases(days({ startBase: 'gone' }), TRIP_BASE, HOTELS).get('2027-02-21')!.start.name).toBe('Base')
+  })
+
+  test('the legs use the right base: the first from the start base, the trip back to the end base', () => {
+    const stop = { name: 'Shinjuku Shop', lat: 35.6908, lng: 139.7010, dur: 60 }
+    const day = { startTime: '09:00', stops: [stop] }
+    const b = dayBases(days({ endBase: 'hotel-a' }), TRIP_BASE, HOTELS).get('2027-02-21')!
+    const { sched } = computeDayTimes(day, b, new Map())
+    expect(sched.stops[0].travelIn.minutes).toBe(estimateLeg(TRIP_BASE, stop)!.minutes) // from the trip base
+    expect(sched.returnLeg!.minutes).toBe(estimateLeg(stop, { lat: 35.6905, lng: 139.7005 })!.minutes) // to Hotel A, a walk
+    expect(sched.returnLeg!.mode).toBe('walk')
+  })
+
+  test('a trip that never sets one (the December plan): the same timetable as with the single base, and saved the same', () => {
+    const plain = days({}, {})
+    const b = dayBases(plain, TRIP_BASE, HOTELS)
+    const day = { startTime: '09:00', stops: [{ name: 'Animate', lat: 35.700494, lng: 139.771743, dur: 45 }, { name: 'Nakano', lat: 35.7090, lng: 139.6655, dur: 60 }] }
+    expect(computeDayTimes(day, b.get('2027-02-21')!, new Map()).sched).toEqual(computeDayTimes(day, TRIP_BASE, new Map()).sched)
+    const saved = JSON.parse(serializePlan(plain, {}))
+    expect(Object.keys(saved.days['2027-02-21'])).toEqual(['startTime', 'stops'])
   })
 })

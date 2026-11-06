@@ -236,7 +236,10 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     // src/lib/itinerary-plan.ts, the same code the timeline (/itinerary) uses.
     function legFromKey(day, si) { return LIB().legFromKey(day, si, shopById) }
     function manualTravelFor(day, si) { return LIB().manualTravelFor(day, si, shopById) }
-    function computeTimes(day) { return LIB().computeDayTimes(day, base, shopById) }
+    // The day's own bases (lib/itinerary-plan.ts dayBases: a hotel, else the night before's, else
+    // the trip's base) — the first leg from its start, the trip back to its end.
+    function basesOf(day) { return LIB().dayBases(state, base, shopById).get(day.day) || { start: base, end: base, changes: false } }
+    function computeTimes(day) { return LIB().computeDayTimes(day, basesOf(day), shopById) }
 
     // The travel line into stop si, tappable: "🚃 ~45 min (estimate)" etc., opening an editor
     // for the leg's own minutes and a Google Maps transit link.
@@ -375,6 +378,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
             <div>
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
+              ${LIB().dayBasesLine(basesOf(day)) ? `<div class="day-flight day-hotels">${esc(LIB().dayBasesLine(basesOf(day)))}</div>` : ''}
               ${arrival && arrival.date === day.day ? `<div class="day-flight day-arrival">${esc(arrival.line)}</div>` : ''}
               ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${fmt(LIB().flightDeadline(day, flight)?.leaveBy ?? 0)}</div>` : ''}
               ${lateDayHtml(day, sched)}
@@ -405,7 +409,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
           </div>
         `
         const ul = card.querySelector('.stop-list')
-        ul.insertAdjacentHTML('beforeend', baseRow('Start: base', fmt(baseStart)))
+        const dayBase = basesOf(day)
+        ul.insertAdjacentHTML('beforeend', baseRow(dayBase.start.key === '__trip__' || !dayBase.start.key ? 'Start: base' : `Start: ${esc(dayBase.start.name)}`, fmt(baseStart)))
         if (day.stops[0]) ul.insertAdjacentHTML('beforeend', travelRowHtml(di, 0, day, sched))
 
         day.stops.forEach((s, si) => {
@@ -477,7 +482,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 
         const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1]) : null
         if (lastStop) { const wt = walkText(lastStop, base); if (wt) ul.insertAdjacentHTML('beforeend', `<li class="walk-row"><span class="walk-line">${wt} →</span></li>`) }
-        ul.insertAdjacentHTML('beforeend', baseRow('Tilbake til base', fmt(baseEnd)))
+        ul.insertAdjacentHTML('beforeend', baseRow(dayBase.end.key === '__trip__' || !dayBase.end.key ? 'Tilbake til base' : `Tilbake til ${esc(dayBase.end.name)}`, fmt(baseEnd)))
         daysEl.appendChild(card)
       })
 

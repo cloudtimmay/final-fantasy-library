@@ -38,10 +38,10 @@ const foundThumbsFor = (id: string) => {
 const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
 
 const TYPE_ICON: Record<string, string> = {
-  shop: '🛍️', restaurant: '🍜', sight: '🗼', other: '📌',
+  shop: '🛍️', restaurant: '🍜', sight: '🗼', hotel: '🏨', other: '📌',
 }
 const TYPE_LABEL: Record<string, string> = {
-  shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', other: 'Other',
+  shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', hotel: 'Hotel', other: 'Other',
 }
 
 function isUrl(s: string): boolean {
@@ -73,6 +73,7 @@ function isUrl(s: string): boolean {
       <option value="shop">🛍️ Shops</option>
       <option value="restaurant">🍜 Restaurants</option>
       <option value="sight">🗼 Sights</option>
+      <option value="hotel">🏨 Hotels</option>
       <option value="other">📌 Other</option>
     </select>
     <select id="area-filter">

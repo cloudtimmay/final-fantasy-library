@@ -5,7 +5,8 @@ import { json, parseJsonBody } from '../../lib/api'
 export const prerender = false
 
 const PRIORITIES = ['must', 'maybe', 'visited']
-const PLACE_TYPES = ['shop', 'restaurant', 'sight', 'other']
+import { PLACE_TYPES as PLACE_TYPE_LIST } from '../../lib/place-types'
+const PLACE_TYPES: readonly string[] = PLACE_TYPE_LIST
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)

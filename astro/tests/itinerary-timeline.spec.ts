@@ -2498,3 +2498,69 @@ test.describe('/itinerary on a phone: the time axis, arrive and leave times, arr
     await expect(page.locator('#itl-save-status')).toHaveText('Saved ✓', { timeout: 10000 })
   })
 })
+
+test.describe('/itinerary on a phone: a base per day ("🏨 Base")', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+
+  test('ending the day at a hotel: the header, the trip back there, saved on the day; the next day starts there; the list too', async ({ page, sanity, trackDoc }) => {
+    const hotel = await sanity.create({ _type: 'shopNote', shopName: testName(`Hotel Shinjuku ${Date.now()}`), placeType: 'hotel', area: 'Shinjuku', latitude: 35.6905, longitude: 139.7005 })
+    trackDoc(hotel._id)
+    const { trip, saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Shinjuku Shop', hours: '', tag: '', slot: '', lat: 35.6908, lng: 139.7010, dur: 60 },
+    ], {}, '10:00')
+    await expect(page.locator('.itl-base-end')).toHaveText(/^🏠 Back at base ~/)
+    const backBefore = await page.locator('.itl-travel-back').textContent()
+    await page.locator('#itl-base-btn').click()
+    await expect(page.locator('#itl-base-start option').first()).toHaveText('The trip base')
+    await expect(page.locator('#itl-base-end optgroup[label="🏨 Hotels"] option', { hasText: hotel.shopName })).toHaveCount(1)
+    await page.locator('#itl-base-end').selectOption(hotel._id)
+    await page.locator('#itl-base-save').click()
+    await expect(page.locator('#itl-day-hotels')).toHaveText(`🏨 Base → ${hotel.shopName}`)
+    await expect(page.locator('.itl-base-end')).toHaveText(new RegExp(`^🏨 Back at \\[test\\] Hotel Shinjuku \\d+ ~`))
+    // The trip back is now a short walk to the hotel, not the train to Akihabara.
+    await expect(page.locator('.itl-travel-back')).toHaveText(/^🚶/)
+    expect(backBefore).toMatch(/^🚆/)
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].endBase, { timeout: 10000 }).toBe(hotel._id)
+    expect(saves[saves.length - 1].days['2026-12-05'].startBase).toBeUndefined()
+
+    // The next day starts at the hotel (and ends there), without a header line.
+    await page.locator('.itl-tab', { hasText: '6. des' }).click()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[1].stops = [{ name: 'Next Day Shop', hours: '', tag: '', slot: '', lat: 35.6908, lng: 139.7010, dur: 30 }]
+      itl.render()
+    })
+    await expect(page.locator('.itl-base-start')).toHaveText(`🏨 Start: ${hotel.shopName} · 08:00`)
+    await expect(page.locator('#itl-day-hotels')).toBeHidden()
+    await page.locator('#itl-base-btn').click()
+    await expect(page.locator('#itl-base-start option').first()).toHaveText(`Where the day before ended (${hotel.shopName})`)
+    await page.locator('#itl-base-cancel').click()
+
+    // The list: the same bases (its own state — saves are mocked, so it loads the stored plan).
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((id) => {
+      // @ts-ignore - globals of the list's inline script
+      state[0].stops = [{ name: 'Shinjuku Shop', hours: '', tag: '', slot: '', lat: 35.6908, lng: 139.7010, dur: 60 }]; state[0].endBase = id; delete state[0].startBase; render()
+    }, hotel._id)
+    const first = page.locator('.day-card').first()
+    await expect(first.locator('.day-hotels')).toHaveText(`🏨 Base → ${hotel.shopName}`)
+    await expect(first.locator('.stop.is-base .stop-name').last()).toHaveText(`Tilbake til ${hotel.shopName}`)
+    await expect(page.locator('.day-card').nth(1).locator('.stop.is-base .stop-name').first()).toHaveText(`Start: ${hotel.shopName}`)
+  })
+
+  test('a day without bases set keeps the trip base, and saves no base fields', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Plain Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], {}, '10:00')
+    await expect(page.locator('.itl-base-start')).toHaveText('🏠 Start: base · 10:00')
+    await expect(page.locator('.itl-base-end')).toHaveText(/^🏠 Back at base ~/)
+    await expect(page.locator('#itl-day-hotels')).toBeHidden()
+    await page.locator('#itl-start').fill('10:15')
+    await page.locator('#itl-start').dispatchEvent('change')
+    await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
+    expect(Object.keys(saves[saves.length - 1].days['2026-12-05'])).toEqual(['startTime', 'stops'])
+  })
+})

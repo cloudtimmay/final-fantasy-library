@@ -1798,6 +1798,69 @@ test.describe('/itinerary on a phone: "⏰ Reminders for this day"', () => {
 
 test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  // The real-style conflict: the cafe at 16:30 for two hours, then the temple, where you must
+  // arrive by 18:30 (19:00, 30 min early) after a 45-min trip — leave the cafe by 17:35, not 18:30.
+  const CAFE = 'Square Enix Pop Up Cafe Yokohama'
+  const CONFLICT = [
+    { name: CAFE, hours: '', tag: 'mat', slot: '', lat: 35.4658, lng: 139.6223, dur: 120, fixedTime: '16:30' },
+    { name: 'Tokyo Temple', hours: '', tag: '', slot: '', lat: 35.6526, lng: 139.7279, dur: 120, fixedTime: '19:00', arriveEarly: 30, travelMin: 45, travelFrom: CAFE },
+  ]
+  const savedLeaveAt = (saves: any[], i: number, value: string) =>
+    expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[i].leaveAt, { timeout: 10000 }).toBe(value)
+
+  test('"Latest: HH:MM" in the sheet: the latest leave time for the next fixed time; it sets "Leave at" and the warning goes', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, CONFLICT, {}, '15:00')
+    const cafe = block(page, CAFE)
+    await expect(cafe).toHaveClass(/itl-warn-leave/)
+    await expect(cafe.locator('.itl-badge')).toHaveText(['⚠️ Leave 55 min earlier']) // 18:30 − 17:35
+    await cafe.locator('.itl-name').click()
+    const latest = page.locator('#itl-ed-latest')
+    await expect(latest).toHaveText('Latest: 17:35')
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('You can stay until 17:35') // the same time
+    await latest.click()
+    await savedLeaveAt(saves, 0, '17:35')
+    await expect(page.locator('#itl-ed-leaveat')).toHaveValue('17:35')
+    await expect(cafe).not.toHaveClass(/itl-warn-leave/)
+    await expect(cafe.locator('.itl-badge')).toHaveCount(0)
+    await expect(cafe.locator('.itl-time')).toHaveText('📌 16:30 · until 17:35')
+    // The temple: nothing fixed after it — no button.
+    await page.locator('#itl-detail-close').click()
+    await block(page, 'Tokyo Temple').locator('.itl-name').click()
+    await expect(latest).toBeHidden()
+  })
+
+  test('"Fix: leave at HH:MM" on the block\'s "Leave N min earlier": one tap, no sheet; the warning goes', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, CONFLICT, {}, '15:00')
+    const cafe = block(page, CAFE)
+    const fix = cafe.locator('.itl-badges .itl-fix')
+    await expect(fix).toHaveText('Fix: leave at 17:35')
+    await fix.click()
+    await expect(page.locator('#itl-detail')).toBeHidden()
+    await savedLeaveAt(saves, 0, '17:35')
+    await expect(cafe.locator('.itl-badge, .itl-fix')).toHaveCount(0)
+    await expect(cafe).not.toHaveClass(/itl-warn-leave/)
+  })
+
+  test('"Fix: leave at HH:MM" on "Doesn\'t fit" in the sheet: on the stop that runs into the cafe', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Yokohama Long Shop', hours: '', tag: '', slot: '', lat: 35.4658, lng: 139.6223, dur: 120, travelMin: 0, travelFrom: '__base__' }, // 15:00–17:00
+      ...CONFLICT.map((x) => (x.name === CAFE ? { ...x, dur: 60 } : x)),
+    ], {}, '15:00')
+    const shop = block(page, 'Yokohama Long Shop')
+    await expect(shop).toHaveClass(/itl-warn-fit/)
+    await shop.locator('.itl-name').click()
+    const fix = page.locator('#itl-detail-lines .itl-fix')
+    await expect(fix).toHaveText(/^Fix: leave at 16:[0-2]\d$/) // 16:30 − a short walk − 10 min
+    const time = (await fix.textContent())!.slice(-5)
+    await expect(page.locator('#itl-ed-latest')).toHaveText(`Latest: ${time}`)
+    await fix.click()
+    await savedLeaveAt(saves, 0, time)
+    await expect(shop).not.toHaveClass(/itl-warn-fit/)
+    await expect(shop.locator('.itl-badge, .itl-fix')).toHaveCount(0)
+    await expect(page.locator('#itl-detail-lines .itl-fix')).toHaveCount(0)
+    await expect(page.locator('#itl-detail')).toBeVisible() // still on the stop
+  })
+
   const shinjukuToYokohama = estimateLeg({ lat: 35.689356, lng: 139.697787 }, { lat: 35.464556, lng: 139.624649 })!.minutes
   const setLeave = async (page: Page, value: string) => {
     await page.locator('#itl-ed-leaveat').fill(value)

@@ -225,6 +225,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
             <button id="itl-ed-leaveat-clear" type="button" aria-label="Clear the leave time">✕</button>
           </span>
           <button id="itl-ed-until-close" type="button" class="itl-until-close" hidden>Until closing</button>
+          <button id="itl-ed-latest" type="button" class="itl-until-close" hidden>Latest</button>
         </label>
         <label id="itl-ed-early-label">Arrive early <span><input id="itl-ed-early" type="number" min="0" step="5" /> min</span></label>
         <label>Tag <input id="itl-ed-tag" type="text" list="itl-tag-options" placeholder="MUST, mat …" /></label>
@@ -263,7 +264,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, placeTypeIcon,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, placeTypeIcon, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -364,6 +365,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ? { date: testTimeEl.dataset.date!, minutes: Number(testTimeEl.dataset.minutes) }
       : tokyoNow()
 
+    // "Fix: leave at HH:MM" for a warning that leaving earlier fixes (itinerary-plan.ts leaveFixFor).
+    const fixButton = (t: number | null) => t == null ? '' : `<button type="button" class="itl-fix" data-time="${formatClock(t)}">Fix: leave at ${formatClock(t)}</button>`
+    const flightDeadlineFor = (day: PlanDay) => (flight && flight.date === day.day ? latestEndForFlight(flight) : null)
     // Which of "I'm here now" / "Leaving now" a stop offers — only on today's day in Tokyo:
     // "I'm here now" until you've got there, "Leaving now" until you've left. The same on the
     // block and in its edit sheet.
@@ -460,6 +464,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // Per block, the icons standing in for its rows: ⚠️ for the warnings, 🚆 the train line, ⏰ the
       // "Leave by" line's reminder.
       const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string; now: string }[] = []
+      // The flight home's deadline on its day (for the "Fix: leave at" buttons).
+      const flightDeadline = flight && flight.date === day.day ? latestEndForFlight(flight) : null
       // Stops: side by side in columns where they overlap (layoutTimeline).
       layout.stops.forEach((item) => {
         const el = document.createElement('div')
@@ -516,6 +522,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (lastTrain ? '<span class="itl-late-badge" title="' + esc(LAST_TRAIN_MESSAGE) + '">🚆 Last trains</span>' : '')
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
+          + fixButton(leaveFixFor(sched, item.index, flightDeadline))
         // The first line: "<name> · HH:MM–HH:MM · 📍 <area>" — the name is never hidden; the time
         // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
@@ -1019,8 +1026,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
       if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.leaveBy, shopById)}` })
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
-      if (x.doesntFit) lines.push(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
-      else if (x.leaveEarlierMin) lines.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
+      // The warning with its one-tap fix (leaveFixFor), when leaving earlier can fix it.
+      const fix = fixButton(leaveFixFor(sched, idx, flightDeadlineFor(day)))
+      if (x.doesntFit) lines.push({ html: `${esc(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)} ${fix}` })
+      else if (x.leaveEarlierMin) lines.push({ html: `${esc(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)} ${fix}` })
       if (x.arrivesAfterLeave != null) lines.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
       // The train here, in full: the whole trip, then each train.
       const trainV = s.train ? validateTrain(s.train) : null
@@ -1086,6 +1095,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const untilBtn = document.querySelector('#itl-ed-until-close') as HTMLButtonElement
       untilBtn.hidden = closes == null
       if (closes != null) { untilBtn.dataset.time = formatClock(closes); untilBtn.textContent = `Until closing (${formatClock(closes)})` }
+      // "Latest: HH:MM": the latest you can leave and still make the next fixed time, train or
+      // flight (latestLeaveFor) — hidden when nothing after this stop has one.
+      const latest = latestLeaveFor(sched, idx, flightDeadlineFor(day))
+      const latestBtn = document.querySelector('#itl-ed-latest') as HTMLButtonElement
+      latestBtn.hidden = latest == null
+      if (latest != null) { latestBtn.dataset.time = formatClock(latest); latestBtn.textContent = `Latest: ${formatClock(latest)}` }
       ed('time').value = s.fixedTime || ''
       ed('early').value = typeof s.arriveEarly === 'number' ? String(s.arriveEarly) : ''
       ;(document.querySelector('#itl-ed-early-label') as HTMLElement).hidden = !s.fixedTime
@@ -1121,6 +1136,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     ed('time').addEventListener('change', withStop((s, idx, day) => { setFixedTime(day, idx, ed('time').value, base, shopById); changed() }))
     ed('leaveat').addEventListener('change', withStop((s) => { setLeaveAt(s, ed('leaveat').value); changed() }))
     document.querySelector('#itl-ed-leaveat-clear')!.addEventListener('click', withStop((s) => { setLeaveAt(s, ''); changed() }))
+    document.querySelector('#itl-ed-latest')!.addEventListener('click', withStop((s) => {
+      setLeaveAt(s, (document.querySelector('#itl-ed-latest') as HTMLElement).dataset.time || ''); changed()
+    }))
+    // "Fix: leave at HH:MM" on a warning in the sheet.
+    document.querySelector('#itl-detail-lines')!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.itl-fix') as HTMLElement | null
+      if (btn) withStop((s) => { setLeaveAt(s, btn.dataset.time || ''); changed() })()
+    })
     document.querySelector('#itl-ed-until-close')!.addEventListener('click', withStop((s) => {
       setLeaveAt(s, (document.querySelector('#itl-ed-until-close') as HTMLElement).dataset.time || '')
       changed()
@@ -1317,6 +1340,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!block || target.closest('.itn-reminder')) return
       const idx = Number(block.dataset.index)
       if (target.closest('.itl-train-line')) { openTravelEditor(idx); return }
+      // "Fix: leave at HH:MM" on the block's warning: that leave time on this stop.
+      const fixBtn = target.closest('.itl-fix') as HTMLElement | null
+      if (fixBtn) { setLeaveAt(currentDayPlan().stops[idx], fixBtn.dataset.time || ''); changed(); return }
       if (target.closest('.itl-here')) { markNow('here', currentDayPlan(), idx); return }
       if (target.closest('.itl-leave')) { markNow('leave', currentDayPlan(), idx); return }
       showDetails(idx)
@@ -1709,6 +1735,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text);
     }
     .itl-here-hint { font-size: 0.75rem; color: var(--muted); }
+    .itl-fix {
+      font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 5px; cursor: pointer; min-height: 24px;
+      background: var(--bg); color: var(--text); border: 1px solid #e74c3c; white-space: nowrap;
+    }
     .itl-here-hint[hidden] { display: none; }
     .itl-type { flex-shrink: 0; margin-right: 0.2rem; font-size: 0.75rem; }
     .itl-photos { display: flex; flex-wrap: nowrap; gap: 0.25rem; overflow: hidden; margin-top: 0.15rem; flex-shrink: 0; }

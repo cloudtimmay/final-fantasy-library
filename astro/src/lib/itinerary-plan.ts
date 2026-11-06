@@ -464,3 +464,26 @@ export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<st
   if (sched.returnLeg?.mode === 'train') { legs++; estimate = true }
   return legs ? { totalYen, estimate } : null
 }
+
+// "Latest: HH:MM" and "Fix: leave at HH:MM": the latest stop idx can be left and still be on time
+// for what comes after it — the next anchor (fixed time, arrive-early, train: the schedule's
+// latestLeave, the same as "You can stay until"), else on the flight-home day the time to leave
+// for the airport (`flightLatest`, itinerary-review-helpers.ts latestEndForFlight) less the rest of
+// the day and the trip back to the base. null when nothing after it has a deadline, or it's left.
+export function latestLeaveFor(sched: DaySchedule, idx: number, flightLatest: number | null = null): number | null {
+  const x = sched.stops[idx]
+  if (!x || x.visited) return null
+  if (x.latestLeave != null) return x.latestLeave
+  if (flightLatest == null) return null
+  let t = flightLatest - (sched.returnLeg?.minutes ?? 0)
+  for (let k = sched.stops.length - 1; k > idx; k--) t -= (sched.stops[k].end - sched.stops[k].start) + sched.stops[k].travelIn.minutes
+  return t
+}
+// The one-tap fix for a stop's "Doesn't fit" / "Leave N min earlier": leave it at latestLeaveFor —
+// only when that is after the visit starts (otherwise leaving earlier can't fix it). null otherwise.
+export function leaveFixFor(sched: DaySchedule, idx: number, flightLatest: number | null = null): number | null {
+  const x = sched.stops[idx]
+  if (!x || !(x.doesntFit || x.leaveEarlierMin)) return null
+  const t = latestLeaveFor(sched, idx, flightLatest)
+  return t != null && t > x.start ? t : null
+}

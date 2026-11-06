@@ -93,6 +93,9 @@ export type ScheduledStop = {
   nextIsAnchor: boolean
   leaveEarlierMin: number | null // the stop ends this much later than leaveBy (only before an anchor)
   stayUntil: number | null // fixed stops followed by an anchor
+  // Any stop followed by an anchor (fixed time, arrive-early, train): the latest it can end and
+  // still make it — for a fixed stop the same as stayUntil. null when nothing after it is fixed.
+  latestLeave: number | null
   doesntFit: { anchorIndex: number; anchorTime: number; shortMin: number } | null
   actual: boolean // its times come from actualStart/actualEnd
   visited: boolean // already left (actualEnd set)
@@ -156,7 +159,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       : start + s.durationMin
     out.push({
       arrival, start, end, fixed: s.fixedTime != null, travelIn: legs[i],
-      leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, doesntFit: null,
+      leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, latestLeave: null, doesntFit: null,
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
       arrivesAfterLeave: late ? leaveAt : null,
       trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
@@ -196,6 +199,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     o.leaveBy = trains[i + 1] ? trainLeaveBy(trains[i + 1]!) : o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
     if (o.nextIsAnchor && o.end > o.leaveBy && !o.visited) o.leaveEarlierMin = o.end - o.leaveBy
     if (nextAnchor[i] == null || latestEnd[i] == null) return
+    if (!o.visited) o.latestLeave = latestEnd[i]
     if (o.fixed) {
       o.stayUntil = latestEnd[i]
       if (o.end > latestEnd[i]! && !o.visited) o.leaveEarlierMin = o.end - latestEnd[i]!

@@ -30,6 +30,7 @@ Final Fantasy Library — a personal collection tracker (albums/games/books/merc
 - Exception: a step that changes `Base.astro`, `sw.js`, a shared module in `src/lib/`, or a shared `public/*.js` script gets the full suite before that step's commit.
 - No live requests to real stores or the real AI API unless Kim asks for it. Use mocks and saved HTML/JSON samples.
 - Report how long each test run took.
+- Restart the dev server (`npm run dev:test`) before a full-suite run or a long test session if it has been running for a long time: a long-running dev server makes the suite much slower (the itinerary specs took 5.9–6.6 min on one, 3.2 min on a fresh one), causes timeouts under parallel load, and has died mid-session. If tests suddenly slow down or time out, check and restart it before suspecting the code.
 - The suite runs in parallel (4 workers, `fullyParallel`; `PW_WORKERS=1` for a serial run) against the one shared `development` dataset, and reuses an already running dev server (`npm run dev:test`). Not more than 4: at 6, Sanity's per-IP write rate limit made a different test fail on most full runs. That is only safe because every test touches nothing but its own fixtures:
   - names start with `[test] ` (`testName()`), and documents are deleted with `trackDoc()`
   - barcodes/ISBNs written to Sanity come from `uniqueJan()`, never a hard-coded code — price entries group by JAN, so a shared code makes parallel tests see each other's data

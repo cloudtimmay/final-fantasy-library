@@ -962,7 +962,8 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   test('the timeline\'s edit sheet: a strip of small photos with captions; a tap opens the lightbox', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
     await openTimeline(page, sanity, trackDoc, stops(shop._id), {}, '10:00')
-    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: shop.shopName }) }).click()
+    // The name: the middle of the block may be one of its row photos (lightbox).
+    await page.locator('.itl-block .itl-name', { hasText: shop.shopName }).click()
     const strip = page.locator('#itl-ed-photos')
     await expect(strip).toBeVisible()
     await expect(strip.locator('.shop-photo img')).toHaveCount(3)
@@ -981,45 +982,81 @@ test.describe('itinerary: the linked shop\'s photos', () => {
     await expect(strip).toBeHidden()
   })
 
-  test('a tall block shows a small photo (the shop\'s first, else the newest find), a short one none; the photo opens the lightbox, the rest the sheet', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+  test('a tall block has a row of photos under its text (the shop\'s, then the newest finds), a short one none; a photo opens the lightbox, the rest the sheet', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
-    // A shop with no photos of its own, only a find with a photo.
-    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'block-thumb-find.png' })
+    // A find with a photo at the same shop: after the shop's own photos.
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'block-row-find.png' })
     uploadedAssets.push(asset._id)
-    const finds = await sanity.create({ _type: 'shopNote', shopName: testName(`Thumb Finds Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
-    trackDoc(finds._id)
     const price = await sanity.create({
-      _type: 'priceEntry', productName: testName('Thumb Find'), jan: uniqueJan(), price: 2200, currency: 'JPY', sourceType: 'japanStore',
-      shop: { _type: 'reference', _ref: finds._id, _weak: true }, status: 'considering', seenAt: '2026-11-03T10:00:00Z',
+      _type: 'priceEntry', productName: testName('Row Find'), jan: uniqueJan(), price: 2200, currency: 'JPY', sourceType: 'japanStore',
+      shop: { _type: 'reference', _ref: shop._id, _weak: true }, status: 'considering', seenAt: '2026-11-03T10:00:00Z',
       image: { _type: 'image', asset: { _type: 'reference', _ref: asset._id } },
     })
     trackDoc(price._id)
     await openTimeline(page, sanity, trackDoc, [
       ...stops(shop._id), // 60 min each: 135 px at the default zoom
-      { name: 'Short Thumb Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 20, shopId: shop._id }, // 45 px
-      { name: 'Finds Thumb Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId: finds._id },
+      { name: 'Short Row Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 20, shopId: shop._id }, // 45 px
     ], {}, '10:00')
     const blocks = page.locator('.itl-block')
-    const tall = blocks.filter({ has: page.locator('.itl-name', { hasText: shop.shopName }) }).first()
-    const thumb = tall.locator('.itl-thumb')
-    await expect(thumb).toBeVisible()
-    await expect(thumb).toHaveAttribute('src', /^https:\/\/cdn\.sanity\.io\/images\/.+w=96&fit=max&auto=format$/)
-    expect((await thumb.boundingBox())!.width).toBeLessThanOrEqual(46)
-    // The short block for the same shop: none.
+    const tall = blocks.first()
+    const row = tall.locator('.itl-photos')
+    await expect(row).toBeVisible()
+    await expect(row.locator('img')).toHaveCount(4)
+    // The shop's three photos, then the find's.
+    expect(await row.locator('img').evaluateAll((ims) => ims.map((i) => i.getAttribute('alt')))).toEqual(['Floor guide', '4F retro games', `${shop.shopName} photo`, price.productName])
+    await expect(row.locator('img').first()).toHaveAttribute('src', /^https:\/\/cdn\.sanity\.io\/images\/.+w=96&fit=max&auto=format$/)
+    // Small, under the text, each whole inside the row; the name line from the left edge.
+    const first = (await tall.locator('.itl-first').boundingBox())!, rowBox = (await row.boundingBox())!, box = (await tall.boundingBox())!
+    expect(rowBox.y).toBeGreaterThanOrEqual(first.y + first.height - 0.5)
+    for (const img of await row.locator('img').all()) {
+      const r = (await img.boundingBox())!
+      expect(r.width).toBeLessThanOrEqual(37)
+      expect(r.x + r.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 0.5)
+    }
+    expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(box.y + box.height + 0.5)
+    expect(first.x - box.x).toBeLessThan(14) // no room kept for a photo on the left
+    // The short block for the same shop: none, and not made compact for it.
     const short = blocks.nth(2)
     await expect(short).toHaveAttribute('data-dur', '20')
-    await expect(short.locator('.itl-thumb')).toHaveCount(0)
-    // No photo of its own: the find's.
-    await expect(blocks.filter({ has: page.locator('.itl-name', { hasText: finds.shopName }) }).locator('.itl-thumb')).toBeVisible()
-    await expect(blocks.filter({ has: page.locator('.itl-name', { hasText: 'No Shop Stop' }) }).locator('.itl-thumb')).toHaveCount(0)
+    await expect(short.locator('.itl-photos')).toHaveCount(0)
+    await expect(blocks.filter({ has: page.locator('.itl-name', { hasText: 'No Shop Stop' }) }).locator('.itl-photos')).toHaveCount(0)
 
-    await thumb.click()
+    await row.locator('img').nth(3).click()
     await expect(page.locator('dialog.lb-dialog')).toBeVisible()
     await expect(page.locator('.lb-img')).toHaveAttribute('src', /w=2000/)
     await page.locator('.lb-close').click()
     await expect(page.locator('#itl-detail')).toBeHidden() // the photo, not the sheet
     await tall.locator('.itl-name').click()
     await expect(page.locator('#itl-detail')).toBeVisible()
+  })
+
+  test('the place type before the name (🛍️ 🍜 🗼 📌; a shop without a type is a shop), in the sheet\'s title too; none for an unlinked stop', async ({ page, sanity, trackDoc }) => {
+    const types = ['shop', 'restaurant', 'sight', 'other', undefined]
+    const shops = []
+    for (const type of types) {
+      const doc = await sanity.create({ _type: 'shopNote', shopName: testName(`Type ${type || 'none'} Place ${Date.now()}`), latitude: 35.7, longitude: 139.77, ...(type ? { placeType: type } : {}) })
+      trackDoc(doc._id)
+      shops.push(doc)
+    }
+    await openTimeline(page, sanity, trackDoc, [
+      ...shops.map((sh) => ({ name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, shopId: sh._id })),
+      { name: 'Unlinked Type Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], {}, '10:00')
+    const block = (name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+    const expected = [['🛍️', 'Shop'], ['🍜', 'Restaurant'], ['🗼', 'Sight to see'], ['📌', 'Other'], ['🛍️', 'Shop']]
+    for (let i = 0; i < shops.length; i++) {
+      const icon = block(shops[i].shopName).locator('.itl-first .itl-type')
+      await expect(icon).toHaveText(expected[i][0])
+      await expect(icon).toHaveAttribute('aria-label', expected[i][1])
+    }
+    await expect(block('Unlinked Type Stop').locator('.itl-type')).toHaveCount(0)
+    // The sheet's title.
+    await block(shops[1].shopName).locator('.itl-name').click()
+    await expect(page.locator('#itl-detail-name')).toHaveText(`🍜 ${shops[1].shopName}`)
+    await page.locator('#itl-detail-close').click()
+    await block('Unlinked Type Stop').locator('.itl-name').click()
+    await expect(page.locator('#itl-detail-name')).toHaveText('Unlinked Type Stop')
+    await expect(page.locator('#itl-detail-name .itl-type')).toHaveCount(0)
   })
 
   test('the list\'s ⋯ panel shows the same strip', async ({ page, sanity, trackDoc, uploadedAssets }) => {
@@ -1113,7 +1150,7 @@ test.describe('/itinerary: "Found here" in the edit sheet, and the empty states'
     const { trip } = await openTimeline(page, sanity, trackDoc, [stop('A', withFinds._id), stop('B', bare._id), stop('Unlinked Strip Stop')], {}, '10:00')
 
     // The shop with finds (and no photos).
-    await block(page, withFinds.shopName).click()
+    await block(page, withFinds.shopName).locator('.itl-name').click() // not the photo row
     const found = page.locator('#itl-ed-found')
     await expect(found).toBeVisible()
     await expect(found.locator('.itl-strip-title')).toHaveText('🔎 Found here')
@@ -1134,7 +1171,7 @@ test.describe('/itinerary: "Found here" in the edit sheet, and the empty states'
 
     // A shop with nothing found: no "Found here" strip.
     await block(page, bare.shopName).click()
-    await expect(page.locator('#itl-detail-name')).toHaveText(bare.shopName)
+    await expect(page.locator('#itl-detail-name')).toHaveText(`🛍️ ${bare.shopName}`)
     await expect(found).toBeHidden()
     await expect(empty).toBeVisible()
     await page.locator('#itl-detail-close').click()
@@ -1249,7 +1286,7 @@ test.describe('/itinerary: "Found here" — the name opens the price, and "✅ B
     return { shop, docs }
   }
   const openSheet = async (page: Page, shopName: string) => {
-    await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: shopName }) }).click()
+    await page.locator('.itl-block .itl-name', { hasText: shopName }).click() // not the photo row
     await expect(page.locator('#itl-ed-found')).toBeVisible()
   }
 
@@ -1953,7 +1990,7 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
       { name: 'Next', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
     ], {}, '10:00')
     const b = block(page, 'A Rather Long')
-    await expect(b.locator('.itl-first')).toHaveText(/^\[test\] A Rather Long .* · 10:\d\d–10:\d\d · 📍 Akihabara$/)
+    await expect(b.locator('.itl-first')).toHaveText(/^🛍️\[test\] A Rather Long .* · 10:\d\d–10:\d\d · 📍 Akihabara$/)
     const name = (await b.locator('.itl-name').boundingBox())!, box = (await b.boundingBox())!
     expect(name.width).toBeGreaterThan(40) // never squeezed away
     expect(name.y + name.height).toBeLessThanOrEqual(box.y + box.height)

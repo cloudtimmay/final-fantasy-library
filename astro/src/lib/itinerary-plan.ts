@@ -46,6 +46,18 @@ export type PlanShop = {
   openingHours?: string | null
   address?: string | null; area?: string | null
   photos?: { caption?: string | null; url: string }[] | null // shopNote.photos (floor guides …)
+  placeType?: string | null // shopNote.placeType: shop | restaurant | sight | other
+}
+
+// The shopNote schema's place type icons (sanity/schemaTypes/shopNote.ts). A shop saved without a
+// type counts as a shop (its initial value), as on /prices; an unknown value as "other".
+export const PLACE_TYPE_ICONS: Record<string, { icon: string; label: string }> = {
+  shop: { icon: '🛍️', label: 'Shop' }, restaurant: { icon: '🍜', label: 'Restaurant' },
+  sight: { icon: '🗼', label: 'Sight to see' }, other: { icon: '📌', label: 'Other' },
+}
+export function placeTypeIcon(shop: PlanShop | null | undefined): { icon: string; label: string } | null {
+  if (!shop) return null
+  return PLACE_TYPE_ICONS[shop.placeType || 'shop'] || PLACE_TYPE_ICONS.other
 }
 export type SavedDays = Record<string, { startTime?: string; stops?: PlanStop[] }>
 

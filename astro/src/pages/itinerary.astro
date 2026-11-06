@@ -263,7 +263,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, placeTypeIcon,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -292,13 +292,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
     const { plan, days, labels, flight, base, shops, savedState } = DATA
     const foundByShop: Record<string, FoundItem[]> = DATA.found || {}
-    // A block's thumbnail (tall blocks only): the linked shop's first photo, else the newest
-    // "Found here" photo (lib/shop-found.ts lists them newest first), else none.
-    const THUMB_MIN_PX = 72
-    function blockPhoto(s: PlanStop): string | null {
-      if (!s.shopId) return null
-      const photo = (shopById.get(s.shopId)?.photos || []).find((p) => p && p.url)
-      return photo ? photo.url : (foundByShop[s.shopId] || []).find((f) => f.imageUrl)?.imageUrl || null
+    // A block's photo row: the linked shop's photos, then its "Found here" photos newest first
+    // (lib/shop-found.ts sorts them) — at most a row's worth; render() keeps the ones that fit.
+    const ROW_PHOTOS_MAX = 10
+    function blockPhotos(s: PlanStop): { url: string; alt: string }[] {
+      if (!s.shopId) return []
+      const shop = shopById.get(s.shopId)
+      const own = (shop?.photos || []).filter((p) => p && p.url).map((p) => ({ url: p.url, alt: p.caption || `${shop?.shopName || 'Shop'} photo` }))
+      const finds = (foundByShop[s.shopId] || []).filter((f) => f.imageUrl).map((f) => ({ url: f.imageUrl!, alt: f.name }))
+      return [...own, ...finds].slice(0, ROW_PHOTOS_MAX)
     }
     const foundRate: number | null = DATA.foundRate ?? null
     // The trip's own rate, for the train fares' ≈ NOK.
@@ -518,7 +520,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
         const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train))}</span>` : ''
-        const firstLine = () => `<span class="itl-first"><span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
+        // The linked shop's place type (🛍️ 🍜 🗼 📌) before the name; none for a stop without a shop.
+        const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
+        const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span>` : ''
+        const firstLine = () => `<span class="itl-first">${typeIcon}<span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
             area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>`
         // For a block too short for all its rows (see below): small icons on the first line —
         // ⚠️ (its title lists the warnings), 🚆 the train, ⏰ the reminder link.
@@ -536,13 +541,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
             ? '<button type="button" class="itl-here itl-icon-btn" aria-label="I\'m here now" title="I\'m here now">📍</button>'
             : now.leave ? '<button type="button" class="itl-leave itl-icon-btn" aria-label="Leaving now" title="Leaving now">✅</button>' : '',
         })
-        // A small photo on the left of a tall block; a tap opens it in the lightbox (public/
-        // lightbox.js takes the tap before the block's own handler), anywhere else the sheet.
-        const photo = item.height >= THUMB_MIN_PX ? blockPhoto(s) : null
-        if (photo) el.classList.add('itl-has-thumb')
-        const thumb = photo ? `<img class="itl-thumb" src="${esc(cdnImage(photo, 96))}" data-lightbox="${esc(cdnImage(photo, 2000))}" alt="${esc(r.name)} photo" loading="lazy" />` : ''
+        // A row of small photos under the text — only where the block has room for it (see
+        // below); a tap opens one in the lightbox (public/lightbox.js takes the tap before the
+        // block's own handler), anywhere else the sheet.
+        const photos = blockPhotos(s)
+        const photoRow = photos.length ? `<span class="itl-photos">${photos.map((p) =>
+          `<img src="${esc(cdnImage(p.url, 96))}" data-lightbox="${esc(cdnImage(p.url, 2000))}" alt="${esc(p.alt)}" loading="lazy" />`).join('')}</span>` : ''
         // Rows in order of importance: a short block drops them from the bottom (see below).
-        el.innerHTML = `${thumb}
+        el.innerHTML = `
           ${firstLine()}
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
@@ -550,7 +556,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           ${leaveBy}
           ${x.trainEarly ? `<span class="itl-hint">💡 ${esc(trainEarlyHint(x.trainEarly))}</span>` : ''}
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}
-          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}`
+          ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
+          ${photoRow}`
         grid.appendChild(el)
       })
 
@@ -596,10 +603,19 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // row cut in half. What went shows as an icon on the first line; a 10-minute visit is then
       // just "name · time · area" with its icons. The edit sheet has everything in full.
       const fits = (el: HTMLElement) => el.scrollHeight <= el.clientHeight + 1
+      // The photo row goes first, and only it: a block without room for it is simply without it
+      // (the sheet has the photos). Where it stays, only the photos that fit whole in its width.
+      for (const c of compactCandidates) {
+        const row = c.el.querySelector('.itl-photos') as HTMLElement | null
+        if (!row) continue
+        if (!fits(c.el)) { row.remove(); continue }
+        for (const img of [...row.children] as HTMLElement[]) if (img.offsetLeft + img.offsetWidth > row.clientWidth + 0.5) img.remove()
+        if (!row.children.length) row.remove()
+      }
       for (const c of compactCandidates) {
         if (fits(c.el)) continue
         const first = c.el.querySelector('.itl-first') as HTMLElement
-        const rows = [...c.el.children].filter((r) => r !== first && !r.classList.contains('itl-thumb')) as HTMLElement[]
+        const rows = [...c.el.children].filter((r) => r !== first) as HTMLElement[]
         const gone = new Set<string>()
         for (let i = rows.length - 1; i >= 0 && !fits(c.el); i--) {
           gone.add(rows[i].className.split(' ')[0])
@@ -1029,7 +1045,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // The name opens the linked shop's page, which links back to this day.
       const nameEl = document.querySelector('#itl-detail-name') as HTMLElement
       const stopName = resolveStop(s, shopById).name
-      if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
+      // With the place type's icon, as on the block.
+      const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
+      const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span> ` : ''
+      if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `${typeIcon}<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
       else nameEl.textContent = stopName
       // The linked shop's photos and "Found here"; each strip only when it has something, and
       // "No shop photos yet" (with a link to the shop page) for a linked shop without photos.
@@ -1691,10 +1710,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     .itl-here-hint { font-size: 0.75rem; color: var(--muted); }
     .itl-here-hint[hidden] { display: none; }
-    .itl-block.itl-has-thumb { padding-left: calc(0.45rem + 48px); }
-    .itl-thumb {
-      position: absolute; left: 0.35rem; top: 0.3rem; width: 44px; height: 44px; object-fit: cover;
-      border-radius: 4px; background: var(--bg); border: 1px solid var(--border);
+    .itl-type { flex-shrink: 0; margin-right: 0.2rem; font-size: 0.75rem; }
+    .itl-photos { display: flex; flex-wrap: nowrap; gap: 0.25rem; overflow: hidden; margin-top: 0.15rem; flex-shrink: 0; }
+    .itl-photos img {
+      flex: 0 0 auto; width: 36px; height: 36px; object-fit: cover; border-radius: 4px;
+      background: var(--bg); border: 1px solid var(--border); box-sizing: border-box;
     }
     .itl-gmaps { display: inline-block; margin: 0.3rem 0; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
   </style>

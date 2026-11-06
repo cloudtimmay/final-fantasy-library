@@ -96,6 +96,15 @@ export const tripSettings = defineType({
       fieldset: 'itinerary',
       description: 'e.g. T1',
     }),
+    // Train fares in the itinerary: "¥6,670 × 5 = ¥33,350" (a train trip can say otherwise).
+    defineField({
+      name: 'travelers',
+      title: 'Travelers',
+      type: 'number',
+      fieldset: 'itinerary',
+      description: 'How many travel together — the itinerary multiplies train fares by it. Empty = 5.',
+      validation: (R) => R.integer().min(1).max(20),
+    }),
     defineField({ name: 'budgetNok', title: 'Budget (NOK)', type: 'number' }),
     defineField({ name: 'budgetYen', title: 'Budget (JPY)', type: 'number' }),
     defineField({ name: 'jpyToNokRate', title: 'JPY → NOK rate', type: 'number', initialValue: 0.060, description: 'e.g. 0.060 means 1 JPY = 0.060 NOK' }),

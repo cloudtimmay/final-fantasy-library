@@ -244,3 +244,68 @@ test.describe('trains on the last legs, and travelers', () => {
     expect(dayTrainFaresText(mixed, null)).toBe('🚆 Trains today: ¥7,340 per person · ¥34,690 for everyone')
   })
 })
+
+// The real case: 6 Dec 2026, flight 23:00 from Narita (T1); the last stop in Shinjuku, then the
+// Narita Express: walk 10 min, Shinjuku 18:15 → Narita Airport Terminal 1 19:40, walk 5 min.
+const NEX = { walkToStationMin: 10, walkFromStationMin: 5, legs: [{ line: 'Narita Express', train: 'NEX 37', fromStation: 'Shinjuku', departure: '18:15', platform: '5', toStation: 'Narita Airport Terminal 1', arrival: '19:40' }] }
+
+test.describe('the train to the airport from the last stop, and Check day', () => {
+  test('the leg after the last stop: its leave-by, Latest and Fix follow the train; the day ends at the airport', async () => {
+    const { computeDayTimes, lastLegTrain, latestLeaveFor, leaveFixFor, flightDeadline } = await import('../src/lib/itinerary-plan')
+    const day: any = { day: '2026-12-06', startTime: '16:00', stops: [{ name: 'Shinjuku Shop', lat: 35.6905, lng: 139.7005, dur: 90, travelMin: 0, travelFrom: '__base__' }], airportTrain: NEX }
+    expect(lastLegTrain(day)).toEqual({ train: NEX, toAirport: true })
+    let { sched } = computeDayTimes(day, BASE, new Map())
+    expect(sched.stops[0]).toMatchObject({ end: t('17:30'), leaveBy: t('17:55'), leaveEarlierMin: null }) // 18:15 − 10 − 10
+    expect(sched.end).toBe(t('19:45')) // at the airport: 19:40 + 5
+    expect(latestLeaveFor(sched, 0)).toBe(t('17:55'))
+    expect(flightDeadline(day, { date: '2026-12-06', time: '23:00', airport: 'Narita' })).toMatchObject({ leaveBy: t('17:55'), atAirport: t('19:45'), checkInBy: t('20:00'), late: false })
+    // Staying too long: leave earlier, and the fix is the train's leave-by.
+    ;({ sched } = computeDayTimes({ ...day, stops: [{ ...day.stops[0], dur: 150 }] }, BASE, new Map()))
+    expect(sched.stops[0].leaveEarlierMin).toBe(t('18:30') - t('17:55'))
+    expect(leaveFixFor(sched, 0)).toBe(t('17:55'))
+    // Without stops: no leg after a stop — the train leaves from the base (flightDeadline).
+    expect(lastLegTrain({ ...day, stops: [] }).toAirport).toBe(false)
+  })
+
+  test('Check day gets the train; the deadline is its arrival at the airport, not the fixed estimate', async () => {
+    const { checkDayRequestBody } = await import('../src/lib/itinerary-plan')
+    const { flightDeadlineWarning, buildUserPrompt } = await import('../src/lib/itinerary-review-helpers')
+    const day: any = { day: '2026-12-06', date: '6. des (søn)', area: 'Shinjuku', startTime: '16:00', stops: [{ name: 'Shinjuku Shop', lat: 35.6905, lng: 139.7005, dur: 90 }], airportTrain: NEX }
+    const body = checkDayRequestBody(day, { base: BASE, shopById: new Map(), flight: { date: '2026-12-06', time: '23:00', airport: 'Narita', terminal: 'T1' } })
+    expect(body.flight).toEqual({ time: '23:00', airport: 'Narita', terminal: 'T1', airportTrain: NEX })
+    expect('returnTrain' in body).toBe(false)
+    const flight = { time: '23:00', airport: 'Narita', terminal: 'T1' }
+    const stops = [{ name: 'Shinjuku Shop', plannedTime: t('16:00'), durationMin: 90, lat: 35.6905, lng: 139.7005 }]
+    // At the airport 19:45, before check-in closes at 20:00: no warning — even though the old
+    // estimate (leave central Tokyo by 18:30) would be fine here too; a later train is flagged.
+    expect(flightDeadlineWarning(stops, flight, t('19:45'), { leaveBy: t('17:55'), atAirport: t('19:45') })).toBeNull()
+    expect(flightDeadlineWarning(stops, flight, t('20:25'), { leaveBy: t('18:35'), atAirport: t('20:25') })).toMatchObject({
+      severity: 'warning', message: 'The train to the airport gets there at 20:25, but for the 23:00 flight from Narita you should be there by 20:00 (3 hours before).',
+    })
+    // A late last stop with the train in time: the train decides, not "end by 18:30".
+    expect(flightDeadlineWarning([{ ...stops[0], durationMin: 150 }], flight, t('19:45'), { leaveBy: t('17:55'), atAirport: t('19:45') })).toBeNull()
+    const prompt = buildUserPrompt('Sunday 6 December 2026', 'Shinjuku', '16:00', stops as any, [null], [null], flight, null, [], null, [null],
+      { summary: '18:15 Narita Express NEX 37 (5) → Narita Airport Terminal 1 19:40', leaveBy: t('17:55'), atAirport: t('19:45') })
+    expect(prompt).toContain('Train to the airport, chosen by the owner, from the day\'s last stop: 18:15 Narita Express NEX 37 (5) → Narita Airport Terminal 1 19:40. Leave the last stop by 17:55; it reaches the airport at 19:45.')
+    expect(prompt).toContain('so by 20:00')
+    expect(prompt).not.toContain('allow about 90 minutes')
+  })
+
+  test('the list\'s "Next" banner: leave the last stop for the airport train', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: `[test] NEX Trip ${Date.now()}`, firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06', flightHomeDate: '2026-12-06', flightHomeTime: '23:00', flightHomeAirport: 'Narita', flightHomeTerminal: 'T1' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.clock.setFixedTime(new Date('2026-12-06T17:00:00+09:00'))
+    await page.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    await page.evaluate((nex) => {
+      // @ts-ignore - globals of the list's inline script
+      const d = state.find((x) => x.day === '2026-12-06'); d.startTime = '16:00'
+      d.stops = [{ name: 'Shinjuku Shop', hours: '', tag: '', slot: '', lat: 35.6905, lng: 139.7005, dur: 90, travelMin: 0, travelFrom: '__base__' }]
+      d.airportTrain = nex
+      // @ts-ignore
+      render()
+    }, NEX)
+    await expect(page.locator('#itn-next')).toHaveText('Next: leave Shinjuku Shop by 17:55 for Narita Airport (in 55 min)')
+  })
+})

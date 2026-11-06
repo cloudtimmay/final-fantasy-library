@@ -274,13 +274,19 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
           if (x.leaveBy == null || !day.stops[si + 1]) return
           entries.push({ date: day.day, from: resolveStop(day.stops[si]).name, to: resolveStop(day.stops[si + 1]).name, leaveBy: x.leaveBy, lastTrain: lateTrains.has(si + 1) })
         })
-        // And the trip back to the base after the last stop (the day warning's late train).
+        // And the leg after the last stop (the day warning's late train): to the airport on the flight
+        // day when its train is planned — leave by that train's leave-by — else back to the base
+        // (by its train's leave-by when one is planned, else when the visit ends).
         const last = sched.stops[sched.stops.length - 1]
-        if (last) entries.push({ date: day.day, from: resolveStop(day.stops[day.stops.length - 1]).name, to: 'the base', leaveBy: last.end, lastTrain: lateTrains.has(day.stops.length) })
+        const airportLeg = flight && flight.date === day.day ? LIB().flightDeadline(day, flight) : null
+        const toAirport = !!(airportLeg && airportLeg.train)
+        if (last) entries.push({ date: day.day, from: resolveStop(day.stops[day.stops.length - 1]).name, to: toAirport ? `${flight.airport} Airport` : 'the base', leaveBy: last.leaveBy ?? last.end, lastTrain: lateTrains.has(day.stops.length) })
+        // A flight day without stops: leave the base for the airport train.
+        else if (toAirport) entries.push({ date: day.day, from: 'the base', to: `${flight.airport} Airport`, leaveBy: airportLeg.leaveBy })
       })
       const next = window.__routeOptimizer.nextLeave(entries)
       nextEl.hidden = !next
-      if (next) nextEl.textContent = `Next: leave ${next.from} by ${fmt(next.leaveBy)} (${next.inMin === 0 ? 'now' : `in ${next.inMin} min`})`
+      if (next) nextEl.textContent = `Next: leave ${next.from} by ${fmt(next.leaveBy)}${/Airport$/.test(next.to) ? ` for ${next.to}` : ''} (${next.inMin === 0 ? 'now' : `in ${next.inMin} min`})`
         + (next.lastTrain ? ` — 🚆 ${LIB().LAST_TRAIN_MESSAGE}` : '')
     }
     // Refreshed just after each minute starts (Japan's offset is whole hours, so the phone's

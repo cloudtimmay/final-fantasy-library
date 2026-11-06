@@ -1,16 +1,18 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
 import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
-import { scheduleDay, type ScheduleStopInput } from '../../lib/itinerary-schedule'
+import { scheduleDay, trainLeaveBy, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
 import { validateTrain, trainTimes, trainSummary, type TrainPlan } from '../../lib/train-plan'
 
-// A stop's train from the request, only when it's valid.
-const trainOf = (raw: any): TrainPlan | null => {
-  const v = raw?.train ? validateTrain(raw.train) : null
+// A train from the request, only when it's valid.
+const validTrain = (raw: unknown): TrainPlan | null => {
+  const v = raw ? validateTrain(raw) : null
   return v && 'train' in v ? v.train : null
 }
+// A stop's train from the request.
+const trainOf = (raw: any): TrainPlan | null => validTrain(raw?.train)
 
 export const prerender = false
 
@@ -108,7 +110,15 @@ export const POST: APIRoute = async ({ request }) => {
   })
   const base = point(body.base)
   const startMin = hhmm(dayStartTime) ?? stops[0].plannedTime
-  const daySchedule = base ? scheduleDay(scheduleInputs, startMin, base) : null
+  // The leg after the last stop (lib/itinerary-plan.ts lastLegTrain): the train to the airport on the
+  // flight day when one is planned (the day ends at the airport), else a train back to the base.
+  const airportTrainTimes = flight ? trainTimes(body.flight?.airportTrain ? validTrain(body.flight.airportTrain) : null) : null
+  const returnTrainTimes = !airportTrainTimes && body.returnTrain ? trainTimes(validTrain(body.returnTrain)) : null
+  const daySchedule = base ? scheduleDay(scheduleInputs, startMin, base, { returnTrain: airportTrainTimes || returnTrainTimes }) : null
+  // When to leave the last stop for it, and when it reaches the airport (its arrival + the walk).
+  const airportTrain = airportTrainTimes
+    ? { leaveBy: trainLeaveBy(airportTrainTimes), atAirport: (daySchedule ? daySchedule.end : airportTrainTimes.arrival + airportTrainTimes.walkFromStationMin), summary: trainSummary(validTrain(body.flight.airportTrain)!).replace(/^🚆 /, '') }
+    : null
   const schedule: ReviewScheduleStop[] | null = daySchedule
     ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
     : null
@@ -124,12 +134,13 @@ export const POST: APIRoute = async ({ request }) => {
   const totalFareJpy = extractJpyTotal(notesByStop)
   // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
   // … from when you're back at the base (the trip from the last stop included).
-  const flightWarning = flight ? flightDeadlineWarning(stops, flight, daySchedule ? daySchedule.end : null) : null
+  const flightWarning = flight ? flightDeadlineWarning(stops, flight, daySchedule ? daySchedule.end : null, airportTrain) : null
   const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length - lateItems.length)
 
-  const backAtBase = daySchedule && daySchedule.returnLeg ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
+  // Back at the base — not on a day that ends at the airport.
+  const backAtBase = daySchedule && daySchedule.returnLeg && !airportTrain ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
   const trainLines = body.stops.map((raw: any) => { const t = trainOf(raw); return t ? trainSummary(t).replace(/^🚆 /, '') : null })
-  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase, trainLines)
+  const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase, trainLines, airportTrain)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)

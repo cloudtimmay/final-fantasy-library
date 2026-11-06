@@ -2208,7 +2208,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect(label).toHaveText('✈️ Leave for Haneda by 05:55 (Flight 09:55 from Haneda)')
     await label.click()
     await expect(page.locator('#itl-train')).toBeVisible()
-    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Base → Haneda Airport')
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Hotel Breakfast → Haneda Airport') // from the last stop
     await page.locator('#itl-train-manual').click()
     await page.locator('#itl-tr-walk').fill('5')
     await page.locator('#itl-tr-walk-from').fill('10')
@@ -2258,6 +2258,59 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await page.locator('#itl-tr-travelers').fill('2')
     await page.locator('#itl-tr-save').click()
     await expect(page.locator('#itl-day-fares')).toContainText('¥13,340 for 2')
+  })
+
+  test('the real flight day (6 Dec, 23:00 from Narita): the airport train from the last stop sets its leave-by, Latest and Fix; the day ends at the airport; Check day gets it', async ({ page, sanity, trackDoc }) => {
+    const NARITA = { flightHomeDate: '2026-12-06', flightHomeTime: '23:00', flightHomeAirport: 'Narita', flightHomeTerminal: 'T1', firstTokyoDay: '2026-12-06', lastTokyoDay: '2026-12-06' }
+    const shop = { name: 'Shinjuku Last Shop', hours: '', tag: '', slot: '', lat: 35.6905, lng: 139.7005, dur: 90, travelMin: 0, travelFrom: '__base__' }
+    const { saves } = await openTimeline(page, sanity, trackDoc, [shop], NARITA, '16:00')
+    await expect(page.locator('.itl-flight-label')).toHaveText('✈️ Leave for Narita by 18:30 (Flight 23:00 from Narita (T1))')
+    // The band after the last stop is the leg to the airport.
+    await page.locator('.itl-travel-back').click()
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Shinjuku Last Shop → Narita Airport')
+    await page.locator('#itl-train-manual').click()
+    await page.locator('#itl-tr-walk').fill('10')
+    await page.locator('#itl-tr-walk-from').fill('5')
+    await fillLeg(page, 0, { line: 'Narita Express', train: 'NEX 37', fromStation: 'Shinjuku', departure: '18:15', platform: '5', toStation: 'Narita Airport Terminal 1', arrival: '19:40' })
+    await page.locator('#itl-tr-save').click()
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].airportTrain?.legs?.[0]?.train, { timeout: 10000 }).toBe('NEX 37')
+    expect(saves[saves.length - 1].days['2026-12-06'].returnTrain).toBeUndefined()
+    await expect(page.locator('.itl-travel-back')).toHaveText('🚆 18:15')
+    await expect(page.locator('.itl-base-end')).toHaveText('✈️ At Narita Airport ~19:45')
+    await expect(page.locator('.itl-flight-label')).toHaveText('✈️ Leave for Narita by 17:55 — 🚆 18:15 train, at the airport 19:45 (Flight 23:00 from Narita (T1))')
+    const b = block(page, 'Shinjuku Last Shop')
+    await expect(b.locator('.itl-leaveby')).toContainText('Leave by 17:55')
+    await b.locator('.itl-name').click()
+    await expect(page.locator('#itl-ed-latest')).toHaveText('Latest: 17:55')
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('✈️ To the airport: 🚆 18:15 Narita Express NEX 37 (5) → Narita Airport Terminal 1 19:40')
+    // Staying too long: "Fix: leave at 17:55".
+    await page.locator('#itl-ed-dur').fill('150')
+    await page.locator('#itl-ed-dur').dispatchEvent('change')
+    await expect(page.locator('#itl-detail-lines .itl-fix')).toHaveText('Fix: leave at 17:55')
+    await page.locator('#itl-detail-close').click()
+
+    // Check day: the request carries the train (the review's deadline follows it).
+    let review: any = null
+    await page.route('**/api/itinerary-review', async (route) => {
+      review = route.request().postDataJSON()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items: [] }) })
+    })
+    await page.locator('#itl-check-btn').click()
+    await expect.poll(() => review?.flight?.airportTrain?.legs?.[0]?.departure, { timeout: 10000 }).toBe('18:15')
+    expect(review.flight).toMatchObject({ time: '23:00', airport: 'Narita', terminal: 'T1' })
+  })
+
+  test('a flight day without stops: the airport train leaves from the base', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [], { flightHomeDate: '2026-12-06', flightHomeTime: '23:00', flightHomeAirport: 'Narita', firstTokyoDay: '2026-12-06', lastTokyoDay: '2026-12-06' }, '16:00')
+    await page.locator('.itl-flight-label').click()
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Base → Narita Airport')
+    await page.locator('#itl-train-manual').click()
+    await page.locator('#itl-tr-walk').fill('10')
+    await page.locator('#itl-tr-walk-from').fill('5')
+    await fillLeg(page, 0, { line: 'Keisei Skyliner', train: 'Skyliner 41', fromStation: 'Keisei Ueno', departure: '18:00', platform: '1', toStation: 'Narita Airport Terminal 1', arrival: '18:41' })
+    await page.locator('#itl-tr-save').click()
+    await expect(page.locator('.itl-flight-label')).toHaveText('✈️ Leave for Narita by 17:40 — 🚆 18:00 train, at the airport 18:46 (Flight 23:00 from Narita)')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].airportTrain?.legs?.[0]?.departure, { timeout: 10000 }).toBe('18:00')
   })
 
   test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {

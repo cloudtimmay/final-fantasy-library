@@ -87,19 +87,31 @@ export function parseFlightHome(raw: any): FlightHome | null {
   return { time, airport, ...(terminal ? { terminal } : {}) }
 }
 
+const flightMinutes = (flight: FlightHome) => { const [h, m] = flight.time.split(':').map(Number); return h * 60 + m }
 // Minutes after midnight the day's last stop should end by: 23:00 from Narita -> 18:30.
 export function latestEndForFlight(flight: FlightHome): number {
-  const [h, m] = flight.time.split(':').map(Number)
-  return h * 60 + m - AIRPORT_ARRIVAL_BEFORE_MIN - AIRPORTS[flight.airport].minutesFromTokyo
+  return flightMinutes(flight) - AIRPORT_ARRIVAL_BEFORE_MIN - AIRPORTS[flight.airport].minutesFromTokyo
 }
 
 // A warning when the day's last stop (planned time + duration) ends after latestEndForFlight(),
 // else null — added by /api/itinerary-review itself rather than left to the model.
 // `backAtBase`: when the day really ends — back at the base after the trip from the last stop
 // (itinerary-schedule.ts DaySchedule.end); without it, the last stop's end.
-export function flightDeadlineWarning(stops: ReviewStopInput[], flight: FlightHome, backAtBase: number | null = null) {
+// `airportTrain`: a train planned to the airport (from the last stop) — then the check is whether it
+// gets there (its arrival + the walk, `atAirport`) before check-in closes, not the fixed estimate.
+export function flightDeadlineWarning(stops: ReviewStopInput[], flight: FlightHome, backAtBase: number | null = null, airportTrain: { leaveBy: number; atAirport: number } | null = null) {
   const last = stops[stops.length - 1]
   if (!last) return null
+  if (airportTrain) {
+    const checkInBy = flightMinutes(flight) - AIRPORT_ARRIVAL_BEFORE_MIN
+    if (airportTrain.atAirport <= checkInBy) return null
+    return {
+      severity: 'warning',
+      stopIndex: stops.length - 1,
+      message: `The train to the airport gets there at ${formatClock(airportTrain.atAirport)}, but for the ${flight.time} flight from ${flight.airport} you should be there by ${formatClock(checkInBy)} (3 hours before).`,
+      suggestion: `Take a train that reaches ${flight.airport} by ${formatClock(checkInBy)}.`,
+    }
+  }
   const end = backAtBase ?? last.plannedTime + last.durationMin
   const latest = latestEndForFlight(flight)
   if (end <= latest) return null
@@ -177,7 +189,7 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
 
 // The review's input text for one day — pulled out of /api/itinerary-review (which can't be
 // imported in a test, see find-prices-prompt.ts) so tests can check exactly what the model gets.
-export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = [], backAtBase: { end: number; minutes: number } | null = null, trainLines: Array<string | null> = []): string {
+export function buildUserPrompt(dayLabel: string | null, dayArea: string | null, dayStartTime: string | null, stops: ReviewStopInput[], notesByStop: Array<string | null>, openingHoursByStop: Array<string | null>, flight: FlightHome | null = null, schedule: ReviewScheduleStop[] | null = null, segments: SegmentOverrun[] = [], backAtBase: { end: number; minutes: number } | null = null, trainLines: Array<string | null> = [], airportTrain: { summary: string; leaveBy: number; atAirport: number } | null = null): string {
   const transitions = computeTransitions(stops)
   const lines: string[] = []
   lines.push(`Day: ${dayLabel || '(no reliable date for this day)'}`)
@@ -186,7 +198,13 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
   if (flight) {
     const airport = AIRPORTS[flight.airport]
     lines.push(`Flight home today: departs ${flight.time} from ${airport.name}${flight.terminal ? ` (${flight.terminal})` : ''}.`)
-    lines.push(`Be at the airport ${AIRPORT_ARRIVAL_BEFORE_MIN / 60} hours before departure (check-in plus the tax-free refund check at customs), and allow about 90 minutes from central Tokyo to Narita (about 60 minutes to Haneda). So the day's last stop must end by ${formatClock(latestEndForFlight(flight))} — warn if the plan ends later than that.`)
+    if (airportTrain) {
+      // The train chosen to the airport sets the deadline (the timetable below already uses it).
+      lines.push(`Train to the airport, chosen by the owner, from the day's last stop: ${airportTrain.summary}. Leave the last stop by ${formatClock(airportTrain.leaveBy)}; it reaches the airport at ${formatClock(airportTrain.atAirport)}.`)
+      lines.push(`Be at the airport ${AIRPORT_ARRIVAL_BEFORE_MIN / 60} hours before departure (check-in plus the tax-free refund check at customs), so by ${formatClock(flightMinutes(flight) - AIRPORT_ARRIVAL_BEFORE_MIN)} — the deadline is that train, not a general estimate of the trip to the airport.`)
+    } else {
+      lines.push(`Be at the airport ${AIRPORT_ARRIVAL_BEFORE_MIN / 60} hours before departure (check-in plus the tax-free refund check at customs), and allow about 90 minutes from central Tokyo to Narita (about 60 minutes to Haneda). So the day's last stop must end by ${formatClock(latestEndForFlight(flight))} — warn if the plan ends later than that.`)
+    }
   }
   lines.push('')
   lines.push('Stops, in order:')

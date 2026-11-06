@@ -122,8 +122,15 @@ export function manualTravelFor(day: { stops: PlanStop[] }, si: number, shopById
 // anchors, everything else runs forward, with leave-by times and warnings.
 // `times`: each stop's start; `sched`: the full schedule; `inputs`: what it was computed from.
 // `base`: the trip's base, or the day's own start and end bases (dayBases).
+// The leg after the last stop: on the flight day with a train to the airport (airportTrain), that
+// train — the day then ends at the airport; otherwise the trip back to the base (returnTrain, or
+// the estimate). Without stops the airport train starts at the base (flightDeadline).
+export function lastLegTrain(day: { stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan }): { train: TrainPlan | undefined; toAirport: boolean } {
+  if (day.stops.length && trainTimes(day.airportTrain)) return { train: day.airportTrain, toAirport: true }
+  return { train: day.returnTrain, toAirport: false }
+}
 export function computeDayTimes(
-  day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan },
+  day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan },
   base: RoutePoint | { start: RoutePoint; end: RoutePoint },
   shopById: Map<string, PlanShop>
 ): { baseStart: number; times: number[]; baseEnd: number; sched: DaySchedule; inputs: ScheduleStopInput[] } {
@@ -147,7 +154,7 @@ export function computeDayTimes(
   })
   const startBase = 'start' in base ? base.start : base
   const endBase = 'start' in base ? base.end : base
-  const sched = scheduleDay(inputs, start, startBase, { returnTrain: trainTimes(day.returnTrain), endBase })
+  const sched = scheduleDay(inputs, start, startBase, { returnTrain: trainTimes(lastLegTrain(day).train), endBase })
   return { baseStart: start, times: sched.stops.map((x) => x.start), baseEnd: sched.end, sched, inputs }
 }
 
@@ -306,7 +313,10 @@ export function checkDayRequestBody(
     dayStartTime: day.startTime,
     base: { lat: ctx.base.lat, lng: ctx.base.lng },
     // Only on the day the flight home leaves — the review checks the day against it.
-    flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal } : undefined,
+    // … with its train to the airport, when one is planned: the deadline then follows that train.
+    flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal, ...(day.airportTrain ? { airportTrain: day.airportTrain } : {}) } : undefined,
+    // The train back to the base (not on a day that ends at the airport).
+    ...(day.returnTrain && !lastLegTrain(day).toAirport ? { returnTrain: day.returnTrain } : {}),
     stops,
   }
 }
@@ -527,8 +537,9 @@ export function dayTrainFaresText(f: DayTrainFares | null, rate: number | null |
 }
 
 // The flight day's deadline. Without a train to the airport: leave the base by
-// latestEndForFlight (as before). With one (day.airportTrain): leave by its leave-by; `late` when
-// it reaches the airport (its arrival + the walk) after check-in closes (the flight −
+// latestEndForFlight (as before). With one (day.airportTrain): leave by its leave-by — the last
+// stop then (the train is the leg after it), the base on a day without stops; `late` when it
+// reaches the airport (its arrival + the walk) after check-in closes (the flight −
 // AIRPORT_ARRIVAL_BEFORE_MIN). null on other days.
 export type FlightDeadline = { leaveBy: number; train: boolean; atAirport: number | null; checkInBy: number; late: boolean }
 export function flightDeadline(day: { day: string; airportTrain?: TrainPlan }, flight: { date: string; time: string; airport: string } | null): FlightDeadline | null {

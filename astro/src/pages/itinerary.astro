@@ -282,7 +282,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -479,7 +479,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
         el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
         el.dataset.index = String(tr.index)
-        const legTrain = !tr.back ? day.stops[tr.index]?.train : day.returnTrain
+        const legTrain = !tr.back ? day.stops[tr.index]?.train : lastLegTrain(day).train
         if (legTrain) {
           el.classList.add('itl-travel-train')
           el.textContent = `🚆 ${trainDeparture(legTrain)}`
@@ -629,11 +629,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         grid.appendChild(startEl)
         const endEl = document.createElement('div')
         // On the flight day, back at the base after the time to leave for the airport is a problem.
-        const late = flightLatest != null && sched.end > flightLatest
+        const toAirport = lastLegTrain(day).toAirport && !!flightInfo
+        const late = toAirport ? flightInfo!.late : flightLatest != null && sched.end > flightLatest
         endEl.className = 'itl-base itl-base-end' + (late ? ' itl-base-late' : '')
         endEl.style.top = `${offsetFor(sched.end, range, px)}px`
         endEl.dataset.minutes = String(sched.end)
-        endEl.textContent = (dayBase.end.key === TRIP_BASE_KEY ? `🏠 Back at base ~${formatClock(sched.end)}` : `🏨 Back at ${dayBase.end.name} ~${formatClock(sched.end)}`) + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
+        endEl.textContent = toAirport
+          ? `✈️ At ${flight!.airport} Airport ~${formatClock(sched.end)}` + (late ? ` — ⚠️ after check-in closes (${formatClock(flightInfo!.checkInBy)})` : '')
+          : (dayBase.end.key === TRIP_BASE_KEY ? `🏠 Back at base ~${formatClock(sched.end)}` : `🏨 Back at ${dayBase.end.name} ~${formatClock(sched.end)}`) + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
           + (lateTrains.has(day.stops.length) ? ` — 🚆 ${LAST_TRAIN_MESSAGE}` : '')
         if (lateTrains.has(day.stops.length)) endEl.classList.add('itl-base-late')
         grid.appendChild(endEl)
@@ -1059,8 +1062,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       checkMarks = {}
       saveState(); render()
     })
-    // The last legs: back to the base, and on the flight day from the base to the airport. Only a
-    // train can be planned there (the time is otherwise an estimate).
+    // The last legs: back to the base, and on the flight day to the airport — from the last stop
+    // (the leg after it), or from the base on a day without stops. Only a train can be planned
+    // there (the time is otherwise an estimate).
     function openLastLegEditor(kind: 'return' | 'airport') {
       const day = currentDayPlan()
       if (!day.stops.length && kind === 'return') return
@@ -1068,7 +1072,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const endBase = basesOf(day).end
       const baseStop = { name: endBase.key === TRIP_BASE_KEY ? 'Base' : endBase.name, lat: endBase.lat, lng: endBase.lng }
       const airport = flight ? { name: `${flight.airport} Airport`, lat: null, lng: null } : { name: 'Airport', lat: null, lng: null }
-      const from = kind === 'return' ? resolveStop(day.stops[day.stops.length - 1], shopById) : baseStop
+      const startBase = basesOf(day).start
+      const lastStop = day.stops.length ? resolveStop(day.stops[day.stops.length - 1], shopById) : null
+      const from = kind === 'return' ? lastStop! : lastStop || { name: startBase.key === TRIP_BASE_KEY ? 'Base' : startBase.name, lat: startBase.lat, lng: startBase.lng }
       const to = kind === 'return' ? baseStop : airport
       ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
       const train = kind === 'return' ? day.returnTrain : day.airportTrain
@@ -1082,7 +1088,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const target = e.target as HTMLElement
       const travel = target.closest('.itl-travel') as HTMLElement | null
       if (travel) {
-        if (travel.classList.contains('itl-travel-back')) openLastLegEditor('return')
+        if (travel.classList.contains('itl-travel-back')) openLastLegEditor(flightDeadline(currentDayPlan(), flight) ? 'airport' : 'return')
         else openTravelEditor(Number(travel.dataset.index))
         return
       }
@@ -1135,10 +1141,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const fare = trainFareText(trainV.train, tripRate, tripTravelers)
         if (fare) lines.push(`💴 ${fare}`)
       }
-      // The last stop: the train back to the base, when one is planned.
-      if (idx === day.stops.length - 1 && day.returnTrain) {
-        lines.push(`🏠 Back to the base: ${trainSummary(day.returnTrain)}`)
-        const backFare = trainFareText(day.returnTrain, tripRate, tripTravelers)
+      // The last stop: the train after it — to the airport on the flight day, else back to the base.
+      const after = idx === day.stops.length - 1 ? lastLegTrain(day) : null
+      if (after && after.train) {
+        lines.push(`${after.toAirport ? '✈️ To the airport' : '🏠 Back to the base'}: ${trainSummary(after.train)}`)
+        const backFare = trainFareText(after.train, tripRate, tripTravelers)
         if (backFare) lines.push(`💴 ${backFare}`)
       }
       if (x.trainLateMin != null) lines.push(`⚠️ The train arrives ${x.trainLateMin} min too late for the fixed time`)

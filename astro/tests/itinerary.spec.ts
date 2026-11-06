@@ -47,6 +47,7 @@ test.describe('itinerary-review-helpers: distance/gap/fare computation', () => {
 
 test.describe('itinerary: "Check day" AI review', () => {
   test('sends per-stop timing and coordinates in order, and renders results against the correct stops', async ({ page }) => {
+    test.setTimeout(60_000) // 8.2 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     // Generous timeout: the page defers its first render until an external Leaflet
@@ -117,6 +118,7 @@ test.describe('itinerary: "Check day" AI review', () => {
   })
 
   test('never changes the plan', async ({ page }) => {
+    test.setTimeout(60_000) // 9.5 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     await expect(firstCard).toBeVisible({ timeout: 20000 })
@@ -142,6 +144,7 @@ test.describe('itinerary: "Check day" AI review', () => {
   })
 
   test('shows a network-error message without crashing', async ({ page }) => {
+    test.setTimeout(60_000) // 7.5 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     const firstCard = page.locator('.day-card').first()
     await expect(firstCard).toBeVisible({ timeout: 20000 })
@@ -296,6 +299,7 @@ test.describe('itinerary: "Suggest route"', () => {
   }
 
   test('shows the current and suggested order with a "saves X min" summary', async ({ page }) => {
+    test.setTimeout(60_000) // 9.1 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)
@@ -315,6 +319,7 @@ test.describe('itinerary: "Suggest route"', () => {
   })
 
   test('does not change the plan until Apply is pressed', async ({ page }) => {
+    test.setTimeout(60_000) // 7.9 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)
@@ -331,6 +336,7 @@ test.describe('itinerary: "Suggest route"', () => {
   })
 
   test('Apply writes the suggested order into the plan, and Undo restores the previous one', async ({ page }) => {
+    test.setTimeout(60_000) // 13.6 s alone; much slower under 4 parallel workers
     await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
     await injectScrambledDay(page)

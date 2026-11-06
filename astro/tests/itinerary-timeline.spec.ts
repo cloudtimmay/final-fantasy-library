@@ -201,6 +201,7 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
 
 test.describe('/itinerary: block details and the links', () => {
   test('tapping a block shows its details and "Edit in list" opens /itinerary-list with that stop in view', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 15.2 s alone; much slower under 4 parallel workers
     const { trip } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     await page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Square Enix Pop Up Cafe' }) }).click()
     const detail = page.locator('#itl-detail')
@@ -220,6 +221,7 @@ test.describe('/itinerary: block details and the links', () => {
   })
 
   test('"🗓️ Timeline" on /itinerary-list and "📋 List view" on the timeline, keeping the trip', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 11.4 s alone; much slower under 4 parallel workers
     const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Timeline Links ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
     trackDoc(trip._id)
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
@@ -259,6 +261,7 @@ test.describe('/itinerary on a phone: readable blocks and zoom', () => {
   })
 
   test('"−"/"+" change the hour height, and the zoom is remembered', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.1 s alone; much slower under 4 parallel workers
     await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     const hourGap = async () => {
       const tops = await page.locator('.itl-hour').evaluateAll((els) => els.slice(0, 2).map((e) => (e as HTMLElement).offsetTop))
@@ -431,6 +434,7 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
   })
 
   test('Suggest route: preview with new order and times, Apply saves it, Undo restores it', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 9.0 s alone; much slower under 4 parallel workers
     // Far first, then Near — base is next to Near, so near-then-far is clearly better.
     const { saves } = await openTimeline(page, sanity, trackDoc, [
       { name: 'Far', hours: '', tag: '', slot: '', lat: 35.797999, lng: 139.77083, dur: 30 },
@@ -488,6 +492,7 @@ test.describe('/itinerary: editing a stop in the sheet', () => {
   })
 
   test('fixed time re-sorts the day and arrive-early appears; ▲▼ reorder', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 11.0 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     await block(page, 'SURUGA-YA').click()
     await expect(page.locator('#itl-ed-early-label')).toBeHidden()
@@ -524,6 +529,7 @@ test.describe('/itinerary: editing a stop in the sheet', () => {
   })
 
   test('coordinates: paste "lat, lng", or fetch them from the linked shop', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.0 s alone; much slower under 4 parallel workers
     await page.route('**/api/shop-coords*', (route) => route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ ok: true, found: true, hasCoords: true, latitude: 35.7011, longitude: 139.7712 }),
@@ -732,6 +738,7 @@ test.describe('/itinerary on a phone: finding "I\'m here now" / "Leaving now"', 
     expect.poll(() => saves.length > 0 && check(saves[saves.length - 1].days['2026-12-01'].stops[i]), { timeout: 10000 }).toBe(true)
 
   test('a 10-minute block with a Tokyo test time: 📍 on its first line, tapped without the sheet, then ✅', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 9.6 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, [
       { ...sized(10), name: 'Ten Min Stop', travelMin: 0, travelFrom: '__base__' }, sized(60),
     ], DEC_1, '10:00')
@@ -754,6 +761,7 @@ test.describe('/itinerary on a phone: finding "I\'m here now" / "Leaving now"', 
   })
 
   test('both buttons on today\'s blocks of every size, at the default and the smallest zoom (compact: the icon)', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 12.4 s alone; much slower under 4 parallel workers
     const SIZES = [10, 20, 30, 45, 60, 120]
     await openTimeline(page, sanity, trackDoc, SIZES.map((m, i) => (i ? sized(m) : { ...sized(m), travelMin: 0, travelFrom: '__base__' })), DEC_1, '10:00')
     await setTestTimeInUi(page, '2026-12-01', '09:00')
@@ -811,6 +819,7 @@ test.describe('/itinerary on a phone: finding "I\'m here now" / "Leaving now"', 
   })
 
   test('in the edit sheet: both on today\'s stop, saved like the block\'s; hidden on other days', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 8.0 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY, DEC_1, '15:06', '&now=2026-12-01T13:00')
     await block(page, 'Yellow Submarine').click()
     await expect(page.locator('#itl-ed-here')).toBeVisible()
@@ -960,6 +969,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   ]
 
   test('the timeline\'s edit sheet: a strip of small photos with captions; a tap opens the lightbox', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000) // 8.6 s alone; much slower under 4 parallel workers
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
     await openTimeline(page, sanity, trackDoc, stops(shop._id), {}, '10:00')
     // The name: the middle of the block may be one of its row photos (lightbox).
@@ -983,6 +993,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   })
 
   test('a tall block has a row of photos under its text (the shop\'s, then the newest finds), a short one none; a photo opens the lightbox, the rest the sheet', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000) // 12.4 s alone; much slower under 4 parallel workers
     const shop = await shopWithPhotos(sanity, trackDoc, uploadedAssets)
     // A find with a photo at the same shop: after the shop's own photos.
     const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'block-row-find.png' })
@@ -1031,6 +1042,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
   })
 
   test('the place type before the name (🛍️ 🍜 🗼 📌; a shop without a type is a shop), in the sheet\'s title too; none for an unlinked stop', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.0 s alone; much slower under 4 parallel workers
     const types = ['shop', 'restaurant', 'sight', 'other', undefined]
     const shops = []
     for (const type of types) {
@@ -1085,6 +1097,7 @@ test.describe('itinerary: the linked shop\'s photos', () => {
 
 test.describe('/itinerary: the edit sheet\'s shop link', () => {
   test('the linked shop\'s name opens its page, whose "← Back to timeline" returns to the same day; an unlinked stop has no link', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 8.9 s alone; much slower under 4 parallel workers
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Sheet Link Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
     trackDoc(shop._id)
     const { trip } = await openTimeline(page, sanity, trackDoc, [])
@@ -1136,6 +1149,7 @@ test.describe('/itinerary: "Found here" in the edit sheet, and the empty states'
   const stop = (name: string, shopId?: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, ...(shopId ? { shopId } : {}) })
 
   test('the shop\'s finds as a strip (photo, name, price, status; lightbox on the photo); "No shop photos yet" with a link; nothing for an unlinked stop', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000) // 14.9 s alone; much slower under 4 parallel workers
     const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'found-strip-test.png' })
     uploadedAssets.push(asset._id)
     const withFinds = await sanity.create({ _type: 'shopNote', shopName: testName(`Finds Shop ${Date.now()}`), latitude: 35.7, longitude: 139.77 })
@@ -1291,6 +1305,7 @@ test.describe('/itinerary: "Found here" — the name opens the price, and "✅ B
   }
 
   test('the name opens /edit-price, whose "← Back to timeline" returns to the same day', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.1 s alone; much slower under 4 parallel workers
     const { shop, docs: [price] } = await shopWith(sanity, trackDoc, [{ productName: testName('Linked Find'), price: 1200 }])
     const { trip } = await openTimeline(page, sanity, trackDoc, [])
     await page.locator('.itl-tab', { hasText: '6. des' }).click()
@@ -1311,6 +1326,7 @@ test.describe('/itinerary: "Found here" — the name opens the price, and "✅ B
   })
 
   test('the panel\'s defaults, and Confirm marks it bought exactly like /edit-price — the strip updates without a reload', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 14.7 s alone; much slower under 4 parallel workers
     // Two identical prices: one bought here, the twin on /edit-price; the results must match.
     const same = { price: 5980, extraCost: 500, condition: 'used', note: 'Signed copy', taxIncluded: true }
     const { shop, docs: [here, twin] } = await shopWith(sanity, trackDoc, [
@@ -1364,6 +1380,7 @@ test.describe('/itinerary: "Found here" — the name opens the price, and "✅ B
   })
 
   test('the USD/EUR check: no request, the message, and it stays Considering; a server error is shown the same way', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 11.1 s alone; much slower under 4 parallel workers
     const { shop, docs: [usd, jpy] } = await shopWith(sanity, trackDoc, [
       { productName: testName('Dollar Find'), price: 40, currency: 'USD', sourceType: 'online', sourceName: 'Example Store', shop: undefined, category: 'other' },
       { productName: testName('Yen Find'), price: 1000 },
@@ -1697,6 +1714,7 @@ test.describe('/itinerary on a phone: areas', () => {
 
 test.describe('/itinerary on a phone: the day\'s areas', () => {
   test('under the tabs, the areas in visiting order without repeats; the plan\'s own area when no stop has one', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 8.9 s alone; much slower under 4 parallel workers
     const mk = (name: string, area: string) => sanity.create({ _type: 'shopNote', shopName: testName(`${name} ${Date.now()}`), area, latitude: 35.7, longitude: 139.77 })
     const [a1, s1, a2, y1] = [await mk('Akiba One', 'Akihabara'), await mk('Shinjuku One', 'Shinjuku'), await mk('Akiba Two', 'Akihabara'), await mk('Yoko One', 'Yokohama')]
     for (const d of [a1, s1, a2, y1]) trackDoc(d._id)
@@ -1803,6 +1821,7 @@ test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
   })
 
   test('shortening and lengthening a visit moves the following blocks; the duration shows the computed minutes', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 8.2 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     const suruga = block(page, 'SURUGA-YA')
     await block(page, 'Yellow Submarine').click()
@@ -1932,6 +1951,7 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
   const stop = (name: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 })
 
   test('the review list (exact ticked, close not, a picker per row); Link selected saves shopId and the area shows', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.3 s alone; much slower under 4 parallel workers
     const { r, exact, close, other } = await shops(sanity, trackDoc)
     const { saves } = await openTimeline(page, sanity, trackDoc, [
       { ...stop(exact.shopName), note: 'my own note' },
@@ -1970,6 +1990,7 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
   })
 
   test('"🔗 Link to shop" in the edit sheet for one unlinked stop', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 10.2 s alone; much slower under 4 parallel workers
     const { r, close } = await shops(sanity, trackDoc)
     const { saves } = await openTimeline(page, sanity, trackDoc, [stop(`Zebra${r} Retro Games`)], {}, '10:00')
     await block(page, `Zebra${r}`).click()
@@ -2027,6 +2048,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
   }
 
   test('the real route entered leg by leg: cards in order, saved as legs, the schedule, the display and the reminder', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 12.9 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await openLeg(page)
     await expect(page.locator('#itl-train-maps')).toHaveAttribute('href', /travelmode=transit/)
@@ -2063,6 +2085,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
   })
 
   test('fare, walk from the last station and travel time "from train"; the day\'s train fares', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 9.2 s alone; much slower under 4 parallel workers
     // After Shizuoka, a shop in Yokohama (by train, estimated) whose note gives its fare.
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Yokohama Fare Shop ${Date.now()}`), note: 'JR Tokaido from Shizuoka ¥670', latitude: 35.4658, longitude: 139.6223 })
     trackDoc(shop._id)
@@ -2114,6 +2137,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
   })
 
   test('times out of order across the legs are refused and nothing is saved', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 7.8 s alone; much slower under 4 parallel workers
     const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
     await openLeg(page)
     await page.locator('#itl-train-manual').click()
@@ -2167,6 +2191,7 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
   ]
 
   test('the legs read fill the cards to check; nothing is saved until Save train; an error is shown and nothing changes', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 8.0 s alone; much slower under 4 parallel workers
     let calls = 0
     let reply: { status: number; body: unknown } = { status: 200, body: { ok: true, train: READ } }
     await page.route('**/api/train-from-screenshot', async (route) => {
@@ -2220,6 +2245,7 @@ test.describe('/itinerary on a phone: short visits at the default zoom', () => {
   }
 
   test('a 10-minute and a 20-minute block: one line with name, time, area and icons; everything in full in the sheet', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // 9.1 s alone; much slower under 4 parallel workers
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`SQEX CAPSULE GARDEN ${Date.now()}`), area: 'Ikebukuro', openingHours: '10:00 - 19:00', latitude: 35.7, longitude: 139.77 })
     trackDoc(shop._id)
     await openTimeline(page, sanity, trackDoc, [

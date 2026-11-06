@@ -3,8 +3,21 @@ import Base from '../layouts/Base.astro'
 import { fetchProducts, fetchShopGroups, fetchTrips, fetchOwnedByPerson, fetchCollectionForMatching } from '../lib/price-products'
 import { isOwnedStatus } from '../lib/product-match'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
+import { sanity } from '../lib/sanity'
+import { timelineBackUrl } from '../lib/timeline-back'
 
 const shopGroups = await fetchShopGroups()
+// ?shop=<id> (the timeline's "➕ Add price here"): that shop preselected, with "Shop in Japan". The
+// shop list only holds places of the type "shop", so another linked place (a café, a hotel) gets
+// its own group to be selectable at all.
+const presetShopParam = Astro.url.searchParams.get('shop') || ''
+const presetShopId = /^[A-Za-z0-9_-]{1,128}$/.test(presetShopParam) ? presetShopParam : ''
+if (presetShopId && !shopGroups.some((g) => g.shops.some((s) => s._id === presetShopId))) {
+  const extra = await sanity.fetch(`*[_type == "shopNote" && _id == $id && !(_id in path("drafts.**"))][0]{ _id, shopName }`, { id: presetShopId }).catch(() => null)
+  if (extra?.shopName) shopGroups.unshift({ area: 'From the timeline', shops: [{ _id: extra._id, shopName: extra.shopName }] })
+}
+// Opened from the timeline: "← Back to timeline" to that day and trip (lib/timeline-back.ts).
+const timelineBack = timelineBackUrl(Astro.url.searchParams)
 const products = await fetchProducts()
 const trips = await fetchTrips()
 const ownedByPerson = await fetchOwnedByPerson()
@@ -16,6 +29,7 @@ const myCollection = (await fetchCollectionForMatching())
 ---
 <Base title="Add price">
   <div class="add-wrap">
+    {timelineBack && <a id="p-back-timeline" href={timelineBack} class="back-link back-top">← Back to timeline</a>}
     <h1>Add price</h1>
     <a href="/prices" class="all-prices-link">📋 All prices</a>
     <p class="hint">Log a price you've seen. Shop, category, source and currency stay selected so you can log several prices in a row.</p>
@@ -111,7 +125,7 @@ const myCollection = (await fetchCollectionForMatching())
           <option value="">Select shop…</option>
           {shopGroups.map((g) => (
             <optgroup label={g.area}>
-              {g.shops.map((s) => <option value={s._id}>{s.shopName}</option>)}
+              {g.shops.map((s) => <option value={s._id} selected={s._id === presetShopId}>{s.shopName}</option>)}
             </optgroup>
           ))}
         </select>
@@ -1376,6 +1390,7 @@ const myCollection = (await fetchCollectionForMatching())
     .save-msg { font-size: 0.9rem; margin: 0.75rem 0 0; }
     .back-link { display: inline-block; margin-top: 1.5rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { color: var(--accent); }
+    .back-top { display: inline-block; margin: 0 0 0.25rem; }
     .all-prices-link { display: inline-block; margin: 0.25rem 0 0.75rem; color: var(--muted); text-decoration: none; font-size: 0.9rem; }
     .all-prices-link:hover { color: var(--accent); }
   </style>

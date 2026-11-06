@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, testName, uniqueJan } from './fixtures'
 import { uniquePng } from './helpers/unique-image'
+import { findIdByField } from './helpers/sanity-test-client'
 import { timelineRange, timelineItems, layoutTimeline, minutesAtOffset, insertIndexForTime, DEFAULT_PX_PER_MIN as PX_PER_MIN, MIN_BLOCK_PX, ZOOM_LEVELS } from '../src/lib/itinerary-timeline'
 import { scheduleDay } from '../src/lib/itinerary-schedule'
 import { estimateLeg } from '../src/lib/route-optimizer'
@@ -1150,6 +1151,63 @@ test.describe('/itinerary: the edit sheet\'s shop link', () => {
 })
 
 test.describe('/itinerary: "Found here" in the edit sheet, and the empty states', () => {
+  test('"➕ Add price here": /add-price with that shop and "Shop in Japan", back to the same day; the new price is in "Found here"', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000) // two pages and a save
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Add Price Shop ${Date.now()}`), placeType: 'shop', area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    trackDoc(shop._id)
+    const { trip } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId: shop._id },
+      { name: 'Unlinked Price Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], {}, '10:00', '&day=2026-12-05')
+    await page.locator('.itl-block .itl-name', { hasText: shop.shopName }).click()
+    const link = page.locator('#itl-ed-add-price')
+    await expect(link).toHaveText('➕ Add price here')
+    await expect(link).toHaveAttribute('href', `/add-price?shop=${shop._id}&from=timeline&day=2026-12-05&trip=${trip._id}`)
+
+    // The persisted plan isn't touched on /add-price; its own saves are real (a [test] price).
+    await link.click()
+    await expect(page).toHaveURL(new RegExp(`/add-price\\?shop=${shop._id}`))
+    await expect(page.locator('#p-shop')).toHaveValue(shop._id)
+    await expect(page.locator('input[name="p-source"][value="japanStore"]')).toBeChecked()
+    await expect(page.locator('#p-back-timeline')).toHaveAttribute('href', `/itinerary?day=2026-12-05&trip=${trip._id}`)
+    const productName = testName(`Timeline Price ${Date.now()}`)
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('game')
+    await page.locator('#p-price').fill('4400')
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+    trackDoc(await findIdByField('priceEntry', 'productName', productName))
+    await expect(page.locator('#p-shop')).toHaveValue(shop._id) // stays for the next item
+
+    // Back to the same day: the new price in the shop's "Found here".
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.locator('#p-back-timeline').click()
+    await expect(page).toHaveURL(new RegExp(`/itinerary\\?day=2026-12-05&trip=${trip._id}`))
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await page.evaluate((id) => {
+      // @ts-ignore - the page's test hook: the same stops as before (the plan itself wasn't saved)
+      const itl = window.__itl; itl.state[0].stops = [{ name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, shopId: id }]; itl.render()
+    }, shop._id)
+    await page.locator('.itl-block .itl-name', { hasText: shop.shopName }).click()
+    await expect(page.locator('#itl-ed-found .found-name', { hasText: productName })).toBeVisible()
+    // An unlinked stop: no link.
+    await page.locator('#itl-detail-close').click()
+    await page.evaluate(() => {
+      // @ts-ignore
+      const itl = window.__itl; itl.state[0].stops.push({ name: 'Unlinked Price Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 }); itl.render()
+    })
+    await page.locator('.itl-block .itl-name', { hasText: 'Unlinked Price Stop' }).click()
+    await expect(page.locator('#itl-ed-add-price')).toBeHidden()
+  })
+
+  test('/add-price?shop= preselects a linked place that isn\'t a shop too (a café)', async ({ page, sanity, trackDoc }) => {
+    const cafe = await sanity.create({ _type: 'shopNote', shopName: testName(`Price Cafe ${Date.now()}`), placeType: 'restaurant', latitude: 35.7, longitude: 139.77 })
+    trackDoc(cafe._id)
+    await page.goto(`/add-price?shop=${cafe._id}`)
+    await expect(page.locator('#p-shop')).toHaveValue(cafe._id)
+    await expect(page.locator('#p-back-timeline')).toHaveCount(0) // not opened from the timeline
+  })
+
   const ref = (id: string, weak = false) => ({ _type: 'reference', _ref: id, ...(weak ? { _weak: true } : {}) })
   const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
   const stop = (name: string, shopId?: string) => ({ name, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, ...(shopId ? { shopId } : {}) })

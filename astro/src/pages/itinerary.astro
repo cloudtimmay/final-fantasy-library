@@ -203,6 +203,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       </div>
       <p id="itl-ed-photos-empty" class="itl-sheet-empty" hidden>No shop photos yet — <a id="itl-ed-photos-add" href="/notes">add them on the shop page</a></p>
       <div id="itl-ed-found" hidden></div>
+      <!-- A linked shop: log a price seen or bought there (/add-price with the shop, and back here). -->
+      <a id="itl-ed-add-price" class="itl-sheet-addprice" href="/add-price" hidden>➕ Add price here</a>
       <!-- Opens Maps in a new tab to browse the place's photos there (lib/shop-maps.ts). -->
       <!-- "✅ Bought" on a price in the strip: /edit-price's choices with its defaults, then the
            same /api/price-entry-update bought save (lib/price-entry-fields.ts). -->
@@ -1195,6 +1197,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const foundEl = document.querySelector('#itl-ed-found') as HTMLElement
       foundEl.innerHTML = foundStrip ? `<p class="itl-strip-title">🔎 Found here</p>${foundStrip}` : ''
       foundEl.hidden = !foundStrip
+      const addPrice = document.querySelector('#itl-ed-add-price') as HTMLAnchorElement
+      addPrice.hidden = !shop
+      if (shop) addPrice.href = `/add-price?shop=${encodeURIComponent(shop._id)}&${backQuery()}`
       const place = resolveStop(s, shopById)
       ;(document.querySelector('#itl-ed-gmaps') as HTMLAnchorElement).href = googleMapsPlaceUrl({
         name: place.name, lat: place.lat, lng: place.lng, address: shop?.address, area: shop?.area,
@@ -1911,6 +1916,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text);
     }
     .itl-here-hint { font-size: 0.75rem; color: var(--muted); }
+    .itl-sheet-addprice { display: inline-block; margin: 0.3rem 0; padding: 0.35rem 0.7rem; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }
+    .itl-sheet-addprice[hidden] { display: none; }
     .itl-fix {
       font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 5px; cursor: pointer; min-height: 24px;
       background: var(--bg); color: var(--text); border: 1px solid #e74c3c; white-space: nowrap;

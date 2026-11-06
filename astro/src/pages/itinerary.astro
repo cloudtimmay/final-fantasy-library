@@ -5,6 +5,8 @@ import { fetchTrips } from '../lib/price-products'
 import { PEOPLE_LIST, OWNER } from '../lib/price-entry-fields'
 import '../styles/itinerary-shared.css'
 import { tokyoNow, parseTokyoDateTime } from '../lib/trip-dates'
+import TripSwitch from '../components/TripSwitch.astro'
+import { planStoreKey } from '../lib/trip-plans'
 
 // The itinerary: a calendar-style day view of the plan. The same plan as the list
 // (/itinerary-list): the same data (loadItineraryPageData),
@@ -18,7 +20,9 @@ const [pageData, shopFinds, priceTrips] = await Promise.all([
   loadShopFinds(),
   fetchTrips().catch((): Awaited<ReturnType<typeof fetchTrips>> => []),
 ])
-const { BASE, shops, savedState, plan, trip, days, labels, flight } = pageData
+const { BASE, shops, savedState, plan, trip, days, labels, flight, arrival, startDefaults, tripChoices } = pageData
+// This trip's plan in the browser (lib/trip-plans.ts: the December plan keeps its old key).
+const storeKey = planStoreKey('ff-itinerary-v12', trip)
 const { found, rate: foundRate } = shopFinds
 // ?day=<date>, else today in Tokyo if it's one of the trip's days, else the first.
 const requestedDay = Astro.url.searchParams.get('day') || ''
@@ -36,6 +40,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <span id="itl-save-status" class="itl-save-status"></span>
     </div>
     <h1>Timeline <span class="itl-beta">beta</span></h1>
+    <TripSwitch choices={tripChoices} current={trip} />
     <!-- Shown while a test time is set (?now=, or the "🧪 Test time" control below). -->
     <p id="itl-test-time" class="itl-test-time" data-date={testNow ? testNow.date : ''} data-minutes={testNow ? testNow.minutes : ''} hidden={!testNow}>
       🧪 Test time: <span id="itl-test-time-text">{testNow ? `${testNow.date} ${String(Math.floor(testNow.minutes / 60)).padStart(2, '0')}:${String(testNow.minutes % 60).padStart(2, '0')}` : ''}</span> (Tokyo) — "Clear test time" to use the real clock
@@ -49,6 +54,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <!-- The day's areas in visiting order (itinerary-plan.ts dayAreas). -->
     <p id="itl-day-areas" class="itl-day-areas" hidden></p>
     <p id="itl-day-fares" class="itl-day-fares" hidden></p>
+    <!-- The arrival day: "✈️ Landing 07:55 at Haneda Airport" (Trip Settings). -->
+    <p id="itl-arrival" class="itl-day-fares" hidden></p>
 
     <div class="itl-toolbar">
       <p class="itl-hint">Tap an empty spot to add a stop there.</p>
@@ -257,7 +264,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script is:inline src="/trip-select.js"></script>
   <script is:inline src="/resize-image.js"></script>
-  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '', tripRate: trip?.jpyToNokRate ?? null })}></script>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '', tripRate: trip?.jpyToNokRate ?? null, arrival, startDefaults, storeKey })}></script>
 
   <script>
     import {
@@ -312,12 +319,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const esc = (s: unknown) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
     // The same load as the list (/itinerary-list): the server's saved plan, else this browser's copy.
-    const STORE_KEY = 'ff-itinerary-v12' // must match itinerary-list.astro
+    const STORE_KEY: string = DATA.storeKey || 'ff-itinerary-v12' // the trip's (lib/trip-plans.ts planStoreKey), as on the list
     function loadSaved() {
       if (savedState) { try { const p = normalizeSavedPlan(JSON.parse(savedState), plan); if (p) return p } catch (e) {} }
       try { const s = localStorage.getItem(STORE_KEY); return s ? normalizeSavedPlan(JSON.parse(s), plan) : null } catch { return null }
     }
-    const built = buildPlanState(plan, days, labels, loadSaved() || {})
+    const built = buildPlanState(plan, days, labels, loadSaved() || {}, DATA.startDefaults || {})
     let state: PlanDay[] = built.state
     const extraDays = built.extraDays
     let currentDay: string = wrap.dataset.initialDay || days[0]
@@ -351,7 +358,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       clearTimeout(saveTimer)
       saveTimer = setTimeout(async () => {
         try {
-          const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload }) })
+          // The trip's own plan (the server picks its document: lib/trip-plans.ts planDocIdFor).
+          const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload, ...(DATA.pageTripId ? { tripId: DATA.pageTripId } : {}) }) })
           saveStatus.textContent = res.ok ? 'Lagret ✓' : 'Lagring feilet'
         } catch (e) {
           saveStatus.textContent = 'Lagret lokalt (ingen nett)'
@@ -413,6 +421,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const faresEl = document.querySelector('#itl-day-fares') as HTMLElement
       faresEl.textContent = fares && fares.totalYen ? `🚆 Trains today: ${yenWithNok(fares.totalYen, tripRate).replace(/^(¥[\d,]+)/, '$1 per person')}${fares.estimate ? ' · estimate' : ''}` : ''
       faresEl.hidden = !faresEl.textContent
+      const arrivalEl = document.querySelector('#itl-arrival') as HTMLElement
+      arrivalEl.textContent = DATA.arrival && DATA.arrival.date === day.day ? DATA.arrival.line : ''
+      arrivalEl.hidden = !arrivalEl.textContent
       renderLateDay(day, sched)
       // Train legs after the last trains: the stop they go to (or back to the base).
       const lateTrains = new Map(lastTrainLegs(sched).map((l) => [l.index, l]))
@@ -1267,7 +1278,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // --- Linking stops to shops (lib/stop-linking.ts) ----------------------------------------------
     // The shop picker: every shop by area (the add-stop picker's grouping), value = its _id.
     function shopPickerOptions(selected: string | null): string {
-      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || []).map(({ area, items }) =>
+      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) =>
         `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
           const id = (shops || [])[i]._id
           return `<option value="${esc(id)}"${id === selected ? ' selected' : ''}>${esc(name)}</option>`
@@ -1359,7 +1370,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     let addMinutes = 0
     // The same grouped list as the list's add-stop (shopOptionGroups), then "write it yourself".
     addShop.innerHTML = '<option value="">Choose a place…</option>' +
-      shopOptionGroups(shops || []).map(({ area, items }) =>
+      shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) =>
         `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
       ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
     addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__' })

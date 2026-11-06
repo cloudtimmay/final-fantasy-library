@@ -1,4 +1,8 @@
-import { test, expect } from './fixtures'
+import { test, expect, testName } from './fixtures'
+
+// One at a time: the countdown follows the trips in Trip Settings, and the test below adds one
+// (the only test anywhere that gives a trip both its arrival and its flight home times).
+test.describe.configure({ mode: 'serial' })
 
 // Must match DEPART/RETURN in src/pages/index.astro exactly: Norwegian time with its offset,
 // so the instants are the same whatever timezone Node or the browser runs in.
@@ -62,5 +66,34 @@ test.describe('homepage trip countdown on a phone set to Japan time', () => {
     await page.clock.setFixedTime(new Date('2026-12-07T09:51:00+01:00'))
     await page.goto('/')
     await expect(page.locator('#tc-title')).toHaveText('Turen er over 💤')
+  })
+})
+
+test.describe('homepage trip countdown from Trip Settings', () => {
+  test('counts down to the next trip with its arrival and flight home set (Japan time); after December it is that trip, not "over"', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({
+      _type: 'tripSettings', label: testName(`Countdown Trip ${Date.now()}`),
+      firstTokyoDay: '2027-01-10', lastTokyoDay: '2027-01-12', arrivalDate: '2027-01-10', arrivalTime: '07:55', arrivalAirport: 'Haneda',
+      flightHomeDate: '2027-01-12', flightHomeTime: '09:55', flightHomeAirport: 'Haneda',
+    })
+    trackDoc(trip._id)
+    // Before December: still the December trip (no trip in Trip Settings has December times).
+    await page.clock.setFixedTime(new Date('2026-11-20T12:00:00+01:00'))
+    await page.goto('/')
+    await expect(page.locator('#tc')).toHaveAttribute('data-target', '2026-11-30T04:30:00+01:00')
+    // After it: the next trip, landing 10 January 07:55 in Japan = 23:55 on the 9th in Norway.
+    await page.clock.setFixedTime(new Date('2027-01-08T23:55:00+01:00'))
+    await page.goto('/')
+    await expect(page.locator('#tc')).toHaveAttribute('data-target', '2027-01-10T07:55:00+09:00')
+    await expect(page.locator('#tc-title')).toHaveText('Nedtelling til Japan 🇯🇵')
+    await expect(page.locator('#c-days .tc-num')).toHaveText('1')
+    await expect(page.locator('#c-hours .tc-num')).toHaveText('00')
+    await expect(page.locator('#c-mins .tc-num')).toHaveText('00')
+    // During it: the flight home, 12 January 09:55 in Japan.
+    await page.clock.setFixedTime(new Date('2027-01-11T09:55:00+09:00'))
+    await page.goto('/')
+    await expect(page.locator('#tc-title')).toHaveText('Til hjemreise ✈️')
+    await expect(page.locator('#c-days .tc-num')).toHaveText('1')
+    await expect(page.locator('#c-hours .tc-num')).toHaveText('00')
   })
 })

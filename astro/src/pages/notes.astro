@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
 import { foundItems, foundThumbs, foundPricesQuery, foundPurchasesQuery, type FoundPriceDoc, type FoundPurchaseDoc } from '../lib/shop-found'
+import { pickDefaultTrip } from '../lib/spending'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
@@ -12,8 +13,12 @@ const notes = await sanity.fetch(`
 `)
 
 const trips = await sanity.fetch(
-  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label }`
+  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label, startDate, endDate }`
 )
+// The trip whose shops come first: the one picked in the itinerary (remembered in this browser,
+// read by the script below), else ?trip=, else the ongoing or next upcoming trip (as /itinerary).
+const defaultTripId = pickDefaultTrip(trips.map((t: any) => ({ _id: t._id, label: t.label, startDate: t.startDate || undefined, endDate: t.endDate || undefined, childBudgets: [] })))?._id || ''
+const tripLabels = Object.fromEntries(trips.map((t: any) => [t._id, t.label || 'Trip']))
 
 // Under each shop: up to 4 thumbnails of what was found there (lib/shop-found.ts — one per
 // product, newest first) and "+N" for the rest, linking to the shop page's "Found here".
@@ -82,7 +87,8 @@ function isUrl(s: string): boolean {
     </select>
   </div>
 
-  <div class="notes-list">
+  <p id="notes-trip-first" class="hint" hidden></p>
+  <div class="notes-list" id="notes-list" data-first-trip={defaultTripId} data-trip-labels={JSON.stringify(tripLabels)}>
     {notes.map((n: any) => {
       const hasCoords = typeof n.latitude === 'number' && typeof n.longitude === 'number'
       const addressIsUrl = isUrl(n.address)
@@ -250,6 +256,30 @@ function isUrl(s: string): boolean {
     const priorityFilter = document.querySelector('#priority-filter')
     const countEl = document.querySelector('#notes-count')
     const emptyMsg = document.querySelector('#notes-empty')
+
+    // The selected trip's shops first, then the rest, each in their own order (never filtered —
+    // the trip filter does that). Its shops are the ones ticked on the shop page (shopNote.trips).
+    const list = document.querySelector('#notes-list') as HTMLElement | null
+    if (list) {
+      let labels: Record<string, string> = {}
+      try { labels = JSON.parse(list.dataset.tripLabels || '{}') } catch (e) {}
+      let remembered: string | null = null
+      try { remembered = localStorage.getItem('ff-itinerary-trip') } catch (e) {}
+      const fromUrl = new URL(window.location.href).searchParams.get('trip')
+      const tripId = [fromUrl, remembered, list.dataset.firstTrip].find((id) => !!id && id in labels) || ''
+      if (tripId) {
+        const cards = [...list.querySelectorAll<HTMLElement>('.note-card')]
+        const on = cards.filter((c) => (c.dataset.trips || '').split(' ').includes(tripId))
+        if (on.length) {
+          // CSS order (the list is a flex column), not moving the cards: each card's map is an
+          // iframe, and moving an iframe in the page reloads it — every map at once.
+          for (const c of on) c.style.order = '-1'
+          const note = document.querySelector('#notes-trip-first') as HTMLElement
+          note.textContent = `🧳 ${labels[tripId]}: its shops first (${on.length}), then the rest.`
+          note.hidden = false
+        }
+      }
+    }
 
     function update() {
       const q = searchInput.value.trim().toLowerCase()

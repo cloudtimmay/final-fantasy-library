@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro'
 import { sanity, SHARED_FIELDS, urlFor } from '../lib/sanity'
 import { isNew } from '../lib/dates'
+import { countdownTrips } from '../lib/trip-plans'
 
 const [albumCount, gameCount, merchCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "album" && status != "wishlist" && !(_id in path("drafts.**"))])`),
@@ -9,6 +10,12 @@ const [albumCount, gameCount, merchCount, bookCount] = await Promise.all([
   sanity.fetch<number>(`count(*[_type == "figure" && status != "wishlist" && !(_id in path("drafts.**"))])`),
   sanity.fetch<number>(`count(*[_type == "book" && status != "wishlist" && !(_id in path("drafts.**"))])`),
 ])
+
+// The countdown: each trip in Trip Settings with its arrival in Japan and its flight home
+// (lib/trip-plans.ts countdownTrips). Empty when none has them, or Sanity can't be reached.
+const countdown = await sanity.fetch(
+  `*[_type == "tripSettings" && !(_id in path("drafts.**"))]{ _id, label, firstTokyoDay, lastTokyoDay, arrivalDate, arrivalTime, flightHomeDate, flightHomeTime }`
+).then(countdownTrips).catch(() => [])
 
 const recentlyAdded = await sanity.fetch(`
   *[_type in ["album","game","figure","book"] && !(_id in path("drafts.**"))]
@@ -41,7 +48,7 @@ const TYPE_ICON: Record<string, string> = {
 }
 ---
 <Base title="Dashboard">
-<div class="trip-countdown" id="tc">
+<div class="trip-countdown" id="tc" data-trips={JSON.stringify(countdown)}>
   <div class="tc-title" id="tc-title">Nedtelling til Japan 🇯🇵</div>
   <div class="tc-cells" id="tc-cells">
     <div class="tc-cell" id="c-days"><span class="tc-num">–</span><span class="tc-lab">Days</span></div>
@@ -56,8 +63,19 @@ const TYPE_ICON: Record<string, string> = {
     // Norwegian time, written with its offset (+01:00 in winter) so the countdown is the same
     // on a phone set to Japan time during the trip — new Date(y, m, d, h, mi) would read it as
     // the device's own local time and land 8 hours early there.
-    const DEPART = new Date('2026-11-30T04:30:00+01:00') // 30. nov 2026 04:30, leaving home
-    const RETURN = new Date('2026-12-07T09:50:00+01:00') // 7. des 2026 09:50, landing at Oslo Airport
+    // The December 2026 trip as it was set up before Trip Settings had the times: the fallback.
+    const DEPART = '2026-11-30T04:30:00+01:00' // 30. nov 2026 04:30, leaving home
+    const RETURN = '2026-12-07T09:50:00+01:00' // 7. des 2026 09:50, landing at Oslo Airport
+    // The trips from Trip Settings (landing in Japan → flight home, written in Japan time, +09:00,
+    // so they're the same moment on any phone). The December one above is kept unless a trip there
+    // has its own December 2026 times; the countdown follows the first trip not yet over.
+    let fromSettings = []
+    try { fromSettings = JSON.parse(document.getElementById('tc').dataset.trips || '[]') } catch (e) {}
+    const trips = fromSettings.some((t) => t.arrive.startsWith('2026-12'))
+      ? fromSettings
+      : [{ arrive: DEPART, leave: RETURN }].concat(fromSettings)
+    trips.sort((a, b) => new Date(a.arrive) - new Date(b.arrive))
+    const pick = (now) => trips.find((t) => new Date(t.leave) > now) || trips[trips.length - 1]
 
     const el = (id) => document.getElementById(id)
     const setNum = (id, v) => { const c = el(id); if (c) c.querySelector('.tc-num').textContent = v }
@@ -76,6 +94,9 @@ const TYPE_ICON: Record<string, string> = {
       const now = new Date()
       const cells = el('tc-cells'), done = el('tc-done')
       const title = el('tc-title')
+      const trip = pick(now)
+      const DEPART = new Date(trip.arrive), RETURN = new Date(trip.leave)
+      el('tc').dataset.target = trip.arrive
 
       if (now < DEPART) {
         // Phase 1 — countdown to leaving for Japan.

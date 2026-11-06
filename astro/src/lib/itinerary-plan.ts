@@ -153,25 +153,30 @@ export function normalizeSavedPlan(p: unknown, plan: { day: string }[]): SavedDa
 }
 
 // One date's day: its saved version, else the plan's default for that date, else empty.
-export function planDayEntry(iso: string, s: { startTime?: string; stops?: PlanStop[] } | undefined, templateByDay: Map<string, PlanTemplateDay>, labels: Record<string, string>): PlanDay {
+// `startDefaults`: a day's own default start instead of DEFAULT_START (the arrival day: after
+// landing, lib/trip-plans.ts arrivalFor). Every save writes every day's start, so on such a day a
+// saved DEFAULT_START counts as not chosen; any other saved time is kept.
+export function planDayEntry(iso: string, s: { startTime?: string; stops?: PlanStop[] } | undefined, templateByDay: Map<string, PlanTemplateDay>, labels: Record<string, string>, startDefaults: Record<string, string> = {}): PlanDay {
   const t = templateByDay.get(iso)
+  const own = startDefaults[iso]
+  const saved = s && s.startTime
   return {
     day: iso, date: labels[iso] || iso, area: t ? t.area : '', note: t ? t.note || '' : '',
-    startTime: (s && s.startTime) || DEFAULT_START,
+    startTime: saved && !(own && saved === DEFAULT_START) ? saved : own || DEFAULT_START,
     stops: s && Array.isArray(s.stops) ? s.stops : t ? t.stops.slice() : [],
   }
 }
 
 // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
 // default) — their stops are shown under "Not scheduled" until moved to a day.
-export function buildPlanState(plan: PlanTemplateDay[], days: string[], labels: Record<string, string>, saved: SavedDays): { state: PlanDay[]; extraDays: Record<string, PlanDay> } {
+export function buildPlanState(plan: PlanTemplateDay[], days: string[], labels: Record<string, string>, saved: SavedDays, startDefaults: Record<string, string> = {}): { state: PlanDay[]; extraDays: Record<string, PlanDay> } {
   const templateByDay = new Map(plan.map((d) => [d.day, d]))
   const inRange = new Set(days)
   const extraDays: Record<string, PlanDay> = {}
   new Set([...plan.map((d) => d.day), ...Object.keys(saved)]).forEach((iso) => {
-    if (!inRange.has(iso)) extraDays[iso] = planDayEntry(iso, saved[iso], templateByDay, labels)
+    if (!inRange.has(iso)) extraDays[iso] = planDayEntry(iso, saved[iso], templateByDay, labels, startDefaults)
   })
-  return { state: days.map((iso) => planDayEntry(iso, saved[iso], templateByDay, labels)), extraDays }
+  return { state: days.map((iso) => planDayEntry(iso, saved[iso], templateByDay, labels, startDefaults)), extraDays }
 }
 
 // The saved form of every date, the "Not scheduled" ones included — a stop is only ever removed
@@ -183,15 +188,23 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
 }
 
 // --- Adding a stop (the list's "+ Legg til stopp" and the timeline's tap-to-add) -----------------
-// The shop picker's list: shops grouped by area (sorted), each with its index in `shops`.
-export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number }[]): { area: string; items: { i: number; name: string; hasCoord: boolean }[] }[] {
+// The shop picker's list: shops grouped by area (sorted), each with its index in `shops`. With a
+// trip, its shops (shopNote.trips) come first in their own group, "🧳 This trip", then the rest.
+export const TRIP_SHOPS_GROUP = '🧳 This trip'
+export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null): { area: string; items: { i: number; name: string; hasCoord: boolean }[] }[] {
   const byArea: Record<string, { i: number; name: string; hasCoord: boolean }[]> = {}
+  const onTrip: { i: number; name: string; hasCoord: boolean }[] = []
   shops.forEach((s, i) => {
+    if (tripId && Array.isArray(s.tripIds) && s.tripIds.includes(tripId)) {
+      onTrip.push({ i, name: s.shopName || '', hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
+      return
+    }
     const area = s.area || 'Andre'
     if (!byArea[area]) byArea[area] = []
     byArea[area].push({ i, name: s.shopName || '', hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
   })
-  return Object.keys(byArea).sort().map((area) => ({ area, items: byArea[area] }))
+  const groups = Object.keys(byArea).sort().map((area) => ({ area, items: byArea[area] }))
+  return onTrip.length ? [{ area: TRIP_SHOPS_GROUP, items: onTrip }, ...groups] : groups
 }
 
 // A stop for a shop from the shop list, or one typed in by hand — the same saved shape on both pages.

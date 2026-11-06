@@ -176,16 +176,17 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
   })
 
   test('a shop from the picker: the same grouped list and stop shape as /itinerary-list\'s add-stop', async ({ page, sanity, trackDoc }) => {
-    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
-    await page.goto('/itinerary-list')
-    await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
-    const listGroups = await page.locator('.add-form').first().locator('.af-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
-    expect(listGroups.length).toBeGreaterThan(0)
-
-    await page.unroute('**/api/itinerary-save')
-    const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY.slice(0, 1))
+    const { trip, saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY.slice(0, 1))
     const timelineGroups = await page.locator('#itl-add-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
+    // The list for the same trip (its shops come first on both — lib/trip-plans.ts), in a second tab.
+    const list = await page.context().newPage()
+    await list.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await list.goto(`/itinerary-list?trip=${trip._id}`)
+    await expect(list.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
+    const listGroups = await list.locator('.add-form').first().locator('.af-shop optgroup').evaluateAll((els) => els.map((e) => [e.getAttribute('label'), e.children.length]))
+    expect(listGroups.length).toBeGreaterThan(0)
     expect(timelineGroups).toEqual(listGroups)
+    await list.close()
 
     await tapAt(page, '09:00')
     const firstShop = page.locator('#itl-add-shop optgroup option').first()
@@ -1264,9 +1265,10 @@ test.describe('the itinerary\'s addresses: /itinerary is the timeline, /itinerar
     await expect(page).toHaveURL(`/itinerary?trip=${trip._id}&now=2026-12-06T13:00&day=2026-12-06`)
     await expect(page.locator('.itl-tab.active')).toHaveText('6. des (søn)')
     await expect(page.locator('#itl-test-time')).toContainText('2026-12-06 13:00')
-    // Without a query too.
-    await page.goto('/itinerary-timeline')
-    await expect(page).toHaveURL(/\/itinerary$/)
+    // Without a query too. (The browser then goes on to the trip it remembers — TripSwitch.)
+    const bare = await page.request.get('/itinerary-timeline', { maxRedirects: 0 })
+    expect(bare.status()).toBe(302)
+    expect(bare.headers()['location']).toBe('/itinerary')
   })
 
   test('the site navigation\'s Plan goes to /itinerary, and is lit on both pages', async ({ page }) => {

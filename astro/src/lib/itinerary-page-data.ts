@@ -6,6 +6,7 @@ import { formatDayLabel, dateRange, isIsoDate } from './trip-dates'
 import { fetchTripsForSpending, pickDefaultTrip } from './spending'
 import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from './itinerary-review-helpers'
 import { foundItems, foundPricesQuery, foundPurchasesQuery, type FoundItem, type FoundPriceDoc, type FoundPurchaseDoc } from './shop-found'
+import { planDocIdFor, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, type PlanTrip } from './trip-plans'
 
 export const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -109,19 +110,21 @@ export const PLAN = [
 ]
 
 export async function loadItineraryPageData(url: URL) {
-  // The shops, the saved plan and the trip are fetched at the same time, not one after another
-  // (the page waits for the slowest instead of all of them added up).
-  const [shops, savedState, trip] = await Promise.all([loadShops(), loadSavedState(), loadTrip(url)])
-  return pageDataFrom(shops, savedState, trip)
+  // The shops and the trips are fetched at the same time; then the chosen trip's plan
+  // (lib/trip-plans.ts: the original document for the December 2026 trip, its own for the others).
+  const [shops, { trip, trips }] = await Promise.all([loadShops(), loadTrip(url)])
+  const savedState = await loadSavedState(planDocIdFor(trip))
+  return pageDataFrom(shops, savedState, trip, trips)
 }
 
-type PageTrip = { _id: string; label?: string; jpyToNokRate?: number; firstTokyoDay?: string; lastTokyoDay?: string; flightHomeDate?: string; flightHomeTime?: string; flightHomeAirport?: string; flightHomeTerminal?: string }
+type PageTrip = PlanTrip & { label?: string; jpyToNokRate?: number; flightHomeTerminal?: string }
+const TRIP_FIELDS = `_id, label, jpyToNokRate, startDate, endDate, firstTokyoDay, lastTokyoDay, arrivalDate, arrivalTime, arrivalAirport, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal`
 
 async function loadShops(): Promise<any[]> {
   try {
     return await sanity.fetch(`
       *[_type == "shopNote" && !(_id in path("drafts.**")) && defined(shopName)]{
-        _id, shopName, area, placeType, openingHours, latitude, longitude, note, address,
+        _id, shopName, area, placeType, openingHours, latitude, longitude, note, address, "tripIds": trips[]._ref,
         "photos": photos[defined(asset)]{ caption, "url": asset->url }
       } | order(area asc, shopName asc)
     `)
@@ -129,29 +132,31 @@ async function loadShops(): Promise<any[]> {
 }
 
 // Saved plan (synced across devices). Null the first time.
-async function loadSavedState(): Promise<string | null> {
+async function loadSavedState(docId: string): Promise<string | null> {
   try {
-    const doc = await sanity.fetch(`*[_id == "itineraryState"][0]{ data }`)
+    const doc = await sanity.fetch(`*[_id == $id][0]{ data }`, { id: docId })
     return doc && typeof doc.data === 'string' ? doc.data : null
   } catch (e) { return null }
 }
 
-// The trip: ?trip=<id>, else the same default /spending picks.
-async function loadTrip(url: URL): Promise<PageTrip | null> {
+// The trip: ?trip=<id>, else the same default /spending picks (the ongoing or next upcoming
+// trip). The page remembers a trip picked in its switcher and comes back with ?trip= (TripSwitch).
+// `trips`: every trip with days in Tokyo, for the switcher.
+async function loadTrip(url: URL): Promise<{ trip: PageTrip | null; trips: PageTrip[] }> {
   try {
-    const trips = await fetchTripsForSpending()
+    const all: PageTrip[] = await sanity.fetch(`*[_type == "tripSettings" && !(_id in path("drafts.**"))] | order(_createdAt asc) { ${TRIP_FIELDS} }`)
     const requestedTripId = url.searchParams.get('trip')
-    const picked = trips.find((t) => t._id === requestedTripId) || pickDefaultTrip(trips)
-    if (!picked) return null
-    return await sanity.fetch(
-      `*[_id == $id][0]{ _id, label, jpyToNokRate, firstTokyoDay, lastTokyoDay, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal }`,
-      { id: picked._id }
-    )
-  } catch (e) { return null }
+    const forDefault = all.map((t) => ({ _id: t._id, label: t.label, startDate: t.startDate || undefined, endDate: t.endDate || undefined, childBudgets: [] }))
+    const pickedId = all.some((t) => t._id === requestedTripId) ? requestedTripId : pickDefaultTrip(forDefault)?._id
+    return { trip: all.find((t) => t._id === pickedId) || null, trips: planTrips(all) }
+  } catch (e) { return { trip: null, trips: [] } }
 }
 
-function pageDataFrom(shops: any[], savedState: string | null, trip: PageTrip | null) {
-  const plan = PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) }))
+function pageDataFrom(shopsIn: any[], savedState: string | null, trip: PageTrip | null, trips: PageTrip[] = []) {
+  // The default December plan only for the trip that owns the original plan; another trip starts
+  // empty. Its shops first in the pickers (shopNote.trips).
+  const plan = ownsOriginalPlan(trip) ? PLAN.map((d) => ({ ...d, date: formatDayLabel(d.day) })) : []
+  const shops = shopsTripFirst(shopsIn, trip?._id)
 
   // The days shown: the trip's days in Tokyo (Trip Settings → First/Last day in Tokyo) — not
   // its Start/End date, which are the travel dates (leaving home / getting home). Without Tokyo
@@ -182,7 +187,12 @@ function pageDataFrom(shops: any[], savedState: string | null, trip: PageTrip | 
   const labels: Record<string, string> = {}
   for (const d of [...days, ...plan.map((p) => p.day), ...savedDates(savedState)]) labels[d] = formatDayLabel(d)
 
-  return { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels }
+  // The arrival in Japan: "✈️ Landing 07:55 at Haneda Airport" on its day, which then starts at
+  // the landing + immigration + the trip to the base (unless a start time was chosen).
+  const arrival = arrivalFor(trip)
+  const startDefaults: Record<string, string> = arrival ? { [arrival.date]: arrival.start } : {}
+  const tripChoices = trips.map((t) => ({ _id: t._id, label: t.label || 'Trip', range: `${formatDayLabel(t.firstTokyoDay!)} – ${formatDayLabel(t.lastTokyoDay!)}` }))
+  return { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels, arrival, startDefaults, tripChoices }
 }
 
 // "Found here" for every shop (lib/shop-found.ts — the same list as the shop page), for the

@@ -1,0 +1,50 @@
+---
+// The itinerary's trip switcher (/itinerary and /itinerary-list): every trip with days in Tokyo
+// (lib/trip-plans.ts planTrips). Picking one opens this page for it (?trip=<id>); the choice is
+// remembered in this browser, so the page comes back to it when opened without ?trip=.
+// The page's default (no ?trip=, nothing remembered) is the ongoing or next upcoming trip.
+interface Props {
+  choices: { _id: string; label: string; range: string }[]
+  current: { _id: string; label?: string | null } | null
+}
+const { choices, current } = Astro.props
+const inChoices = !!current && choices.some((c) => c._id === current._id)
+---
+{choices.length > 0 && (
+  <label class="trip-switch">🧳 Trip
+    <select id="trip-switch" aria-label="Trip">
+      {!inChoices && <option value={current?._id || ''} selected>{current ? `${current.label || 'Trip'} (no days in Tokyo)` : '—'}</option>}
+      {choices.map((c) => <option value={c._id} selected={c._id === current?._id}>{c.label} · {c.range}</option>)}
+    </select>
+  </label>
+)}
+<script is:inline>
+  (function () {
+    var KEY = 'ff-itinerary-trip'
+    var sel = document.getElementById('trip-switch')
+    if (!sel) return
+    var ids = Array.prototype.map.call(sel.options, function (o) { return o.value }).filter(Boolean)
+    var url = new URL(window.location.href)
+    var stored = null
+    try { stored = localStorage.getItem(KEY) } catch (e) {}
+    // Opened without ?trip=: back to the trip picked here last time, if it's still a choice.
+    if (!url.searchParams.get('trip') && stored && stored !== sel.value && ids.indexOf(stored) >= 0) {
+      url.searchParams.set('trip', stored)
+      window.location.replace(url.toString())
+      return
+    }
+    try { if (sel.value) localStorage.setItem(KEY, sel.value) } catch (e) {}
+    sel.addEventListener('change', function () {
+      if (!sel.value) return
+      try { localStorage.setItem(KEY, sel.value) } catch (e) {}
+      var u = new URL(window.location.href)
+      u.searchParams.set('trip', sel.value)
+      u.searchParams.delete('day') // the other trip's days
+      window.location.href = u.toString()
+    })
+  })()
+</script>
+<style>
+  .trip-switch { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; font-size: 0.85rem; font-weight: 600; }
+  .trip-switch select { flex: 1; min-width: 0; max-width: 100%; font-size: 0.85rem; padding: 0.3rem; }
+</style>

@@ -2,10 +2,14 @@
 import Base from '../layouts/Base.astro'
 import { loadItineraryPageData } from '../lib/itinerary-page-data'
 import '../styles/itinerary-shared.css'
+import TripSwitch from '../components/TripSwitch.astro'
+import { planStoreKey } from '../lib/trip-plans'
 
 // The default plan, the trip and its days, the flight home, the shops and the saved plan —
 // shared with the timeline, /itinerary (src/lib/itinerary-page-data.ts).
-const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels } = await loadItineraryPageData(Astro.url)
+const { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels, arrival, startDefaults, tripChoices } = await loadItineraryPageData(Astro.url)
+// This trip's plan in the browser (lib/trip-plans.ts: the December plan keeps its old key).
+const storeKey = planStoreKey('ff-itinerary-v12', trip)
 const tripParam = Astro.url.searchParams.get('trip')
 const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 ---
@@ -15,6 +19,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     <span class="count">{rangeLabel} · base Akihabara</span>
     <a id="itn-timeline-link" class="itn-timeline-link" href={`/itinerary${tripQuery}`}>🗓️ Timeline</a>
   </div>
+  <TripSwitch choices={tripChoices} current={trip} />
   {!usingTripDays && (
     <p class="plan-days-hint">Days from the plan's own dates. Set "First day in Tokyo" and "Last day in Tokyo" in Trip Settings{trip?.label ? ` (${trip.label})` : ''} to show the trip's days.</p>
   )}
@@ -31,7 +36,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 
   <div id="days"></div>
 
-  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, flight, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState })}></script>
+  <script type="application/json" id="plan-data" set:html={JSON.stringify({ plan, days, labels, flight, areaMin: AREA_MIN_FROM_AKIB, base: BASE, shops, savedState, arrival, startDefaults, storeKey, tripId: trip?._id || '' })}></script>
 
   <!-- The main script below is is:inline (left untouched — far too large/load-bearing to
        safely convert to a module) and so can't use `import`. This tiny module script
@@ -50,12 +55,14 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
 
   <script is:inline>
 
-    const STORE_KEY = 'ff-itinerary-v12'
     const DEFAULT_START = '08:00'
     const raw = document.querySelector('#plan-data')?.textContent || '{}'
     // `days`: the dates shown, in order; `labels`: "1. des (tir)" for every date the page knows
     // (computed on the server by lib/trip-dates.ts — this script never works out a weekday).
-    const { plan, days, labels, flight, areaMin, base, shops, savedState } = JSON.parse(raw)
+    // `storeKey`/`tripId`: the trip's own plan (lib/trip-plans.ts); `arrival`/`startDefaults`:
+    // the arrival day's landing line and start time.
+    const { plan, days, labels, flight, areaMin, base, shops, savedState, arrival, startDefaults, storeKey, tripId } = JSON.parse(raw)
+    const STORE_KEY = storeKey || 'ff-itinerary-v12'
     const templateByDay = new Map(plan.map((d) => [d.day, d]))
     const shopById = new Map((shops || []).map((sh) => [sh._id, sh]))
     const daysEl = document.querySelector('#days')
@@ -77,7 +84,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     function buildShopOptions() {
       if (!shops || !shops.length) return ''
       let html = ''
-      window.__routeOptimizer.shopOptionGroups(shops).forEach(({ area, items }) => {
+      window.__routeOptimizer.shopOptionGroups(shops, tripId || null).forEach(({ area, items }) => {
         html += `<optgroup label="${esc(area)}">`
         items.forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
         html += `</optgroup>`
@@ -112,7 +119,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         try {
           const res = await fetch('/api/itinerary-save', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: payload }),
+            body: JSON.stringify(tripId ? { data: payload, tripId } : { data: payload }),
           })
           setStatus(res.ok ? 'Lagret ✓' : 'Lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
         } catch (e) {
@@ -130,13 +137,13 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     }
 
     // One date's day: its saved version, else the plan's default for that date, else empty.
-    function dayEntry(iso, s) { return LIB().planDayEntry(iso, s, templateByDay, labels) }
+    function dayEntry(iso, s) { return LIB().planDayEntry(iso, s, templateByDay, labels, startDefaults || {}) }
     // `state`: the trip's days, in order. `extraDays`: every other date with a plan (saved or
     // default) — their stops are shown under "Not scheduled" until moved to a day. Built once the
     // shared module has loaded (see the startup at the end), before the first render.
     let extraDays = {}
     function buildState() {
-      const built = LIB().buildPlanState(plan, days, labels, loadSaved() || {})
+      const built = LIB().buildPlanState(plan, days, labels, loadSaved() || {}, startDefaults || {})
       extraDays = built.extraDays
       return built.state
     }
@@ -368,6 +375,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
             <div>
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
+              ${arrival && arrival.date === day.day ? `<div class="day-flight day-arrival">${esc(arrival.line)}</div>` : ''}
               ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
               ${lateDayHtml(day, sched)}
             </div>

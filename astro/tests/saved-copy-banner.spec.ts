@@ -22,6 +22,11 @@ async function setRenderedAt(page: import('@playwright/test').Page, msAgo: numbe
   }, msAgo)
 }
 
+// The clock frozen at one instant for the tests that print a time: the page's Date.now() (which
+// stamps the "saved" time) and the expected time computed here are then the same instant, so a
+// minute ticking over mid-test can't make them differ (it once gave 08:58 against 08:57).
+const FROZEN_NOW = new Date('2026-11-05T09:00:30+01:00')
+
 test.describe('saved copy banner', () => {
   test('a fresh page shows no banner', async ({ page }) => {
     await page.goto('/add-menu')
@@ -29,10 +34,11 @@ test.describe('saved copy banner', () => {
   })
 
   test('a page older than 2 minutes shows the banner with a time, and Refresh reloads', async ({ page }) => {
+    await page.clock.setFixedTime(FROZEN_NOW)
     await page.goto('/add-menu');
 
     const TWO_MINUTES = 2 * 60 * 1000
-    const renderedAtMs = Date.now() - (TWO_MINUTES + 10_000) // just over the threshold
+    const renderedAtMs = FROZEN_NOW.getTime() - (TWO_MINUTES + 10_000) // just over the threshold
     await setRenderedAt(page, TWO_MINUTES + 10_000)
     await dispatchPersistedPageshow(page)
 
@@ -61,10 +67,11 @@ test.describe('saved copy banner', () => {
   })
 
   test('a page older than 24 hours shows the banner with the date as well', async ({ page }) => {
+    await page.clock.setFixedTime(FROZEN_NOW)
     await page.goto('/add-menu')
 
     const TWENTY_FIVE_HOURS = 25 * 60 * 60 * 1000
-    const renderedAtMs = Date.now() - TWENTY_FIVE_HOURS
+    const renderedAtMs = FROZEN_NOW.getTime() - TWENTY_FIVE_HOURS
     await setRenderedAt(page, TWENTY_FIVE_HOURS)
     await dispatchPersistedPageshow(page)
 

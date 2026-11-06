@@ -130,7 +130,9 @@ function legBetween(from: RoutePoint, to: ScheduleStopInput, fromBase: boolean):
   return { minutes: est ? est.minutes : 0, source: 'estimate', mode: est ? est.mode : null }
 }
 
-export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint): DaySchedule {
+// `opts.returnTrain`: a train planned for the trip back to the base — the last stop must be left by
+// its leave-by (an anchor like a train into a stop), and the day ends at its arrival + the walk.
+export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint, opts: { returnTrain?: TrainTimes | null } = {}): DaySchedule {
   const legs = stops.map((s, i) => legBetween(i === 0 ? base : stops[i - 1], s, i === 0))
 
   // Forward: arrival, start and end of every stop.
@@ -168,12 +170,25 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     clock = end
   })
 
+  // The train back to the base, on the day's clock (after midnight: the next morning).
+  const lastIdx = stops.length - 1
+  const rt = opts.returnTrain && stops.length ? (() => {
+    const shift = opts.returnTrain!.departure + 720 < out[lastIdx].end ? 1440 : 0
+    return { ...opts.returnTrain!, departure: opts.returnTrain!.departure + shift, arrival: opts.returnTrain!.arrival + shift }
+  })() : null
+
   // Backward from each anchor: the latest each earlier stop can end and still make it.
   // latestEnd[i] is only set for stops that have an anchor somewhere after them.
   const latestEnd: (number | null)[] = stops.map(() => null)
   const nextAnchor: (number | null)[] = stops.map(() => null)
   let anchorIdx: number | null = null
   let latestArrivalNext: number | null = null
+  if (rt) {
+    // The train back: the last stop must be left by its leave-by (index stops.length: no stop).
+    latestEnd[lastIdx] = trainLeaveBy(rt)
+    nextAnchor[lastIdx] = stops.length
+    anchorIdx = stops.length
+  }
   for (let i = stops.length - 1; i >= 0; i--) {
     if (i < stops.length - 1 && anchorIdx != null && latestArrivalNext != null) {
       const intoNext = legs[i + 1].minutes + (stops[i + 1].fixedTime != null ? LEAVE_BUFFER_MIN : 0)
@@ -193,7 +208,15 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   }
 
   out.forEach((o, i) => {
-    if (i === stops.length - 1) return
+    if (i === lastIdx) {
+      if (!rt) return
+      o.nextIsAnchor = true
+      o.leaveBy = trainLeaveBy(rt)
+      if (o.end > o.leaveBy && !o.visited) o.leaveEarlierMin = o.end - o.leaveBy
+      if (!o.visited) o.latestLeave = o.leaveBy
+      if (o.fixed) o.stayUntil = o.leaveBy
+      return
+    }
     const next = stops[i + 1]
     o.nextIsAnchor = next.fixedTime != null || !!trains[i + 1]
     o.leaveBy = trains[i + 1] ? trainLeaveBy(trains[i + 1]!) : o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
@@ -257,11 +280,15 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   })
 
   const last = stops[stops.length - 1]
-  const returnLeg = last ? (() => {
-    const est = estimateLeg(last, base)
-    return { minutes: est ? est.minutes : 0, source: 'estimate' as const, mode: est ? est.mode : null }
-  })() : null
-  const end = out.length ? out[out.length - 1].end + (returnLeg ? returnLeg.minutes : 0) : startTime
+  // Back at the base: by the planned train (its arrival + the walk), else the estimate.
+  const backByTrain = rt ? rt.arrival + (rt.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN) : null
+  const returnLeg: TravelLeg | null = !last ? null
+    : backByTrain != null ? { minutes: Math.max(0, backByTrain - out[lastIdx].end), source: 'train', mode: 'train' }
+    : (() => {
+      const est = estimateLeg(last, base)
+      return { minutes: est ? est.minutes : 0, source: 'estimate' as const, mode: est ? est.mode : null }
+    })()
+  const end = !out.length ? startTime : backByTrain != null ? Math.max(backByTrain, out[lastIdx].end) : out[lastIdx].end + (returnLeg ? returnLeg.minutes : 0)
   return { stops: out, segments, returnLeg, end }
 }
 

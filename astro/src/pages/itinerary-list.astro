@@ -376,7 +376,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
               <div class="day-title">${day.date}</div>
               <div class="day-area">${day.area}</div>
               ${arrival && arrival.date === day.day ? `<div class="day-flight day-arrival">${esc(arrival.line)}</div>` : ''}
-              ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${esc(flight.latestEnd)}</div>` : ''}
+              ${flight && flight.date === day.day ? `<div class="day-flight">${esc(flight.line)} · last stop should end by ~${fmt(LIB().flightDeadline(day, flight)?.leaveBy ?? 0)}</div>` : ''}
               ${lateDayHtml(day, sched)}
             </div>
             <div class="day-travel">${travelBadge(day.area)}<br>slutt ~${fmt(baseEnd)}</div>

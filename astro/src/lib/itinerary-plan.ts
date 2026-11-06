@@ -10,8 +10,9 @@ import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type Schedu
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex } from './trip-dates'
-import { trainTimes, validateTrain, type TrainPlan } from './train-plan'
-import { extractJpyTotal } from './itinerary-review-helpers'
+import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
+import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN } from './itinerary-review-helpers'
+import { trainLeaveBy } from './itinerary-schedule'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -39,7 +40,13 @@ export type PlanStop = {
   train?: TrainPlan // "🚆 Plan train": the train on the leg INTO this stop (lib/train-plan.ts)
   [key: string]: unknown
 }
-export type PlanDay = { day: string; date: string; area: string; note: string; startTime: string; stops: PlanStop[] }
+export type PlanDay = {
+  day: string; date: string; area: string; note: string; startTime: string; stops: PlanStop[]
+  // Trains planned for the last legs (lib/train-plan.ts): back to the base, and on the flight day
+  // from the base to the airport. Saved with the day.
+  returnTrain?: TrainPlan
+  airportTrain?: TrainPlan
+}
 export type PlanTemplateDay = { day: string; date: string; area: string; note?: string; stops: PlanStop[] }
 export type PlanShop = {
   _id: string; shopName?: string; latitude?: number; longitude?: number; note?: string
@@ -59,7 +66,8 @@ export function placeTypeIcon(shop: PlanShop | null | undefined): { icon: string
   if (!shop) return null
   return PLACE_TYPE_ICONS[shop.placeType || 'shop'] || PLACE_TYPE_ICONS.other
 }
-export type SavedDays = Record<string, { startTime?: string; stops?: PlanStop[] }>
+export type SavedDay = { startTime?: string; stops?: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan }
+export type SavedDays = Record<string, SavedDay>
 
 export function parseClock(s: unknown): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(typeof s === 'string' ? s : '')
@@ -112,7 +120,7 @@ export function manualTravelFor(day: { stops: PlanStop[] }, si: number, shopById
 // anchors, everything else runs forward, with leave-by times and warnings.
 // `times`: each stop's start; `sched`: the full schedule; `inputs`: what it was computed from.
 export function computeDayTimes(
-  day: { startTime: string; stops: PlanStop[] },
+  day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan },
   base: RoutePoint,
   shopById: Map<string, PlanShop>
 ): { baseStart: number; times: number[]; baseEnd: number; sched: DaySchedule; inputs: ScheduleStopInput[] } {
@@ -134,7 +142,7 @@ export function computeDayTimes(
       train: trainTimes(s.train),
     }
   })
-  const sched = scheduleDay(inputs, start, base)
+  const sched = scheduleDay(inputs, start, base, { returnTrain: trainTimes(day.returnTrain) })
   return { baseStart: start, times: sched.stops.map((x) => x.start), baseEnd: sched.end, sched, inputs }
 }
 
@@ -156,13 +164,15 @@ export function normalizeSavedPlan(p: unknown, plan: { day: string }[]): SavedDa
 // `startDefaults`: a day's own default start instead of DEFAULT_START (the arrival day: after
 // landing, lib/trip-plans.ts arrivalFor). Every save writes every day's start, so on such a day a
 // saved DEFAULT_START counts as not chosen; any other saved time is kept.
-export function planDayEntry(iso: string, s: { startTime?: string; stops?: PlanStop[] } | undefined, templateByDay: Map<string, PlanTemplateDay>, labels: Record<string, string>, startDefaults: Record<string, string> = {}): PlanDay {
+export function planDayEntry(iso: string, s: SavedDay | undefined, templateByDay: Map<string, PlanTemplateDay>, labels: Record<string, string>, startDefaults: Record<string, string> = {}): PlanDay {
   const t = templateByDay.get(iso)
   const own = startDefaults[iso]
   const saved = s && s.startTime
   return {
     day: iso, date: labels[iso] || iso, area: t ? t.area : '', note: t ? t.note || '' : '',
     startTime: saved && !(own && saved === DEFAULT_START) ? saved : own || DEFAULT_START,
+    ...(s && s.returnTrain ? { returnTrain: s.returnTrain } : {}),
+    ...(s && s.airportTrain ? { airportTrain: s.airportTrain } : {}),
     stops: s && Array.isArray(s.stops) ? s.stops : t ? t.stops.slice() : [],
   }
 }
@@ -183,7 +193,14 @@ export function buildPlanState(plan: PlanTemplateDay[], days: string[], labels: 
 // by the user, never by the trip's days changing.
 export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDay>): string {
   const all: SavedDays = {}
-  Object.values(extraDays).concat(state).forEach((d) => { if (d.day) all[d.day] = { startTime: d.startTime, stops: d.stops } })
+  Object.values(extraDays).concat(state).forEach((d) => {
+    if (!d.day) return
+    const saved: SavedDay = { startTime: d.startTime, stops: d.stops }
+    // Only when there is one, so a plan without them saves exactly as before.
+    if (d.returnTrain) saved.returnTrain = d.returnTrain
+    if (d.airportTrain) saved.airportTrain = d.airportTrain
+    all[d.day] = saved
+  })
   return JSON.stringify({ v: 2, days: all })
 }
 
@@ -460,22 +477,60 @@ export function closingTimeFor(s: PlanStop, shopById: Map<string, PlanShop>, day
 // planned one the fares in its shop's note (as Check day counts them). An estimate when any train
 // leg has only a note fare or no fare at all (a planned train without one, or the trip back by
 // train). null when the day has no train legs.
-export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>): { totalYen: number; estimate: boolean } | null {
-  let totalYen = 0, estimate = false, legs = 0
+// The trains back to the base and to the airport count like any other planned train. `groupYen`:
+// each fare × its travelers (the train's own number, else the trip's, else DEFAULT_TRAVELERS);
+// `travelers`: that number when every fare counted has the same, else null.
+export type DayTrainFares = { totalYen: number; groupYen: number; travelers: number | null; estimate: boolean }
+export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>, tripTravelers: number | null = null): DayTrainFares | null {
+  const tripN = tripTravelers ?? DEFAULT_TRAVELERS
+  let totalYen = 0, groupYen = 0, estimate = false, legs = 0
+  const counts = new Set<number>()
+  // A planned train: its fare (or, without one, an estimate). false when it isn't a valid train.
+  const planned = (t: unknown): boolean => {
+    const v = t ? validateTrain(t) : null
+    if (!v || !('train' in v)) return false
+    legs++
+    const n = v.train.travelers ?? tripN
+    if (v.train.fareYen) { totalYen += v.train.fareYen; groupYen += v.train.fareYen * n; counts.add(n) }
+    else estimate = true
+    return true
+  }
   day.stops.forEach((s, i) => {
-    const v = s.train ? validateTrain(s.train) : null
-    if (v && 'train' in v) {
-      legs++
-      if (v.train.fareYen) totalYen += v.train.fareYen
-      else estimate = true
-    } else if (sched.stops[i]?.travelIn.mode === 'train') {
+    if (planned(s.train)) return
+    if (sched.stops[i]?.travelIn.mode === 'train') {
       legs++
       estimate = true
-      totalYen += extractJpyTotal([stopNote(s, shopById)])
+      const fare = extractJpyTotal([stopNote(s, shopById)])
+      totalYen += fare
+      groupYen += fare * tripN
+      if (fare) counts.add(tripN)
     }
   })
-  if (sched.returnLeg?.mode === 'train') { legs++; estimate = true }
-  return legs ? { totalYen, estimate } : null
+  if (!planned(day.returnTrain) && sched.returnLeg?.mode === 'train') { legs++; estimate = true }
+  planned(day.airportTrain)
+  return legs ? { totalYen, groupYen, travelers: counts.size === 0 ? tripN : counts.size === 1 ? [...counts][0] : null, estimate } : null
+}
+// "🚆 Trains today: ¥7,340 per person (≈ 470 kr) · ¥36,700 for 5 · estimate"; '' without fares.
+export function dayTrainFaresText(f: DayTrainFares | null, rate: number | null | undefined): string {
+  if (!f || !f.totalYen) return ''
+  const group = `${formatYen(f.groupYen)} ${f.travelers != null ? `for ${f.travelers}` : 'for everyone'}`
+  return `🚆 Trains today: ${yenWithNok(f.totalYen, rate).replace(/^(¥[\d,]+)/, '$1 per person')} · ${group}${f.estimate ? ' · estimate' : ''}`
+}
+
+// The flight day's deadline. Without a train to the airport: leave the base by
+// latestEndForFlight (as before). With one (day.airportTrain): leave by its leave-by; `late` when
+// it reaches the airport (its arrival + the walk) after check-in closes (the flight −
+// AIRPORT_ARRIVAL_BEFORE_MIN). null on other days.
+export type FlightDeadline = { leaveBy: number; train: boolean; atAirport: number | null; checkInBy: number; late: boolean }
+export function flightDeadline(day: { day: string; airportTrain?: TrainPlan }, flight: { date: string; time: string; airport: string } | null): FlightDeadline | null {
+  if (!flight || flight.date !== day.day || !(flight.airport in AIRPORTS)) return null
+  const m = /^(\d{2}):(\d{2})$/.exec(flight.time)
+  if (!m) return null
+  const checkInBy = +m[1] * 60 + +m[2] - AIRPORT_ARRIVAL_BEFORE_MIN
+  const t = trainTimes(day.airportTrain)
+  if (!t) return { leaveBy: latestEndForFlight(flight), train: false, atAirport: null, checkInBy, late: false }
+  const atAirport = t.arrival + t.walkFromStationMin
+  return { leaveBy: trainLeaveBy(t), train: true, atAirport, checkInBy, late: atAirport > checkInBy }
 }
 
 // "Latest: HH:MM" and "Fix: leave at HH:MM": the latest stop idx can be left and still be on time

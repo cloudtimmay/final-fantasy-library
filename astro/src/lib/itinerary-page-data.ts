@@ -117,8 +117,8 @@ export async function loadItineraryPageData(url: URL) {
   return pageDataFrom(shops, savedState, trip, trips)
 }
 
-type PageTrip = PlanTrip & { label?: string; jpyToNokRate?: number; flightHomeTerminal?: string }
-const TRIP_FIELDS = `_id, label, jpyToNokRate, startDate, endDate, firstTokyoDay, lastTokyoDay, arrivalDate, arrivalTime, arrivalAirport, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal`
+type PageTrip = PlanTrip & { label?: string; jpyToNokRate?: number; flightHomeTerminal?: string; travelers?: number | null }
+const TRIP_FIELDS = `_id, label, jpyToNokRate, travelers, startDate, endDate, firstTokyoDay, lastTokyoDay, arrivalDate, arrivalTime, arrivalAirport, flightHomeDate, flightHomeTime, flightHomeAirport, flightHomeTerminal`
 
 async function loadShops(): Promise<any[]> {
   try {

@@ -147,6 +147,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           <button id="itl-tr-add-leg" type="button" class="itl-train-btn">＋ Add a train</button>
           <label class="itl-tr-walk">Walk from the last station <span><input id="itl-tr-walk-from" type="number" min="0" max="60" step="1" placeholder="5" /> min</span></label>
           <label class="itl-tr-walk">Fare per person <span>¥ <input id="itl-tr-fare" type="number" min="0" step="10" placeholder="6670" /></span></label>
+          <label class="itl-tr-walk">Travelers on this train <span><input id="itl-tr-travelers" type="number" min="1" max="20" step="1" /> (empty: the trip's)</span></label>
           <p id="itl-tr-error" class="itl-train-error" hidden></p>
           <div class="itl-train-actions">
             <button id="itl-tr-save" type="submit" class="itl-train-btn itl-train-save">Save train</button>
@@ -264,14 +265,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
   <script is:inline src="/trip-select.js"></script>
   <script is:inline src="/resize-image.js"></script>
-  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '', tripRate: trip?.jpyToNokRate ?? null, arrival, startDefaults, storeKey })}></script>
+  <script type="application/json" id="itl-data" set:html={JSON.stringify({ plan, days, labels, flight, base: BASE, shops, savedState, found, foundRate, priceTrips, pageTripId: trip?._id || '', tripRate: trip?.jpyToNokRate ?? null, tripTravelers: trip?.travelers ?? null, arrival, startDefaults, storeKey })}></script>
 
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, placeTypeIcon, latestLeaveFor, leaveFixFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, placeTypeIcon, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -313,6 +314,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const foundRate: number | null = DATA.foundRate ?? null
     // The trip's own rate, for the train fares' ≈ NOK.
     const tripRate: number | null = DATA.tripRate ?? null
+    // Trip Settings → Travelers (null: not set, DEFAULT_TRAVELERS) — train fares × it.
+    const tripTravelers: number | null = DATA.tripTravelers ?? null
     const shopById = new Map<string, PlanShop>((shops || []).map((s: PlanShop) => [s._id, s]))
     const wrap = document.querySelector('.itl-wrap') as HTMLElement
     const dayEl = document.querySelector('#itl-day') as HTMLElement
@@ -375,7 +378,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     // "Fix: leave at HH:MM" for a warning that leaving earlier fixes (itinerary-plan.ts leaveFixFor).
     const fixButton = (t: number | null) => t == null ? '' : `<button type="button" class="itl-fix" data-time="${formatClock(t)}">Fix: leave at ${formatClock(t)}</button>`
-    const flightDeadlineFor = (day: PlanDay) => (flight && flight.date === day.day ? latestEndForFlight(flight) : null)
+    const flightDeadlineFor = (day: PlanDay) => flightDeadline(day, flight)?.leaveBy ?? null
     // Which of "I'm here now" / "Leaving now" a stop offers — only on today's day in Tokyo:
     // "I'm here now" until you've got there, "Leaving now" until you've left. The same on the
     // block and in its edit sheet.
@@ -417,9 +420,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       hereHint.hidden = !testTimeEl.hidden || days.includes(nowTokyo().date)
       // "🚆 Trains today: ¥7,340 per person (≈ 470 kr)" — planned trains' fares plus the fares in
       // the notes of train legs without one; an estimate when any train leg lacks a planned fare.
-      const fares = dayTrainFares(day, sched, shopById)
+      const fares = dayTrainFares(day, sched, shopById, tripTravelers)
       const faresEl = document.querySelector('#itl-day-fares') as HTMLElement
-      faresEl.textContent = fares && fares.totalYen ? `🚆 Trains today: ${yenWithNok(fares.totalYen, tripRate).replace(/^(¥[\d,]+)/, '$1 per person')}${fares.estimate ? ' · estimate' : ''}` : ''
+      faresEl.textContent = dayTrainFaresText(fares, tripRate)
       faresEl.hidden = !faresEl.textContent
       const arrivalEl = document.querySelector('#itl-arrival') as HTMLElement
       arrivalEl.textContent = DATA.arrival && DATA.arrival.date === day.day ? DATA.arrival.line : ''
@@ -454,13 +457,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       layout.travel.forEach((tr) => {
         const el = document.createElement('div')
         el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '') + (tr.back ? ' itl-travel-back' : '')
-        // The trip back to the base is an estimate, as on the list — not editable.
-        if (!tr.back) el.setAttribute('role', 'button')
+        // The trip back to the base: tap for its train (no typed-in time — an estimate otherwise).
+        el.setAttribute('role', 'button')
         el.title = tr.back ? 'Travel back to the base' : 'Travel time'
         el.style.top = `${tr.chip ? tr.chipTop : tr.top}px`
         el.style.height = `${tr.chip ? CHIP_PX : tr.height}px`
         el.dataset.index = String(tr.index)
-        const legTrain = !tr.back ? day.stops[tr.index]?.train : undefined
+        const legTrain = !tr.back ? day.stops[tr.index]?.train : day.returnTrain
         if (legTrain) {
           el.classList.add('itl-travel-train')
           el.textContent = `🚆 ${trainDeparture(legTrain)}`
@@ -478,7 +481,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // "Leave by" line's reminder.
       const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string; now: string }[] = []
       // The flight home's deadline on its day (for the "Fix: leave at" buttons).
-      const flightDeadline = flight && flight.date === day.day ? latestEndForFlight(flight) : null
+      const flightDl = flightDeadlineFor(day)
       // Stops: side by side in columns where they overlap (layoutTimeline).
       layout.stops.forEach((item) => {
         const el = document.createElement('div')
@@ -538,7 +541,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (lastTrain ? '<span class="itl-late-badge" title="' + esc(LAST_TRAIN_MESSAGE) + '">🚆 Last trains</span>' : '')
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
-          + fixButton(leaveFixFor(sched, item.index, flightDeadline))
+          + fixButton(leaveFixFor(sched, item.index, flightDl))
         // The first line: "<name> · HH:MM–HH:MM · 📍 <area>" — the name is never hidden; the time
         // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
         const area = s.shopId ? shopById.get(s.shopId)?.area : null
@@ -599,7 +602,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
       // The base: where the day starts and ends — the same base and travel as the list
       // (itinerary-schedule.ts: the first leg from the base, returnLeg back to it).
-      const flightLatest = flight && flight.date === day.day ? latestEndForFlight(flight) : null
+      const flightInfo = flightDeadline(day, flight)
+      const flightLatest = flightInfo ? flightInfo.leaveBy : null
       if (day.stops.length) {
         const startEl = document.createElement('div')
         startEl.className = 'itl-base itl-base-start'
@@ -618,13 +622,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         grid.appendChild(endEl)
       }
 
-      // The flight home: the latest the day's last stop can end (lib/itinerary-review-helpers.ts).
-      if (flight && flight.date === day.day) {
-        const latest = latestEndForFlight(flight)
+      // The flight home: when to leave for the airport (itinerary-plan.ts flightDeadline) — the
+      // train to the airport's leave-by when one is planned. Tap for that train.
+      if (flight && flightInfo) {
+        const latest = flightInfo.leaveBy
         const line = document.createElement('div')
-        line.className = 'itl-flight'
+        line.className = 'itl-flight' + (flightInfo.late ? ' itl-flight-late' : '')
         line.style.top = `${offsetFor(latest, range, px)}px`
-        line.textContent = `✈️ Leave for ${flight.airport} by ${formatClock(latest)} (${flight.line.replace('✈️ ', '')})`
+        const via = day.airportTrain && flightInfo.atAirport != null
+          ? ` — 🚆 ${trainDeparture(day.airportTrain)} train, at the airport ${formatClock(flightInfo.atAirport)}${flightInfo.late ? ` ⚠️ after check-in closes (${formatClock(flightInfo.checkInBy)})` : ''}`
+          : ''
+        // Only the label takes taps: the dashed line crosses the blocks, which keep theirs.
+        line.innerHTML = `<span class="itl-flight-label" role="button" title="Train to the airport">${esc(`✈️ Leave for ${flight.airport} by ${formatClock(latest)}${via} (${flight.line.replace('✈️ ', '')})`)}</span>`
         grid.appendChild(line)
       }
 
@@ -894,7 +903,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const trainError = document.querySelector('#itl-tr-error') as HTMLElement
     const legsEl = document.querySelector('#itl-tr-legs') as HTMLOListElement
     const trEl = (id: string) => document.querySelector(`#itl-tr-${id}`) as HTMLInputElement
-    let trainLeg: { day: PlanDay; idx: number } | null = null
+    // Which leg the panel is for: into stop idx, back to the base, or to the airport (flight day).
+    type TrainTarget = { day: PlanDay; idx: number; kind: 'stop' | 'return' | 'airport' }
+    let trainLeg: TrainTarget | null = null
+    const targetTrain = (t: TrainTarget) => (t.kind === 'return' ? t.day.returnTrain : t.kind === 'airport' ? t.day.airportTrain : t.day.stops[t.idx].train)
+    function setTargetTrain(t: TrainTarget, train: any) {
+      const d = t.day
+      if (t.kind === 'return') { if (train) d.returnTrain = train; else delete d.returnTrain }
+      else if (t.kind === 'airport') { if (train) d.airportTrain = train; else delete d.airportTrain }
+      else if (train) d.stops[t.idx].train = train
+      else delete d.stops[t.idx].train
+    }
     // One card per train, in order: its title (the leg as the sheet shows it), its fields, ▲▼ ✕.
     const LEG_FIELDS: [keyof TrainLeg, string, string][] = [
       ['line', 'Line', 'text'], ['train', 'Train', 'text'], ['fromStation', 'From', 'text'], ['departure', 'Departs', 'time'],
@@ -931,23 +950,26 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       trEl('walk').value = train.walkToStationMin != null ? String(train.walkToStationMin) : ''
       trEl('walk-from').value = train.walkFromStationMin != null ? String(train.walkFromStationMin) : ''
       trEl('fare').value = train.fareYen != null ? String(train.fareYen) : ''
+      trEl('travelers').value = train.travelers != null ? String(train.travelers) : ''
+      trEl('travelers').placeholder = String(tripTravelers ?? 5)
       legsEl.innerHTML = (train.legs.length ? train.legs : [{}]).map(legCardHtml).join('')
       refreshLegs()
       trainError.hidden = true
       trainForm.hidden = false
     }
     function readTrainForm() {
-      return { walkToStationMin: trEl('walk').value, walkFromStationMin: trEl('walk-from').value, fareYen: trEl('fare').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
+      return { walkToStationMin: trEl('walk').value, walkFromStationMin: trEl('walk-from').value, fareYen: trEl('fare').value, travelers: trEl('travelers').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
     }
-    function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }) {
-      const train = day.stops[idx].train
-      trainLeg = { day, idx }
-      trainPanel.hidden = !train && leg.minutes <= TRAIN_PLAN_MIN_LEG
+    function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }, kind: TrainTarget['kind'] = 'stop') {
+      trainLeg = { day, idx, kind }
+      const train = targetTrain(trainLeg)
+      // The last legs always offer it; a leg between stops when long enough (or with a train).
+      trainPanel.hidden = kind === 'stop' && !train && leg.minutes <= TRAIN_PLAN_MIN_LEG
       // Google Maps' links take no departure time (see the report), so it opens for now.
       ;(document.querySelector('#itl-train-maps') as HTMLAnchorElement).href = transitRouteUrl(from, to)
       const summary = document.querySelector('#itl-train-summary') as HTMLElement
       summary.hidden = !train
-      const fare = train ? trainFareText(train, tripRate) : ''
+      const fare = train ? trainFareText(train, tripRate, tripTravelers) : ''
       summary.textContent = train ? `${trainSummary(train)}${fare ? ` · 💴 ${fare}` : ''}` : ''
       ;(document.querySelector('#itl-train-remove') as HTMLElement).hidden = !train
       ;(document.querySelector('#itl-train-manual') as HTMLElement).textContent = train ? '✏️ Edit train' : '✏️ Enter train'
@@ -955,7 +977,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-train-shot-msg') as HTMLElement).hidden = true
     }
     document.querySelector('#itl-train-manual')!.addEventListener('click', () => {
-      if (trainLeg) fillTrainForm(trainLeg.day.stops[trainLeg.idx].train || {})
+      if (trainLeg) fillTrainForm(targetTrain(trainLeg) || {})
     })
     // "📷 From a screenshot": the route's screenshot is read by /api/train-from-screenshot and put in
     // the same form to check and correct — nothing is saved before "Save train".
@@ -1007,21 +1029,45 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!trainLeg) return
       const v = validateTrain(readTrainForm())
       if ('error' in v) { trainError.hidden = false; trainError.textContent = v.error; return }
-      trainLeg.day.stops[trainLeg.idx].train = v.train
+      setTargetTrain(trainLeg, v.train)
       travelEditor.hidden = true
       checkMarks = {}
       saveState(); render()
     })
     document.querySelector('#itl-train-remove')!.addEventListener('click', () => {
       if (!trainLeg) return
-      delete trainLeg.day.stops[trainLeg.idx].train
+      setTargetTrain(trainLeg, null)
       travelEditor.hidden = true
       checkMarks = {}
       saveState(); render()
     })
+    // The last legs: back to the base, and on the flight day from the base to the airport. Only a
+    // train can be planned there (the time is otherwise an estimate).
+    function openLastLegEditor(kind: 'return' | 'airport') {
+      const day = currentDayPlan()
+      if (!day.stops.length && kind === 'return') return
+      const { sched } = computeDayTimes(day, base, shopById)
+      const baseStop = { name: 'Base', lat: base.lat, lng: base.lng }
+      const airport = flight ? { name: `${flight.airport} Airport`, lat: null, lng: null } : { name: 'Airport', lat: null, lng: null }
+      const from = kind === 'return' ? resolveStop(day.stops[day.stops.length - 1], shopById) : baseStop
+      const to = kind === 'return' ? baseStop : airport
+      ;(document.querySelector('#itl-travel-editor-title') as HTMLElement).textContent = `${from.name} → ${to.name}`
+      const train = kind === 'return' ? day.returnTrain : day.airportTrain
+      const minutes = train ? trainTravelMinutes(train) : kind === 'return' ? sched.returnLeg?.minutes ?? null : null
+      travelEdit.innerHTML = `<p class="itl-last-leg">${train ? `🚆 ${minutes} min from train` : minutes != null ? `Estimated ${minutes} min` : 'Plan the train to the airport here.'}</p>`
+      openTrain(day, day.stops.length, { minutes: minutes ?? 0 }, from, to, kind)
+      travelEditor.hidden = false
+      travelEditor.scrollIntoView({ block: 'nearest' })
+    }
     dayEl.addEventListener('click', (e) => {
-      const travel = (e.target as HTMLElement).closest('.itl-travel') as HTMLElement | null
-      if (travel && !travel.classList.contains('itl-travel-back')) openTravelEditor(Number(travel.dataset.index))
+      const target = e.target as HTMLElement
+      const travel = target.closest('.itl-travel') as HTMLElement | null
+      if (travel) {
+        if (travel.classList.contains('itl-travel-back')) openLastLegEditor('return')
+        else openTravelEditor(Number(travel.dataset.index))
+        return
+      }
+      if (target.closest('.itl-flight-label')) openLastLegEditor('airport')
     })
 
     // --- Tap a block: the edit sheet ---------------------------------------------------------
@@ -1067,8 +1113,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         if (trainV.train.walkToStationMin != null) lines.push(`🚶 ${trainV.train.walkToStationMin} min to the first station`)
         trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i)))
         if (trainV.train.walkFromStationMin != null) lines.push(`🚶 ${trainV.train.walkFromStationMin} min from the last station`)
-        const fare = trainFareText(trainV.train, tripRate)
+        const fare = trainFareText(trainV.train, tripRate, tripTravelers)
         if (fare) lines.push(`💴 ${fare}`)
+      }
+      // The last stop: the train back to the base, when one is planned.
+      if (idx === day.stops.length - 1 && day.returnTrain) {
+        lines.push(`🏠 Back to the base: ${trainSummary(day.returnTrain)}`)
+        const backFare = trainFareText(day.returnTrain, tripRate, tripTravelers)
+        if (backFare) lines.push(`💴 ${backFare}`)
       }
       if (x.trainLateMin != null) lines.push(`⚠️ The train arrives ${x.trainLateMin} min too late for the fixed time`)
       if (x.trainEarly) lines.push(`💡 ${trainEarlyHint(x.trainEarly)}`)
@@ -1593,8 +1645,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-base { position: absolute; left: 0; right: var(--itl-lane); border-top: 1px solid var(--muted); font-size: 0.72rem; font-weight: 600; color: var(--muted); padding-left: 0.4rem; pointer-events: none; z-index: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .itl-base-start { transform: translateY(-100%); border-top: none; border-bottom: 1px solid var(--muted); }
     .itl-base-late { color: #e74c3c; border-color: #e74c3c; }
-    .itl-travel.itl-travel-back { cursor: default; }
-    .itl-flight { position: absolute; left: 0; right: 0; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
+    .itl-travel.itl-travel-back { cursor: pointer; }
+    .itl-flight { position: absolute; left: 0; right: 0; z-index: 2; border-top: 2px dashed #6b9fd4; font-size: 0.72rem; font-weight: 600; color: #6b9fd4; padding-left: 0.4rem; pointer-events: none; }
+    .itl-flight-label { pointer-events: auto; cursor: pointer; background: var(--bg); border-radius: 4px; padding: 0 0.2rem; }
+    .itl-flight.itl-flight-late { border-top-color: #e74c3c; color: #e74c3c; }
+    .itl-last-leg { margin: 0 0 0.4rem; font-size: 0.85rem; }
     .itl-now { position: absolute; left: -0.4rem; right: 0; border-top: 2px solid #e74c3c; pointer-events: none; }
     .itl-now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; }
     .itl-now[hidden] { display: none; }

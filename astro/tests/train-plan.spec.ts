@@ -197,3 +197,50 @@ test.describe('a train trip\'s walks, travel time and fare', () => {
     expect(trainFromModelText(JSON.stringify({ ...ROUTE, walkFromStationMin: null, fareYen: '¥6,670' }))).toEqual({ train: { ...ROUTE, fareYen: 6670 } })
   })
 })
+
+test.describe('trains on the last legs, and travelers', () => {
+  const ONE_BACK = { walkToStationMin: 5, walkFromStationMin: 5, fareYen: 670, legs: [{ line: 'Tokaido Line', train: 'local', fromStation: 'Shizuoka', departure: '18:00', platform: '1', toStation: 'Tokyo', arrival: '18:40' }] }
+
+  test('a train back to the base: the last stop must be left by its leave-by; the day ends at its arrival + the walk', () => {
+    let d = scheduleDay([stop('Shizuoka Shop', { durationMin: 60 })], t('16:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
+    expect(d.stops[0]).toMatchObject({ leaveBy: t('17:45'), latestLeave: t('17:45'), leaveEarlierMin: null })
+    expect(d.returnLeg).toMatchObject({ source: 'train', mode: 'train' })
+    expect(d.end).toBe(t('18:45'))
+    // Staying too long: "leave earlier", and the stop before counts back from the train too.
+    d = scheduleDay([stop('First', { durationMin: 30 }), stop('Shizuoka Shop', { durationMin: 120 })], t('16:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
+    expect(d.stops[1].leaveEarlierMin).toBe(d.stops[1].end - t('17:45'))
+    expect(d.stops[0].latestLeave).toBe(t('17:45') - 120 - d.stops[1].travelIn.minutes)
+    // Without it: as before (the estimate).
+    expect(scheduleDay([stop('Shizuoka Shop')], t('16:00'), BASE).returnLeg).toMatchObject({ source: 'estimate' })
+  })
+
+  test('the flight day: a train to the airport sets when to leave, and flags arriving after check-in', async () => {
+    const { flightDeadline } = await import('../src/lib/itinerary-plan')
+    const flight = { date: '2027-03-05', time: '09:55', airport: 'Haneda' }
+    const train = (dep: string, arr: string) => ({ walkToStationMin: 5, walkFromStationMin: 10, legs: [{ line: 'Keikyu Line', train: 'Airport Express', fromStation: 'Shinagawa', departure: dep, platform: '2', toStation: 'Haneda Airport Terminal 3', arrival: arr }] })
+    expect(flightDeadline({ day: '2027-03-05' }, flight)).toEqual({ leaveBy: t('05:55'), train: false, atAirport: null, checkInBy: t('06:55'), late: false })
+    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('05:30', '05:50') as any }, flight)).toEqual({ leaveBy: t('05:15'), train: true, atAirport: t('06:00'), checkInBy: t('06:55'), late: false })
+    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('06:30', '06:50') as any }, flight)).toMatchObject({ leaveBy: t('06:15'), atAirport: t('07:00'), late: true })
+    expect(flightDeadline({ day: '2027-03-04' }, flight)).toBeNull()
+  })
+
+  test('fares × travelers: the number on the train, else the trip, else 5; the day total', async () => {
+    const { dayTrainFares, dayTrainFaresText } = await import('../src/lib/itinerary-plan')
+    expect(trainFareText(FULL, 0.064, null)).toBe('¥6,670 per person (≈ 427 kr) · ¥6,670 × 5 = ¥33,350')
+    expect(trainFareText(FULL, 0.064, 4)).toBe('¥6,670 per person (≈ 427 kr) · ¥6,670 × 4 = ¥26,680')
+    expect(trainFareText({ ...FULL, travelers: 2 }, null, 4)).toBe('¥6,670 per person · ¥6,670 × 2 = ¥13,340')
+    expect(validateTrain({ ...FULL, travelers: '3' })).toEqual({ train: { ...FULL, travelers: 3 } })
+    expect(validateTrain({ ...FULL, travelers: 0 })).toEqual({ train: FULL })
+    // A day: the real route out, the train back.
+    const day: any = { day: '2026-12-05', stops: [{ name: 'Hotel' }, { name: 'Shizuoka', train: FULL }], returnTrain: ONE_BACK }
+    const sched = scheduleDay([stop('Hotel'), stop('Shizuoka', { train: trainTimes(FULL) })], t('06:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
+    const fares = dayTrainFares(day, sched, new Map(), null)
+    expect(fares).toEqual({ totalYen: 7340, groupYen: 36700, travelers: 5, estimate: false })
+    expect(dayTrainFaresText(fares, 0.064)).toBe('🚆 Trains today: ¥7,340 per person (≈ 470 kr) · ¥36,700 for 5')
+    // The trip's own number, and one train with its own.
+    expect(dayTrainFaresText(dayTrainFares(day, sched, new Map(), 4), null)).toBe('🚆 Trains today: ¥7,340 per person · ¥29,360 for 4')
+    const mixed = dayTrainFares({ ...day, returnTrain: { ...ONE_BACK, travelers: 2 } }, sched, new Map(), null)
+    expect(mixed).toEqual({ totalYen: 7340, groupYen: 6670 * 5 + 670 * 2, travelers: null, estimate: false })
+    expect(dayTrainFaresText(mixed, null)).toBe('🚆 Trains today: ¥7,340 per person · ¥34,690 for everyone')
+  })
+})

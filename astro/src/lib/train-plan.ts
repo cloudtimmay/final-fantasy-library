@@ -19,8 +19,13 @@ export type TrainPlan = {
   walkToStationMin?: number // from the stop before to the first station, when known
   walkFromStationMin?: number // from the last station to the stop (DEFAULT_WALK_FROM_STATION_MIN when not known)
   fareYen?: number // the fare for the whole trip, per person, as Google Maps shows it (¥6,670)
+  travelers?: number // how many take this train, when not the trip's number (Trip Settings → Travelers)
   legs: TrainLeg[]
 }
+
+// Travelers when Trip Settings has no number: the family of five.
+export const DEFAULT_TRAVELERS = 5
+const MAX_TRAVELERS = 20
 
 // From the last station to the stop, when the route doesn't say.
 export const DEFAULT_WALK_FROM_STATION_MIN = 5
@@ -105,6 +110,8 @@ export function validateTrain(raw: unknown): { train: TrainPlan } | { error: str
   // "¥6,670", "6670" or 6670.
   const fare = typeof r.fareYen === 'number' ? r.fareYen : typeof r.fareYen === 'string' && /\d/.test(r.fareYen) ? Number(r.fareYen.replace(/[^\d]/g, '')) : NaN
   if (Number.isInteger(fare) && fare > 0 && fare <= MAX_FARE_YEN) train.fareYen = fare
+  const travelers = Number(r.travelers)
+  if (r.travelers !== '' && r.travelers != null && Number.isInteger(travelers) && travelers >= 1 && travelers <= MAX_TRAVELERS) train.travelers = travelers
   if (!timeline(legs)) return { error: TRAIN_ORDER_ERROR }
   return { train }
 }
@@ -139,10 +146,16 @@ export function yenWithNok(yen: number, rate: number | null | undefined): string
   return `${formatYen(yen)}${rate && rate > 0 ? ` (≈ ${Math.round(yen * rate).toLocaleString('en-US')} kr)` : ''}`
 }
 // "¥6,670 per person (≈ 427 kr)" — the trip's fare; '' when it has none.
-export function trainFareText(t: unknown, rate: number | null | undefined): string {
+// With `tripTravelers` (the trip's number; the train's own wins), the group's fare too:
+// "¥6,670 per person (≈ 427 kr) · ¥6,670 × 5 = ¥33,350".
+export function trainFareText(t: unknown, rate: number | null | undefined, tripTravelers?: number | null): string {
   const v = t ? validateTrain(t) : null
   const fare = v && 'train' in v ? v.train.fareYen : undefined
-  return fare ? `${formatYen(fare)} per person${rate && rate > 0 ? ` (≈ ${Math.round(fare * rate).toLocaleString('en-US')} kr)` : ''}` : ''
+  if (!fare) return ''
+  const perPerson = `${formatYen(fare)} per person${rate && rate > 0 ? ` (≈ ${Math.round(fare * rate).toLocaleString('en-US')} kr)` : ''}`
+  if (tripTravelers === undefined) return perPerson
+  const n = (v as { train: TrainPlan }).train.travelers ?? tripTravelers ?? DEFAULT_TRAVELERS
+  return `${perPerson} · ${formatYen(fare)} × ${n} = ${formatYen(fare * n)}`
 }
 
 // The first departure ("HH:MM"), for the reminder and the band ('' when unreadable).

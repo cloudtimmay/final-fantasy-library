@@ -1545,9 +1545,12 @@ test.describe('/itinerary on a phone: the base at the start and end of the day',
     const endLabel = page.locator('.itl-base-end')
     await expect(endLabel).toHaveText(`🏠 Back at base ~${hhmm(end)}`)
     await expect(endLabel).toHaveCSS('top', `${Math.round((end - start) * PX_PER_MIN)}px`)
-    // The trip back isn't editable (an estimate, as on the list).
+    // The trip back: no typed-in time (an estimate, as on the list) — only a train can be planned.
     await backLeg.click({ force: true })
-    await expect(page.locator('#itl-travel-editor')).toBeHidden()
+    await expect(page.locator('#itl-train')).toBeVisible()
+    await expect(page.locator('#itl-travel-edit .itn-travel-min')).toHaveCount(0)
+    await expect(page.locator('#itl-travel-edit')).toHaveText(/^Estimated \d+ min$/)
+    await page.locator('#itl-travel-editor-close').click()
 
     // The list: the same start and the same time back at the base.
     const stops = await page.evaluate(() => (window as any).__itl.state[0].stops)
@@ -2167,7 +2170,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     // 08:10 at Higashi-Shizuoka + 12 min walk.
     await expect(block(page, 'Shizuoka Hobby Square')).toHaveAttribute('data-start', String(t('08:22')))
     // ¥6,670 + ¥670 from the note; an estimate (a leg by train without a planned train).
-    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥7,340 per person (≈ 470 kr) · estimate')
+    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥7,340 per person (≈ 470 kr) · ¥36,700 for 5 · estimate') // the trip has no number: 5
 
     // The travel time at the top: the train's, not editable.
     await page.locator('.itl-travel[data-index="1"]').click()
@@ -2176,7 +2179,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect(min).toBeDisabled()
     await expect(page.locator('#itl-travel-edit')).toContainText('from train')
     await expect(page.locator('#itl-travel-edit .itn-travel-save')).toHaveCount(0)
-    await expect(page.locator('#itl-train-summary')).toHaveText(`${SUMMARY} · 💴 ¥6,670 per person (≈ 427 kr)`)
+    await expect(page.locator('#itl-train-summary')).toHaveText(`${SUMMARY} · 💴 ¥6,670 per person (≈ 427 kr) · ¥6,670 × 5 = ¥33,350`)
     // The editor shows both walks and the fare.
     await page.locator('#itl-train-manual').click()
     await expect(page.locator('#itl-tr-walk-from')).toHaveValue('12')
@@ -2186,7 +2189,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
 
     // The sheet, in full.
     await block(page, 'Shizuoka Hobby Square').locator('.itl-name').click()
-    expect(await page.locator('#itl-detail-lines li').allTextContents()).toEqual(expect.arrayContaining(['🚶 12 min from the last station', '💴 ¥6,670 per person (≈ 427 kr)']))
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toEqual(expect.arrayContaining(['🚶 12 min from the last station', '💴 ¥6,670 per person (≈ 427 kr) · ¥6,670 × 5 = ¥33,350']))
     await page.locator('#itl-detail-close').click()
 
     // Without the train: the estimate again, editable.
@@ -2196,7 +2199,65 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect(min).toBeEnabled()
     await expect(min).toHaveValue('')
     await expect(page.locator('#itl-travel-edit')).not.toContainText('from train')
-    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥670 per person (≈ 43 kr) · estimate')
+    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥670 per person (≈ 43 kr) · ¥3,350 for 5 · estimate')
+  })
+
+  test('a train to the airport on the flight day: the flight line\'s train sets when to leave; saved with the day', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [DAY[0]], { flightHomeDate: '2026-12-05', flightHomeTime: '09:55', flightHomeAirport: 'Haneda' }, '04:30')
+    const label = page.locator('.itl-flight-label')
+    await expect(label).toHaveText('✈️ Leave for Haneda by 05:55 (Flight 09:55 from Haneda)')
+    await label.click()
+    await expect(page.locator('#itl-train')).toBeVisible()
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Base → Haneda Airport')
+    await page.locator('#itl-train-manual').click()
+    await page.locator('#itl-tr-walk').fill('5')
+    await page.locator('#itl-tr-walk-from').fill('10')
+    await fillLeg(page, 0, { line: 'Keikyu Line', train: 'Airport Express', fromStation: 'Shinagawa', departure: '05:30', platform: '2', toStation: 'Haneda Airport Terminal 3', arrival: '05:50' })
+    await page.locator('#itl-tr-save').click()
+    // Leave by 05:30 − 10 − 5; at the airport 05:50 + 10, before check-in closes at 06:55.
+    await expect(label).toHaveText('✈️ Leave for Haneda by 05:15 — 🚆 05:30 train, at the airport 06:00 (Flight 09:55 from Haneda)')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].airportTrain?.legs?.[0]?.departure, { timeout: 10000 }).toBe('05:30')
+    // A later train arrives after check-in closes: flagged.
+    await label.click()
+    await page.locator('#itl-train-manual').click()
+    await fillLeg(page, 0, { departure: '06:40', arrival: '07:00' })
+    await page.locator('#itl-tr-save').click()
+    await expect(label).toContainText('⚠️ after check-in closes (06:55)')
+    await expect(page.locator('.itl-flight')).toHaveClass(/itl-flight-late/)
+  })
+
+  test('a train back to the base: the band opens the train panel; the day ends at its arrival + the walk', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [DAY[1]], {}, '12:00')
+    const back = page.locator('.itl-travel-back')
+    await back.click()
+    await expect(page.locator('#itl-train')).toBeVisible()
+    await expect(page.locator('#itl-travel-editor-title')).toHaveText('Shizuoka Hobby Square → Base')
+    await page.locator('#itl-train-manual').click()
+    await page.locator('#itl-tr-fare').fill('6670')
+    await fillLeg(page, 0, { line: 'Tokaido Shinkansen', train: 'Hikari 662', fromStation: 'Shizuoka', departure: '17:10', platform: '1', toStation: 'Tokyo', arrival: '18:10' })
+    await page.locator('#itl-tr-save').click()
+    await expect(back).toHaveText('🚆 17:10')
+    await expect(page.locator('.itl-base-end')).toHaveText('🏠 Back at base ~18:15') // 18:10 + 5
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].returnTrain?.fareYen, { timeout: 10000 }).toBe(6670)
+    await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥6,670 per person · ¥33,350 for 5 · estimate') // the trip there is an estimated train
+    // The last stop must be left for it.
+    await expect(block(page, 'Shizuoka Hobby Square').locator('.itl-leaveby')).toContainText('Leave by 17:00') // 17:10 − 10 min (no walk to the station given)
+    await block(page, 'Shizuoka Hobby Square').locator('.itl-name').click()
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toEqual(expect.arrayContaining([
+      '🏠 Back to the base: 🚆 17:10 Shinkansen Hikari 662 (1) → Tokyo 18:10', '💴 ¥6,670 per person · ¥6,670 × 5 = ¥33,350',
+    ]))
+  })
+
+  test('travelers: the trip\'s number multiplies the fares; a train can say its own', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [DAY[0], { ...DAY[1], train: { walkToStationMin: 5, walkFromStationMin: 12, fareYen: 6670, legs: LEGS } }], { travelers: 4, jpyToNokRate: 0.064 }, '06:00')
+    await expect(page.locator('#itl-day-fares')).toContainText('🚆 Trains today: ¥6,670 per person (≈ 427 kr) · ¥26,680 for 4')
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await expect(page.locator('#itl-train-summary')).toContainText('¥6,670 × 4 = ¥26,680')
+    await page.locator('#itl-train-manual').click()
+    await expect(page.locator('#itl-tr-travelers')).toHaveAttribute('placeholder', '4')
+    await page.locator('#itl-tr-travelers').fill('2')
+    await page.locator('#itl-tr-save').click()
+    await expect(page.locator('#itl-day-fares')).toContainText('¥13,340 for 2')
   })
 
   test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {

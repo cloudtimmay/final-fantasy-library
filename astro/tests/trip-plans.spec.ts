@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
 import {
   planDocIdFor, planSaveDoc, planStoreKey, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, countdownTrips, nextCountdown,
-  ORIGINAL_PLAN_DOC_ID,
+  ORIGINAL_PLAN_DOC_ID, withFlightDays,
 } from '../src/lib/trip-plans'
 import { buildPlanState, shopOptionGroups, TRIP_SHOPS_GROUP } from '../src/lib/itinerary-plan'
 
@@ -35,6 +35,13 @@ test.describe('trip plans (lib/trip-plans.ts)', () => {
     expect(planStoreKey('ff-itinerary-v12', DEC)).toBe('ff-itinerary-v12')
     expect(planStoreKey('ff-itinerary-v12', FEB)).toBe('ff-itinerary-v12:itineraryState-feb-trip')
     expect(planTrips([FEB, { _id: 'none' }, DEC] as any).map((t) => t._id)).toEqual(['dec-trip', 'feb-trip'])
+  })
+
+  test('the days in Tokyo entered once: empty ones come from the flight dates; filled-in ones are kept', () => {
+    expect(withFlightDays({ _id: 'x', arrivalDate: '2027-02-21', flightHomeDate: '2027-03-05' })).toMatchObject({ firstTokyoDay: '2027-02-21', lastTokyoDay: '2027-03-05' })
+    expect(withFlightDays({ ...DEC, arrivalDate: '2026-11-30', flightHomeDate: '2026-12-07' })).toMatchObject({ firstTokyoDay: '2026-12-01', lastTokyoDay: '2026-12-06' })
+    expect(withFlightDays({ _id: 'x', arrivalDate: '2027-02-21' })).toMatchObject({ firstTokyoDay: '2027-02-21', lastTokyoDay: null })
+    expect(planDocIdFor(withFlightDays({ _id: 'feb', arrivalDate: '2027-02-21', flightHomeDate: '2027-03-05' }))).toBe('itineraryState-feb')
   })
 
   test('the arrival: landing + 90 min + the airport to the base (Haneda 40, Narita 75); its date defaults to the first day in Tokyo', () => {

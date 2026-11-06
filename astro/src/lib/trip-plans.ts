@@ -29,6 +29,16 @@ export type PlanTrip = {
   flightHomeAirport?: string | null
 }
 
+// The days in Tokyo, entered once: an empty "First day in Tokyo" is the arrival flight's date, an
+// empty "Last day in Tokyo" the flight home's. Days filled in are kept as they are.
+export function withFlightDays<T extends PlanTrip>(t: T): T {
+  return {
+    ...t,
+    firstTokyoDay: isIsoDate(t.firstTokyoDay) ? t.firstTokyoDay : isIsoDate(t.arrivalDate) ? t.arrivalDate : t.firstTokyoDay ?? null,
+    lastTokyoDay: isIsoDate(t.lastTokyoDay) ? t.lastTokyoDay : isIsoDate(t.flightHomeDate) ? t.flightHomeDate : t.lastTokyoDay ?? null,
+  }
+}
+
 export const hasTokyoDays = (t: PlanTrip | null | undefined): boolean =>
   !!t && isIsoDate(t.firstTokyoDay) && isIsoDate(t.lastTokyoDay) && t.firstTokyoDay! <= t.lastTokyoDay!
 

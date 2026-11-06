@@ -47,12 +47,17 @@ test.describe('timeline layout (lib/itinerary-timeline.ts)', () => {
     ]
     const sched = scheduleDay(stops, t('07:30'), BASE)
     const range = timelineRange(sched)
-    expect(range).toEqual({ start: t('07:00'), end: t('24:00') }) // 07:30 start, ends 23:30
+    expect(range).toEqual({ start: t('06:00'), end: t('24:00') }) // 07:30 start (an hour before: 06:30), ends 23:30
+    // The day's start, a landing and the time to leave for the airport count too; never before 00:00.
+    expect(timelineRange(sched, { dayStart: t('06:15') }).start).toBe(t('05:00'))
+    expect(timelineRange(sched, { events: [t('05:55')] }).start).toBe(t('04:00'))
+    expect(timelineRange(sched, { dayStart: t('00:30') }).start).toBe(0)
+    expect(timelineRange(scheduleDay([], t('10:00'), BASE), { dayStart: t('10:00') })).toEqual({ start: t('08:00'), end: t('23:00') })
     const items = timelineItems(sched, range)
     const a = items.find((i) => i.kind === 'stop' && i.index === 0)!
-    expect(a).toMatchObject({ top: Math.round((t('07:40') - t('07:00')) * PX_PER_MIN), height: Math.round(90 * PX_PER_MIN), start: t('07:40') })
+    expect(a).toMatchObject({ top: Math.round((t('07:40') - t('06:00')) * PX_PER_MIN), height: Math.round(90 * PX_PER_MIN), start: t('07:40') })
     const travel = items.find((i) => i.kind === 'travel' && i.index === 0)!
-    expect(travel).toMatchObject({ top: Math.round(30 * PX_PER_MIN), minutes: 10 })
+    expect(travel).toMatchObject({ top: Math.round(90 * PX_PER_MIN), minutes: 10 }) // leaves 07:30, 90 min after 06:00
     expect(MIN_BLOCK_PX).toBeGreaterThan(20)
   })
 
@@ -2324,14 +2329,18 @@ test.describe('/itinerary on a phone: short visits at the default zoom', () => {
       await expect(b).toHaveCSS('height', `${height}px`)
       await expect(b).toHaveClass(/itl-compact/)
       await expect(b.locator('.itl-first')).toBeVisible()
-      await expect(b.locator('.itl-leaveby, .itl-hours')).toHaveCount(0) // whole rows gone, not cut
-      await expect(b.locator('.itl-icons .itn-reminder')).toHaveText('⏰') // the reminder, as an icon
+      await expect(b.locator('.itl-hours')).toHaveCount(0) // whole rows gone, not cut
       await expectNothingCut(b)
     }
-    // 10 minutes: one line, the warning as ⚠️. 20 minutes: room for the warning row itself.
-    await expect(block(page, 'SQEX CAPSULE').locator('.itl-badges')).toHaveCount(0)
+    // 10 minutes: one line, the reminder and the warning as icons. 20 minutes: room for the
+    // second line ("Arrive" and "Leave by" with its reminder); the warning as ⚠️.
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-times, .itl-badges')).toHaveCount(0)
+    await expect(block(page, 'SQEX CAPSULE').locator('.itl-icons .itn-reminder')).toHaveText('⏰')
     await expect(block(page, 'SQEX CAPSULE').locator('.itl-icons .itl-icon')).toHaveText('⚠️')
-    await expect(block(page, 'Twenty Min Stop').locator('.itl-badges')).toBeVisible()
+    await expect(block(page, 'Twenty Min Stop').locator('.itl-times .itl-arrive')).toHaveText('Arrive 19:20')
+    await expect(block(page, 'Twenty Min Stop').locator('.itl-times .itl-leaveby')).toBeVisible()
+    await expect(block(page, 'Twenty Min Stop').locator('.itl-badges')).toHaveCount(0)
+    await expect(block(page, 'Twenty Min Stop').locator('.itl-icons .itl-icon')).toHaveText('⚠️')
     await expect(block(page, 'SQEX CAPSULE').locator('.itl-first')).toContainText('📍 Ikebukuro')
     await expect(block(page, 'SQEX CAPSULE').locator('.itl-icon')).toHaveAttribute('title', /Closes 19:00 \(you leave 19:06\)/)
     // The long block keeps its full layout.
@@ -2343,5 +2352,88 @@ test.describe('/itinerary on a phone: short visits at the default zoom', () => {
     expect(lines.some((l) => l.startsWith('Leave by 19:'))).toBe(true)
     expect(lines).toContain('⚠️ Closes 19:00 (you leave 19:06)')
     await expect(page.locator('#itl-detail-lines .itn-reminder')).toHaveText('⏰ Reminder')
+  })
+})
+
+test.describe('/itinerary on a phone: the time axis, arrive and leave times, arriving early', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const inside = async (outer: ReturnType<Page['locator']>, inner: ReturnType<Page['locator']>) => {
+    const o = (await outer.boundingBox())!, i = (await inner.boundingBox())!
+    expect(i.x).toBeGreaterThanOrEqual(o.x - 0.5)
+    expect(i.x + i.width).toBeLessThanOrEqual(o.x + o.width + 0.5)
+    expect(i.y + i.height).toBeLessThanOrEqual(o.y + o.height + 0.5)
+  }
+
+  test('a day starting 06:15 with its first stop fixed at 10:00: the axis from 05:00, the start label on it', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Late First Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, fixedTime: '10:00' },
+    ], {}, '06:15')
+    const grid = page.locator('.itl-grid')
+    await expect(grid).toHaveAttribute('data-start', String(t('05:00')))
+    const start = page.locator('.itl-base-start')
+    await expect(start).toHaveText('🏠 Start: base · 06:15')
+    expect((await start.boundingBox())!.y).toBeGreaterThanOrEqual((await grid.boundingBox())!.y)
+  })
+
+  test('"Arrive HH:MM" (green) and "Leave by HH:MM" (orange) on the second line, whole, under a very long name', async ({ page, sanity, trackDoc }) => {
+    const long = 'A Very Long Shop Name That Takes The Whole First Line And Then Some More Words'
+    await openTimeline(page, sanity, trackDoc, [
+      { name: long, hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Fixed After', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, fixedTime: '12:00' },
+    ], {}, '10:00')
+    const b = block(page, 'A Very Long Shop Name')
+    const arrive = b.locator('.itl-times .itl-arrive')
+    const leave = b.locator('.itl-times .itl-leaveby')
+    await expect(arrive).toHaveText('Arrive 10:00')
+    await expect(leave).toHaveText(/^Leave by 11:4\d ⏰ Reminder$/) // 12:00 − the walk − 10 min
+    await inside(b, arrive)
+    await inside(b, leave)
+    expect(await arrive.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(46, 204, 113)')
+    expect(await leave.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(224, 160, 76)')
+    // The second line comes right after the name's line.
+    expect(await b.evaluate((el) => [...el.children].map((c) => c.className.split(' ')[0]).slice(0, 2))).toEqual(['itl-first', 'itl-times'])
+    // The last stop: only "Arrive".
+    await expect(block(page, 'Fixed After').locator('.itl-times')).toHaveText('Arrive 12:00')
+  })
+
+  test('arriving early for a fixed time: a shaded zone from the arrival to the fixed time, just above the block, "Arrive 18:30 for 19:00"', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Before Temple', hours: '', tag: '', slot: '', lat: 35.6526, lng: 139.7279, dur: 60, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Early Temple', hours: '', tag: '', slot: '', lat: 35.6526, lng: 139.7279, dur: 90, fixedTime: '19:00', arriveEarly: 30 },
+    ], {}, '16:00')
+    const zone = page.locator('.itl-early')
+    await expect(zone).toHaveCount(1)
+    await expect(zone).toHaveText('Arrive 18:30 for 19:00')
+    const z = (await zone.boundingBox())!, temple = (await block(page, 'Early Temple').boundingBox())!
+    const px = Number(await page.locator('.itl-grid').getAttribute('data-px'))
+    expect(Math.abs(z.y + z.height - temple.y)).toBeLessThanOrEqual(1.5) // ends where the block starts
+    expect(Math.abs(z.height - 30 * px)).toBeLessThanOrEqual(1.5) // 18:30 → 19:00
+    await expect(zone).toHaveAttribute('data-index', '1') // the temple's, not the stop before
+  })
+
+  test('the flight day: "✈️ Leave for Haneda by 05:55" inside the axis (a 09:55 flight)', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Last Breakfast', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], { flightHomeDate: '2026-12-05', flightHomeTime: '09:55', flightHomeAirport: 'Haneda' }, '08:00')
+    const line = page.locator('.itl-flight')
+    await expect(line).toContainText('✈️ Leave for Haneda by 05:55')
+    const grid = page.locator('.itl-grid')
+    await expect(grid).toHaveAttribute('data-start', String(t('04:00')))
+    expect((await line.boundingBox())!.y).toBeGreaterThanOrEqual((await grid.boundingBox())!.y)
+  })
+
+  test('a trip with only its flight dates gets those Tokyo days; the save status is English', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({
+      _type: 'tripSettings', label: testName(`Flight Dates Only ${Date.now()}`),
+      arrivalDate: '2027-02-21', arrivalTime: '07:55', arrivalAirport: 'Haneda', flightHomeDate: '2027-02-23', flightHomeTime: '09:55', flightHomeAirport: 'Haneda',
+    })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.itl-tab')).toHaveText(['21. feb (søn)', '22. feb (man)', '23. feb (tir)'])
+    await expect(page.locator('#itl-arrival')).toHaveText('✈️ Landing 07:55 at Haneda Airport')
+    await page.locator('#itl-start').fill('10:30')
+    await page.locator('#itl-start').dispatchEvent('change')
+    await expect(page.locator('#itl-save-status')).toHaveText('Saved ✓', { timeout: 10000 })
   })
 })

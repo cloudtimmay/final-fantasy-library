@@ -6,7 +6,7 @@ import { formatDayLabel, dateRange, isIsoDate } from './trip-dates'
 import { fetchTripsForSpending, pickDefaultTrip } from './spending'
 import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from './itinerary-review-helpers'
 import { foundItems, foundPricesQuery, foundPurchasesQuery, type FoundItem, type FoundPriceDoc, type FoundPurchaseDoc } from './shop-found'
-import { planDocIdFor, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, type PlanTrip } from './trip-plans'
+import { planDocIdFor, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, withFlightDays, type PlanTrip } from './trip-plans'
 
 export const BASE = { name: 'Base (overnatting)', lat: 35.697999, lng: 139.770830 }
 
@@ -144,7 +144,8 @@ async function loadSavedState(docId: string): Promise<string | null> {
 // `trips`: every trip with days in Tokyo, for the switcher.
 async function loadTrip(url: URL): Promise<{ trip: PageTrip | null; trips: PageTrip[] }> {
   try {
-    const all: PageTrip[] = await sanity.fetch(`*[_type == "tripSettings" && !(_id in path("drafts.**"))] | order(_createdAt asc) { ${TRIP_FIELDS} }`)
+    // Empty Tokyo days come from the flight dates (withFlightDays).
+    const all: PageTrip[] = (await sanity.fetch(`*[_type == "tripSettings" && !(_id in path("drafts.**"))] | order(_createdAt asc) { ${TRIP_FIELDS} }`)).map(withFlightDays)
     const requestedTripId = url.searchParams.get('trip')
     const forDefault = all.map((t) => ({ _id: t._id, label: t.label, startDate: t.startDate || undefined, endDate: t.endDate || undefined, childBudgets: [] }))
     const pickedId = all.some((t) => t._id === requestedTripId) ? requestedTripId : pickDefaultTrip(forDefault)?._id

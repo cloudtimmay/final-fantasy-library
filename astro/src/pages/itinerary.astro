@@ -354,15 +354,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     function saveState() {
       const payload = serializePlan(state, extraDays)
       try { localStorage.setItem(STORE_KEY, payload) } catch {}
-      saveStatus.textContent = 'Lagrer…'
+      saveStatus.textContent = 'Saving…'
       clearTimeout(saveTimer)
       saveTimer = setTimeout(async () => {
         try {
           // The trip's own plan (the server picks its document: lib/trip-plans.ts planDocIdFor).
           const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload, ...(DATA.pageTripId ? { tripId: DATA.pageTripId } : {}) }) })
-          saveStatus.textContent = res.ok ? 'Lagret ✓' : 'Lagring feilet'
+          saveStatus.textContent = res.ok ? 'Saved ✓' : 'Save failed'
         } catch (e) {
-          saveStatus.textContent = 'Lagret lokalt (ingen nett)'
+          saveStatus.textContent = 'Saved on this device (offline)'
         }
       }, 1000)
     }
@@ -427,7 +427,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       renderLateDay(day, sched)
       // Train legs after the last trains: the stop they go to (or back to the base).
       const lateTrains = new Map(lastTrainLegs(sched).map((l) => [l.index, l]))
-      const range = timelineRange(sched)
+      // The axis takes in the day's start, a landing and the time to leave for the airport.
+      const landingAt = DATA.arrival && DATA.arrival.date === day.day ? Number(DATA.arrival.time.slice(0, 2)) * 60 + Number(DATA.arrival.time.slice(3)) : null
+      const range = timelineRange(sched, { dayStart: baseStart, events: [landingAt, flightDeadlineFor(day)] })
       const px = ZOOM_LEVELS[zoomIndex]
       zoomOut.disabled = zoomIndex === 0
       zoomIn.disabled = zoomIndex === ZOOM_LEVELS.length - 1
@@ -526,6 +528,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // "Leave by HH:MM" with the list's "⏰ Reminder" (.ics) link (itinerary-ui.ts reminderLinkHtml),
         // just "⏰" where blocks share the width — so a tap on the block mostly misses it.
         const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
+        // The second line: "Arrive HH:MM" (green) and "Leave by HH:MM" (orange) — always there,
+        // whatever the name's length does to the first line's time.
+        const times = `<span class="itl-times"><span class="itl-arrive">Arrive ${formatClock(x.arrival)}</span>${leaveBy}</span>`
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
         // buttons above, the leave-by line, the opening hours, then any warnings.
         // The warnings right under the first line, so a short block still shows them.
@@ -568,15 +573,28 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // Rows in order of importance: a short block drops them from the bottom (see below).
         el.innerHTML = `
           ${firstLine()}
+          ${times}
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
-          ${leaveBy}
           ${x.trainEarly ? `<span class="itl-hint">💡 ${esc(trainEarlyHint(x.trainEarly))}</span>` : ''}
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
           ${photoRow}`
         grid.appendChild(el)
+        // Arrive early for a fixed time: a shaded zone from the arrival to the fixed time, just
+        // above the block, "Arrive 18:30 for 19:00".
+        if (x.fixed && !x.actual && x.arrival < x.start) {
+          const zone = document.createElement('div')
+          zone.className = 'itl-early'
+          zone.dataset.index = String(item.index)
+          zone.style.top = `${offsetFor(x.arrival, range, px)}px`
+          zone.style.height = `${Math.max(1, Math.round((x.start - x.arrival) * px))}px`
+          zone.style.left = el.style.left
+          zone.style.width = el.style.width
+          zone.textContent = `Arrive ${formatClock(x.arrival)} for ${formatClock(x.start)}`
+          grid.appendChild(zone)
+        }
       })
 
       // The base: where the day starts and ends — the same base and travel as the list
@@ -639,7 +657,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           gone.add(rows[i].className.split(' ')[0])
           rows[i].remove()
         }
-        const icons = (gone.has('itl-badges') ? c.warn : '') + (gone.has('itl-train-line') ? c.train : '') + (gone.has('itl-leaveby') ? c.reminder : '')
+        const icons = (gone.has('itl-badges') ? c.warn : '') + (gone.has('itl-train-line') ? c.train : '') + (gone.has('itl-times') ? c.reminder : '')
           + (gone.has('itl-actions') ? c.now : '')
         c.el.classList.add('itl-compact')
         if (icons) first.insertAdjacentHTML('beforeend', `<span class="itl-icons">${icons}</span>`)
@@ -1485,7 +1503,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-day-areas { margin: -0.2rem 0 0.6rem; font-size: 0.9rem; font-weight: 600; color: var(--text); }
     .itl-day-fares { margin: -0.4rem 0 0.6rem; font-size: 0.85rem; color: var(--text); }
     .itl-day-fares[hidden] { display: none; }
-    .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; }
+    .itl-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.5rem; scrollbar-width: none; }
+    /* Still scrolls (swipe, trackpad), without the light scrollbar on the dark theme. */
+    .itl-tabs::-webkit-scrollbar { display: none; }
     .itl-tab {
       flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);
       border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.85rem; cursor: pointer; min-height: 36px;
@@ -1526,7 +1546,20 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
     .itl-hours { font-size: 0.7rem; color: var(--muted); }
     /* The link at the right edge, so a tap in the middle of a short block still opens its sheet. */
-    .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+    /* One line, never wrapped: what doesn't fit is cut at the right edge (the reminder last). */
+    .itl-times { display: flex; flex-wrap: nowrap; align-items: center; column-gap: 0.5rem; font-size: 0.7rem; font-weight: 600; line-height: 1.2; white-space: nowrap; min-width: 0; overflow: hidden; flex-shrink: 0; }
+    .itl-times .itl-arrive { flex-shrink: 0; }
+    .itl-times .itl-leaveby { flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; }
+    /* The reminder link on this line is no taller than the text, so the line stays one text line high. */
+    .itl-times .itn-reminder { padding: 0 0.3rem; font-size: 0.66rem; line-height: 1.15; min-height: 0; }
+    .itl-arrive { color: #2ecc71; }
+    .itl-leaveby { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; font-size: 0.7rem; font-weight: 600; color: #e0a04c; white-space: nowrap; }
+    .itl-early {
+      position: absolute; box-sizing: border-box; z-index: 1; pointer-events: none; overflow: hidden;
+      border: 1px dashed #6b9fd4; border-bottom: none; border-radius: 6px 6px 0 0;
+      background: repeating-linear-gradient(135deg, rgba(107,159,212,0.22) 0 6px, rgba(107,159,212,0.08) 6px 12px);
+      font-size: 0.68rem; font-weight: 600; color: #6b9fd4; padding: 0.1rem 0.4rem; white-space: nowrap; text-overflow: ellipsis;
+    }
     .itl-leaveby .itn-reminder { margin-left: auto; padding: 0.05rem 0.35rem; }
     .itl-badge { font-size: 0.7rem; font-weight: 600; color: #e74c3c; }
     /* One line, cut off with "…" — so in a short or narrow block the buttons below stay in view;
@@ -1592,7 +1625,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.4rem; font-size: 0.9rem; min-height: 36px;
     }
     .itl-block.itl-visited { opacity: 0.55; border-left-color: var(--muted); }
-    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.1rem 0; }
+    .itl-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0; }
     .itl-actions button {
       font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 6px; cursor: pointer;
       background: var(--bg); color: var(--text); border: 1px solid var(--accent); min-height: 26px;

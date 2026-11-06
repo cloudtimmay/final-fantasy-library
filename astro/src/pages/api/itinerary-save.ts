@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { sanity, sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
-import { planSaveDoc, type PlanTrip } from '../../lib/trip-plans'
+import { planSaveDoc, withFlightDays, type PlanTrip } from '../../lib/trip-plans'
 
 export const prerender = false
 
@@ -21,7 +21,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (body.tripId != null) {
     if (typeof body.tripId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(body.tripId)) return json(400, { error: 'Bad trip' })
     try {
-      trip = await sanity.fetch(`*[_type == "tripSettings" && _id == $id][0]{ _id, firstTokyoDay, lastTokyoDay }`, { id: body.tripId })
+      trip = await sanity.fetch(`*[_type == "tripSettings" && _id == $id][0]{ _id, firstTokyoDay, lastTokyoDay, arrivalDate, flightHomeDate }`, { id: body.tripId })
+      if (trip) trip = withFlightDays(trip) // the same days as the pages (lib/trip-plans.ts)
     } catch (e) {
       return json(500, { error: 'Save failed' })
     }

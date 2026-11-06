@@ -142,9 +142,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div id="itl-train" class="itl-train" hidden>
         <p class="itl-train-head">🚆 Plan train</p>
         <p id="itl-train-summary" class="itl-train-summary" hidden></p>
+        <!-- The time the links search for (lib/itinerary-plan.ts legSearchTime). -->
+        <p id="itl-train-when" class="itl-train-summary"></p>
         <p id="itl-train-shot-msg" class="itl-train-summary" hidden></p>
         <div class="itl-train-actions">
           <a id="itl-train-maps" class="itl-train-btn" href="https://www.google.com/maps" target="_blank" rel="noopener">🗺️ Transit in Google Maps</a>
+          <a id="itl-train-maps-time" class="itl-train-btn" href="https://maps.google.com/maps" target="_blank" rel="noopener">🗺️ Google Maps (with time)</a>
+          <a id="itl-train-yahoo" class="itl-train-btn" href="https://transit.yahoo.co.jp/" target="_blank" rel="noopener">🚃 Yahoo! 乗換案内</a>
           <button id="itl-train-manual" type="button" class="itl-train-btn">✏️ Enter train</button>
           <label class="itl-train-btn">📷 From a screenshot<input id="itl-train-shot" type="file" accept="image/*" hidden /></label>
           <button id="itl-train-remove" type="button" class="itl-train-btn itl-train-remove" hidden>🗑️ Remove train</button>
@@ -282,7 +286,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -292,6 +296,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
+    import { googleMapsTimedUrl, yahooTransitUrl, transitWhenText } from '../lib/transit-links'
     import { cdnImage } from '../lib/image-url'
     import { fromTimelineQuery } from '../lib/timeline-back'
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
@@ -988,6 +993,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       trainPanel.hidden = kind === 'stop' && !train && leg.minutes <= TRAIN_PLAN_MIN_LEG
       // Google Maps' links take no departure time (see the report), so it opens for now.
       ;(document.querySelector('#itl-train-maps') as HTMLAnchorElement).href = transitRouteUrl(from, to)
+      // With the leg's date and time: arriving by the next fixed time (or the airport's check-in),
+      // else departing when the stop before is left. Stations: the planned train's when there is one.
+      const { sched: legSched, baseStart: legStart } = computeDayTimes(day, basesOf(day), shopById)
+      const when = legSearchTime(day, legSched, idx, kind, { baseStart: legStart, checkInBy: flightDeadline(day, flight)?.checkInBy ?? null })
+      const planned = train ? validateTrain(train) : null
+      const plannedLegs = planned && 'train' in planned ? planned.train.legs : null
+      const fromStation = plannedLegs?.[0]?.fromStation || from.name
+      const toStation = plannedLegs?.[plannedLegs.length - 1]?.toStation || to.name
+      ;(document.querySelector('#itl-train-maps-time') as HTMLAnchorElement).href = googleMapsTimedUrl(from, to, when)
+      ;(document.querySelector('#itl-train-yahoo') as HTMLAnchorElement).href = yahooTransitUrl(fromStation, toStation, when)
+      ;(document.querySelector('#itl-train-when') as HTMLElement).textContent = `🕐 ${transitWhenText(when)}`
       const summary = document.querySelector('#itl-train-summary') as HTMLElement
       summary.hidden = !train
       const fare = train ? trainFareText(train, tripRate, tripTravelers) : ''

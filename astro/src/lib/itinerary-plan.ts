@@ -9,7 +9,7 @@
 import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
-import { isIsoDate, weekdayIndex } from './trip-dates'
+import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
 import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN } from './itinerary-review-helpers'
 import { trainLeaveBy } from './itinerary-schedule'
@@ -608,4 +608,30 @@ export function dayBases(days: { day: string; startBase?: string; endBase?: stri
 // "🏨 Hotel A → Hotel B" for a day that changes base; '' otherwise.
 export function dayBasesLine(b: DayBases | undefined): string {
   return b && b.changes ? `🏨 ${b.start.name} → ${b.end.name}` : ''
+}
+
+// --- "🚆 Plan train": when to search -----------------------------------------------------------
+// The leg into stop `idx` ('stop'), back to the base ('return') or to the airport ('airport'):
+// arriving by the next anchor (a fixed time less its arrive-early; the airport's check-in), else
+// departing when the stop before is left (its leave-by; the day's start for the first leg; the
+// last visit's end for the trip back). Minutes past midnight move to the next date.
+export function legSearchTime(
+  day: { day: string; stops: PlanStop[] },
+  sched: DaySchedule,
+  idx: number,
+  kind: 'stop' | 'return' | 'airport',
+  ctx: { baseStart: number; checkInBy?: number | null },
+): { date: string; minutes: number; type: 'depart' | 'arrive' } {
+  const at = (minutes: number, type: 'depart' | 'arrive') => {
+    const shift = Math.floor(minutes / 1440)
+    return { date: shift ? addDays(day.day, shift) : day.day, minutes: ((minutes % 1440) + 1440) % 1440, type }
+  }
+  if (kind === 'airport' && ctx.checkInBy != null) return at(ctx.checkInBy, 'arrive')
+  const last = sched.stops[sched.stops.length - 1]
+  if (kind !== 'stop') return at(last ? last.end : ctx.baseStart, 'depart')
+  const next = day.stops[idx]
+  const fixed = next ? parseClock(next.fixedTime) : null
+  if (fixed != null) return at(fixed - (typeof next.arriveEarly === 'number' ? Math.max(0, next.arriveEarly) : 0), 'arrive')
+  const before = idx > 0 ? sched.stops[idx - 1] : null
+  return at(before ? before.leaveBy ?? before.end : ctx.baseStart, 'depart')
 }

@@ -2313,7 +2313,27 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].airportTrain?.legs?.[0]?.departure, { timeout: 10000 }).toBe('18:00')
   })
 
-  test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {
+  test('the search links carry the time of the leg: depart when the stop before is left, or arrive by a fixed time', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [DAY[0], { ...DAY[1], fixedTime: '09:30', arriveEarly: 30 }], {}, '06:00')
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await expect(page.locator('#itl-train-when')).toHaveText('🕐 Arriving by 09:00 on 2026-12-05')
+    const q = async (sel: string) => Object.fromEntries(new URL((await page.locator(sel).getAttribute('href'))!).searchParams)
+    expect(await q('#itl-train-yahoo')).toMatchObject({ y: '2026', m: '12', d: '05', hh: '9', m1: '0', m2: '0', type: '4' })
+    expect(await q('#itl-train-maps-time')).toMatchObject({ dirflg: 'r', ttype: 'arr', date: '12/05/26', time: '9:00am' })
+    await expect(page.locator('#itl-train-maps')).toHaveAttribute('href', /travelmode=transit/) // today's link stays
+    await expect(page.locator('#itl-train-maps-time')).toHaveText('🗺️ Google Maps (with time)')
+    // With the real route planned: its stations, and departing when the hotel is left.
+    await page.evaluate((legs) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl; itl.state[0].stops[1] = { ...itl.state[0].stops[1], fixedTime: null, train: { walkToStationMin: 5, legs } }; itl.render()
+    }, LEGS)
+    await page.locator('#itl-travel-editor-close').click()
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await expect(page.locator('#itl-train-when')).toHaveText(/^🕐 Departing \d\d:\d\d on 2026-12-05$/)
+    expect(await q('#itl-train-yahoo')).toMatchObject({ from: '秋葉原', to: '東静岡', type: '1' })
+  })
+
+    test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {
     await openTimeline(page, sanity, trackDoc, [DAY[0], { ...DAY[1], fixedTime: '09:30', train: { walkToStationMin: 5, legs: LEGS } }], {}, '06:00')
     const b = block(page, 'Shizuoka Hobby Square')
     await b.locator('.itl-name').click()

@@ -28,14 +28,14 @@ export const tripSettings = defineType({
       title: 'First day in Tokyo',
       type: 'date',
       fieldset: 'itinerary',
-      description: 'The first day the itinerary shows (e.g. the arrival day).',
+      description: 'The first day the itinerary shows (e.g. the arrival day). Empty = the date of the arrival in Japan below.',
     }),
     defineField({
       name: 'lastTokyoDay',
       title: 'Last day in Tokyo',
       type: 'date',
       fieldset: 'itinerary',
-      description: 'The last day the itinerary shows (e.g. the day you fly home).',
+      description: 'The last day the itinerary shows (e.g. the day you fly home). Empty = the date of the flight home below.',
       validation: (R) =>
         R.custom((value, ctx) => {
           const doc = ctx.document as { firstTokyoDay?: string } | undefined

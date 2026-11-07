@@ -2661,7 +2661,7 @@ test.describe('/itinerary on a phone: a base per day ("🏨 Base")', () => {
     const backBefore = await page.locator('.itl-travel-back').textContent()
     await page.locator('#itl-base-btn').click()
     await expect(page.locator('#itl-base-start option').first()).toHaveText('The trip base')
-    await expect(page.locator('#itl-base-end optgroup[label="🏨 Hotels"] option', { hasText: hotel.shopName })).toHaveCount(1)
+    await expect(page.locator('#itl-base-end optgroup[label="Shinjuku"] option', { hasText: `🏨 ${hotel.shopName}` })).toHaveCount(1) // in its area, marked 🏨
     await page.locator('#itl-base-end').selectOption(hotel._id)
     await page.locator('#itl-base-save').click()
     await expect(page.locator('#itl-day-hotels')).toHaveText(`🏨 Base → ${hotel.shopName}`)

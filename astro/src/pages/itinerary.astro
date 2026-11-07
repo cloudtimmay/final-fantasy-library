@@ -1562,12 +1562,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const baseEndSel = document.querySelector('#itl-base-end') as HTMLSelectElement
     function baseOptions(defaultLabel: string, selected: string | undefined) {
       const opt = (v: string, label: string) => `<option value="${esc(v)}"${(selected || '') === v ? ' selected' : ''}>${esc(label)}</option>`
-      const named = (shops || []).filter((s: PlanShop) => s.shopName)
-      const hotels = named.filter((s: PlanShop) => s.placeType === 'hotel')
-      const others = named.filter((s: PlanShop) => s.placeType !== 'hotel')
+      // The same area groups as the other pickers (shopOptionGroups), hotels marked 🏨.
       return opt('', defaultLabel) + opt(TRIP_BASE_KEY, '🏠 The trip base')
-        + (hotels.length ? `<optgroup label="🏨 Hotels">${hotels.map((s: PlanShop) => opt(s._id, s.shopName!)).join('')}</optgroup>` : '')
-        + (others.length ? `<optgroup label="Other places">${others.map((s: PlanShop) => opt(s._id, s.shopName!)).join('')}</optgroup>` : '')
+        + shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) => `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
+          const shop = (shops || [])[i] as PlanShop
+          return opt(shop._id, `${shop.placeType === 'hotel' ? '🏨 ' : ''}${name}`)
+        }).join('')}</optgroup>`).join('')
     }
     document.querySelector('#itl-base-btn')!.addEventListener('click', () => {
       const day = currentDayPlan()

@@ -4,7 +4,7 @@ import {
   planDocIdFor, planSaveDoc, planStoreKey, ownsOriginalPlan, planTrips, arrivalFor, shopsTripFirst, countdownTrips, nextCountdown,
   ORIGINAL_PLAN_DOC_ID, withFlightDays,
 } from '../src/lib/trip-plans'
-import { buildPlanState, shopOptionGroups, TRIP_SHOPS_GROUP, dayBases, dayBasesLine, computeDayTimes, serializePlan, TRIP_BASE_KEY } from '../src/lib/itinerary-plan'
+import { buildPlanState, shopOptionGroups, dayBases, dayBasesLine, computeDayTimes, serializePlan, TRIP_BASE_KEY } from '../src/lib/itinerary-plan'
 import { estimateLeg } from '../src/lib/route-optimizer'
 
 // Several trips, each with its own plan (lib/trip-plans.ts). The December 2026 trip keeps the
@@ -69,7 +69,7 @@ test.describe('trip plans (lib/trip-plans.ts)', () => {
     expect(state[0].startTime).toBe('11:30')
   })
 
-  test('shops: the trip\'s first (in their own group in the picker), then the rest; nothing removed', () => {
+  test('shops: the trip\'s first on the shop list; in the pickers by area A–Z, shops A–Z, the trip\'s marked 🧳; nothing removed', () => {
     const shops = [
       { shopName: 'A', area: 'Akihabara', tripIds: [] },
       { shopName: 'B', area: 'Shinjuku', tripIds: ['feb-trip'] },
@@ -79,8 +79,12 @@ test.describe('trip plans (lib/trip-plans.ts)', () => {
     expect(shopsTripFirst(shops, 'feb-trip').map((s) => s.shopName)).toEqual(['B', 'C', 'A', 'D'])
     expect(shopsTripFirst(shops, null).map((s) => s.shopName)).toEqual(['A', 'B', 'C', 'D'])
     const groups = shopOptionGroups(shops, 'feb-trip')
-    expect(groups.map((g) => [g.area, g.items.map((i) => i.name)])).toEqual([[TRIP_SHOPS_GROUP, ['B', 'C']], ['Akihabara', ['A']], ['Nakano', ['D']]])
+    expect(groups.map((g) => [g.area, g.items.map((i) => i.name)])).toEqual([['Akihabara', ['A', '🧳 C']], ['Nakano', ['D']], ['Shinjuku', ['🧳 B']]])
+    expect(groups[0].items.map((i) => i.onTrip)).toEqual([false, true])
     expect(shopOptionGroups(shops).map((g) => g.area)).toEqual(['Akihabara', 'Nakano', 'Shinjuku'])
+    // A–Z whatever the order they come in (the trip's shops first, from the server), case ignored.
+    const mixed = [{ shopName: 'zeta', area: 'Shinjuku' }, { shopName: 'Alpha', area: 'Shinjuku', tripIds: ['t'] }, { shopName: 'beta', area: 'akihabara' }, { shopName: 'Mid', area: 'Ikebukuro' }]
+    expect(shopOptionGroups(mixed, 't').map((g) => [g.area, g.items.map((i) => i.name)])).toEqual([['akihabara', ['beta']], ['Ikebukuro', ['Mid']], ['Shinjuku', ['🧳 Alpha', 'zeta']]])
   })
 
   test('the countdown: each trip with both flights, in Japan time; the first whose flight home is still ahead', () => {
@@ -210,7 +214,7 @@ test.describe('/itinerary with several trips', () => {
     await expect(page.locator('.day-card').nth(1).locator('.day-arrival')).toHaveCount(0)
   })
 
-  test('shops for the trip first: in the timeline\'s picker ("🧳 This trip") and on the shop list', async ({ page, sanity, trackDoc }) => {
+  test('the trip\'s shops marked 🧳 in the timeline\'s picker (in their area), and first on the shop list', async ({ page, sanity, trackDoc }) => {
     const trip = await makeTrip(sanity, trackDoc, 'Shops Trip', { firstTokyoDay: '2027-02-21', lastTokyoDay: '2027-02-22' })
     const shop = await sanity.create({
       _type: 'shopNote', shopName: testName(`Zz Trip Shop ${Date.now()}`), area: 'Zzz Last Area', latitude: 35.7, longitude: 139.77,
@@ -219,9 +223,10 @@ test.describe('/itinerary with several trips', () => {
     trackDoc(shop._id)
     await mockSaves(page)
     await page.goto(`/itinerary?trip=${trip._id}`)
-    const first = page.locator('#itl-add-shop optgroup').first()
-    await expect(first).toHaveAttribute('label', '🧳 This trip')
-    await expect(first.locator('option')).toHaveText([shop.shopName])
+    // In its own area's group, marked 🧳; no "This trip" group.
+    const group = page.locator('#itl-add-shop optgroup[label="Zzz Last Area"]')
+    await expect(group.locator('option')).toHaveText([`🧳 ${shop.shopName}`])
+    expect(await page.locator('#itl-add-shop optgroup').evaluateAll((els) => els.map((e) => e.getAttribute('label')))).not.toContain('🧳 This trip')
     // The shop list: the remembered trip's shops first (the itinerary's switcher remembers it).
     await page.goto('/notes')
     // First on screen (CSS order: the cards themselves stay where they are).

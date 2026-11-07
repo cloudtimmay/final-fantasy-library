@@ -221,23 +221,21 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
 }
 
 // --- Adding a stop (the list's "+ Legg til stopp" and the timeline's tap-to-add) -----------------
-// The shop picker's list: shops grouped by area (sorted), each with its index in `shops`. With a
-// trip, its shops (shopNote.trips) come first in their own group, "🧳 This trip", then the rest.
-export const TRIP_SHOPS_GROUP = '🧳 This trip'
-export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null): { area: string; items: { i: number; name: string; hasCoord: boolean }[] }[] {
-  const byArea: Record<string, { i: number; name: string; hasCoord: boolean }[]> = {}
-  const onTrip: { i: number; name: string; hasCoord: boolean }[] = []
+// The shop pickers' list (add a stop, link to a shop, the day's base): shops grouped by area, the
+// areas A–Z and the shops A–Z in each, each with its index in `shops`. The selected trip's shops
+// (shopNote.trips) are marked "🧳 " in their area — no group of their own.
+export const TRIP_SHOP_MARK = '🧳 '
+export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null): { area: string; items: { i: number; name: string; hasCoord: boolean; onTrip: boolean }[] }[] {
+  const byArea: Record<string, { i: number; name: string; hasCoord: boolean; onTrip: boolean; sortName: string }[]> = {}
   shops.forEach((s, i) => {
-    if (tripId && Array.isArray(s.tripIds) && s.tripIds.includes(tripId)) {
-      onTrip.push({ i, name: s.shopName || '', hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
-      return
-    }
+    const onTrip = !!tripId && Array.isArray(s.tripIds) && s.tripIds.includes(tripId)
     const area = s.area || 'Andre'
     if (!byArea[area]) byArea[area] = []
-    byArea[area].push({ i, name: s.shopName || '', hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
+    byArea[area].push({ i, name: (onTrip ? TRIP_SHOP_MARK : '') + (s.shopName || ''), sortName: s.shopName || '', onTrip, hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
   })
-  const groups = Object.keys(byArea).sort().map((area) => ({ area, items: byArea[area] }))
-  return onTrip.length ? [{ area: TRIP_SHOPS_GROUP, items: onTrip }, ...groups] : groups
+  const byName = (a: { sortName: string }, b: { sortName: string }) => a.sortName.localeCompare(b.sortName, 'en', { sensitivity: 'base' })
+  return Object.keys(byArea).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    .map((area) => ({ area, items: byArea[area].sort(byName).map(({ sortName, ...item }) => item) }))
 }
 
 // A stop for a shop from the shop list, or one typed in by hand — the same saved shape on both pages.

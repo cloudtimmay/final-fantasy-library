@@ -288,7 +288,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
-      shopOptionGroups, shopStopFrom, customStopFrom, dayRouteUrls, checkDayRequestBody, optimizerInput,
+      shopOptionGroups, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, earlierStartFor, arriveByBefore, parseClock, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
@@ -845,13 +845,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       saveState(); render()
     })
 
-    // "🗺️ Route for the day": Google Maps through the stops in order, base first and last
-    // (itinerary-plan.ts dayRouteUrls — the list's own links; more than 10 points come in parts).
+    // The day's route (itinerary-plan.ts dayRouteLinks): a walking route per area, a timed transit
+    // link for each move between areas or by train — in order.
     function renderDayBar(day: PlanDay) {
       startInput.value = day.startTime
-      const urls = dayRouteUrls(day.stops.map((s) => resolveStop(s, shopById)), basesOf(day).start)
-      dayRouteEl.innerHTML = urls
-        .map((u, i) => `<a class="itl-dayroute-link" href="${esc(u)}" target="_blank" rel="noopener">🗺️ ${urls.length > 1 ? `Route part ${i + 1}` : 'Route for the day'}</a>`)
+      const { sched, baseStart } = computeDayTimes(day, basesOf(day), shopById)
+      dayRouteEl.innerHTML = dayRouteLinks(day, sched, basesOf(day), shopById, baseStart)
+        .map((l) => `<a class="itl-dayroute-link itl-route-${l.kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`)
         .join('')
       if (mapSection.open) drawMap(day)
       resetDayBtn.hidden = !hasActualTimes(day)

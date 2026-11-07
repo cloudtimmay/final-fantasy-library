@@ -339,7 +339,12 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     }
 
 
-    function dayRouteUrls(day) { return LIB().dayRouteUrls(day.stops.map(resolveStop), base) }
+    // The day's route (lib/itinerary-plan.ts dayRouteLinks): a walking route per area, a timed
+    // transit link for each move between areas or by train — in order.
+    function dayRouteLinks(day) {
+      const { sched, baseStart } = computeTimes(day)
+      return LIB().dayRouteLinks(day, sched, basesOf(day), shopById, baseStart)
+    }
     function baseRow(label, time) {
       return `<li class="stop is-base"><span class="stop-time">${time}</span><div class="move-col"><span class="base-icon">🏠</span></div>
         <span class="stop-body"><span class="stop-name">${label}</span></span></li>`
@@ -370,10 +375,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         const { baseStart, times, baseEnd, sched } = computeTimes(day)
         const card = document.createElement('div')
         card.className = 'day-card'
-        const urls = dayRouteUrls(day)
-        let routeBtns = ''
-        if (urls.length === 1) routeBtns = `<a class="route-btn" href="${urls[0]}" target="_blank" rel="noopener">🗺️ Åpne ruten i Google Maps</a>`
-        else if (urls.length > 1) routeBtns = '<div class="route-parts">' + urls.map((u, i) => `<a class="route-btn" href="${u}" target="_blank" rel="noopener">🗺️ Rute del ${i+1}</a>`).join('') + '</div>'
+        const links = dayRouteLinks(day)
+        const routeBtns = links.length ? '<div class="route-parts">' + links.map((l) => `<a class="route-btn route-${l.kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join('') + '</div>' : ''
 
         const shopSelectHtml = SHOP_OPTIONS
           ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`

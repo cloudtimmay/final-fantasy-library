@@ -12,8 +12,9 @@ import { checkHours, visitWarning, closedOnArrival, closingTime } from './openin
 import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
 import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN } from './itinerary-review-helpers'
-import { trainLeaveBy } from './itinerary-schedule'
+import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
+import { googleMapsTimedUrl } from './transit-links'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -254,27 +255,8 @@ export function customStopFrom(name: string, hours: string): PlanStop {
   return { name, hours, tag: '', slot: '', lat: null, lng: null }
 }
 
-// --- A day's Google Maps route, "Check day" request and "Suggest route" input -----------------
-// Shared by /itinerary-list and /itinerary (exactly what the list used to build inline).
-
-// Walking directions base -> the stops with coordinates, in order -> base; split into parts of
-// at most 10 points (Google Maps' limit), each part starting where the previous one ended.
-export function dayRouteUrls(points: { lat: number | null; lng: number | null }[], base: { lat: number; lng: number }): string[] {
-  const pts = points.filter((s) => s.lat != null && s.lng != null).map((s) => `${s.lat},${s.lng}`)
-  const baseP = `${base.lat},${base.lng}`
-  const full = [baseP, ...pts, baseP]
-  if (full.length < 2) return []
-  const MAX = 10, segs: string[][] = []
-  if (full.length <= MAX) segs.push(full)
-  else { let i = 0; while (i < full.length - 1) { segs.push(full.slice(i, i + MAX)); i += MAX - 1 } }
-  return segs.map((seg) => {
-    const origin = seg[0], destination = seg[seg.length - 1]
-    const waypoints = seg.slice(1, -1).join('|')
-    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=walking`
-    if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`
-    return url
-  })
-}
+// --- A day's "Check day" request and "Suggest route" input -------------------------------------
+// Shared by /itinerary-list and /itinerary. (The day's route links: dayRouteLinks, below.)
 
 // The body /api/itinerary-review gets for one day (it recomputes the timetable from it).
 export function checkDayRequestBody(
@@ -655,4 +637,85 @@ export function arriveByBefore(day: { startTime: string; stops: PlanStop[]; retu
   if (day.stops.length < 2) return null
   const { sched, inputs } = computeDayTimes(day, base, shopById)
   return oldFirstStart - sched.stops[1].travelIn.minutes - inputs[0].durationMin
+}
+
+// --- "Route for the day": walking routes per area, transit links between them ---------------------
+// Google Maps can't do public transport through several waypoints (one day came out as a 15-hour
+// walk). So the day is cut into runs: consecutive stops in the same area (with the base when it's a
+// walk away) are one walking route, "🗺️ Akihabara (5 stops)"; each move between areas — and any
+// leg by train, planned or estimated — is its own transit link with its time ("Google Maps (with
+// time)", lib/transit-links.ts), "🚆 Akihabara → Shinjuku". A stop without an area stays in the run
+// it's in; its own name labels a run that starts with it.
+export type DayRouteLink = { kind: 'walk' | 'train'; label: string; url: string }
+const MAX_ROUTE_POINTS = 10 // Google Maps' limit for one route (origin, waypoints, destination)
+export function dayRouteLinks(
+  day: PlanDay,
+  sched: DaySchedule,
+  bases: { start: RoutePoint & { name?: string }; end: RoutePoint & { name?: string } },
+  shopById: Map<string, PlanShop>,
+  baseStart: number,
+): DayRouteLink[] {
+  if (!day.stops.length) return []
+  type Pt = { name: string; lat: number | null; lng: number | null; area: string | null; stop: boolean }
+  const baseName = (b: { name?: string }) => (b.name && b.name !== 'Base (overnatting)' ? b.name : 'Base')
+  const pts: Pt[] = [
+    { name: baseName(bases.start), lat: bases.start.lat, lng: bases.start.lng, area: null, stop: false },
+    ...day.stops.map((s) => {
+      const r = resolveStop(s, shopById)
+      return { name: r.name, lat: r.lat, lng: r.lng, area: (s.shopId && shopById.get(s.shopId)?.area) || null, stop: true }
+    }),
+    { name: baseName(bases.end), lat: bases.end.lat, lng: bases.end.lng, area: null, stop: false },
+  ]
+  const last = day.stops.length + 1
+  // Leg into point i (1 … stops: into stop i−1; last: back to the base) by train?
+  const byTrain = (i: number) => i === last
+    ? sched.returnLeg?.mode === 'train' || !!lastLegTrain(day).train
+    : sched.stops[i - 1]?.travelIn.mode === 'train' || !!day.stops[i - 1]?.train
+  const has = (p: Pt) => p.lat != null && p.lng != null
+  const at = (p: Pt) => `${p.lat},${p.lng}`
+  const label = (p: Pt) => p.area || p.name
+  const out: DayRouteLink[] = []
+  const closeRun = (run: Pt[]) => {
+    const stops = run.filter((p) => p.stop)
+    if (!stops.length) return
+    const name = `🗺️ ${stops.find((p) => p.area)?.area || stops[0].name} (${stops.length} stop${stops.length === 1 ? '' : 's'})`
+    const points = run.filter(has)
+    if (points.length < 2) {
+      const p = points[0] || stops[0]
+      out.push({ kind: 'walk', label: name, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(has(p) ? at(p) : p.name)}` })
+      return
+    }
+    // Over Google's limit: parts, each starting where the one before ended.
+    const parts: Pt[][] = []
+    for (let i = 0; i < points.length - 1; i += MAX_ROUTE_POINTS - 1) parts.push(points.slice(i, i + MAX_ROUTE_POINTS))
+    parts.forEach((part, k) => {
+      const waypoints = part.slice(1, -1).map(at).join('|')
+      out.push({
+        kind: 'walk', label: parts.length > 1 ? `${name} ${k + 1}/${parts.length}` : name,
+        url: `https://www.google.com/maps/dir/?api=1&origin=${at(part[0])}&destination=${at(part[part.length - 1])}&travelmode=walking${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`,
+      })
+    })
+  }
+  let run: Pt[] = [pts[0]]
+  let runArea: string | null = null
+  for (let i = 1; i <= last; i++) {
+    const p = pts[i]
+    const newArea = p.area && runArea && p.area !== runArea
+    if (byTrain(i) || newArea) {
+      closeRun(run)
+      const from = run[run.length - 1]
+      // With its time on a dated day; a day without a date gets the plain transit link.
+      const url = isIsoDate(day.day)
+        ? googleMapsTimedUrl(from, p, legSearchTime(day, sched, i === last ? day.stops.length : i - 1, i === last ? 'return' : 'stop', { baseStart }))
+        : transitRouteUrl(from, p)
+      out.push({ kind: 'train', label: `🚆 ${label(from)} → ${label(p)}`, url })
+      run = [p]
+      runArea = p.area
+    } else {
+      run.push(p)
+      runArea = runArea || p.area
+    }
+  }
+  closeRun(run)
+  return out
 }

@@ -433,14 +433,48 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     expect(saves[saves.length - 1].days['2026-12-05'].startTime).toBe('14:00')
   })
 
-  test('"🗺️ Route for the day" goes through the stops in order, base first and last', async ({ page, sanity, trackDoc }) => {
+  test('the day\'s route: a walking route per run of stops, a timed transit link for each move by train, in order', async ({ page, sanity, trackDoc }) => {
+    // Shinjuku (its trip from the base typed in, not a train: the base walks with it), then Yokohama
+    // (two stops a walk apart), then the temple — the other legs by train.
     await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
-    const link = page.locator('.itl-dayroute-link')
-    await expect(link).toHaveText('🗺️ Route for the day')
-    const url = new URL((await link.getAttribute('href'))!)
-    expect(url.searchParams.get('origin')).toBe('35.697999,139.77083')
-    expect(url.searchParams.get('destination')).toBe('35.697999,139.77083')
-    expect(url.searchParams.get('waypoints')).toBe('35.689356,139.697787|35.464556,139.624649|35.4658,139.6223|35.6526,139.7279')
+    const links = page.locator('.itl-dayroute-link')
+    await expect(links).toHaveText([
+      '🗺️ Yellow Submarine Shinjuku (1 stop)',
+      '🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama',
+      '🗺️ SURUGA-YA Marui City Yokohama (2 stops)',
+      '🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple',
+      '🗺️ Tokyo Temple (1 stop)',
+      '🚆 Tokyo Temple → Base',
+    ])
+    // The walk through both Yokohama stops.
+    const walk = new URL((await links.nth(2).getAttribute('href'))!)
+    expect(walk.searchParams.get('travelmode')).toBe('walking')
+    expect(walk.searchParams.get('origin')).toBe('35.464556,139.624649')
+    expect(walk.searchParams.get('destination')).toBe('35.4658,139.6223')
+    // A move: transit with its time (the older maps URL, "Google Maps (with time)") — the fixed
+    // 19:00 temple with arrive-early 30: arriving by 18:30.
+    const move = Object.fromEntries(new URL((await links.nth(3).getAttribute('href'))!).searchParams)
+    expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'arr', date: '12/05/26', time: '6:30pm' })
+  })
+
+  test('the day\'s route by area: shops in the same area are one walk (the base with them when it\'s a walk away); a new area is a move', async ({ page, sanity, trackDoc }) => {
+    const shop = async (name: string, area: string, lat: number, lng: number) => {
+      const d = await sanity.create({ _type: 'shopNote', shopName: testName(`${name} ${Date.now()}`), area, latitude: lat, longitude: lng })
+      trackDoc(d._id)
+      return { name: 'x', hours: '', tag: '', slot: '', lat, lng, dur: 30, shopId: d._id }
+    }
+    const stops = [
+      await shop('Aki One', 'Akihabara', 35.6990, 139.7710), await shop('Aki Two', 'Akihabara', 35.7000, 139.7715), await shop('Aki Three', 'Akihabara', 35.7005, 139.7720),
+      await shop('Shin One', 'Shinjuku', 35.6905, 139.7005), await shop('Shin Two', 'Shinjuku', 35.6910, 139.7010),
+    ]
+    await openTimeline(page, sanity, trackDoc, stops, {}, '10:00')
+    await expect(page.locator('.itl-dayroute-link')).toHaveText(['🗺️ Akihabara (3 stops)', '🚆 Akihabara → Shinjuku', '🗺️ Shinjuku (2 stops)', '🚆 Shinjuku → Base'])
+    // The walk starts at the base (a short walk to the first shop).
+    const walk = new URL((await page.locator('.itl-dayroute-link').first().getAttribute('href'))!)
+    expect(walk.searchParams.get('origin')).toBe('35.697999,139.77083')
+    expect(walk.searchParams.get('waypoints')).toBe('35.699,139.771|35.7,139.7715')
+    expect(walk.searchParams.get('destination')).toBe('35.7005,139.772')
+    await expect(page.locator('.itl-dayroute-link.itl-route-train')).toHaveCount(2)
   })
 
   test('the map is closed by default and shows the stops numbered in order when opened', async ({ page, sanity, trackDoc }) => {

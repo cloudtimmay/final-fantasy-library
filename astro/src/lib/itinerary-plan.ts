@@ -131,7 +131,7 @@ export function lastLegTrain(day: { stops: PlanStop[]; returnTrain?: TrainPlan; 
   return { train: day.returnTrain, toAirport: false }
 }
 export function computeDayTimes(
-  day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan },
+  day: { day?: string; startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan },
   base: RoutePoint | { start: RoutePoint; end: RoutePoint },
   shopById: Map<string, PlanShop>
 ): { baseStart: number; times: number[]; baseEnd: number; sched: DaySchedule; inputs: ScheduleStopInput[] } {
@@ -151,11 +151,13 @@ export function computeDayTimes(
       actualEnd: parseClock(s.actualEnd),
       leaveAt: parseClock(s.leaveAt),
       train: trainTimes(s.train),
+      openingHours: stopHoursText(s, shopById).text || null,
     }
   })
   const startBase = 'start' in base ? base.start : base
   const endBase = 'start' in base ? base.end : base
-  const sched = scheduleDay(inputs, start, startBase, { returnTrain: trainTimes(lastLegTrain(day).train), endBase })
+  const dated = isIsoDate(day.day) ? day.day! : null
+  const sched = scheduleDay(inputs, start, startBase, { returnTrain: trainTimes(lastLegTrain(day).train), endBase, weekday: dated ? weekdayIndex(dated) : null, date: dated })
   return { baseStart: start, times: sched.stops.map((x) => x.start), baseEnd: sched.end, sched, inputs }
 }
 

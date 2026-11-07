@@ -42,6 +42,7 @@
 //   too late for it is `trainLateMin`.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
+import { checkHours } from './opening-hours'
 import { tokyoNow, addDays } from './trip-dates'
 
 // Slack before a fixed-time stop: missing it costs a reservation, a session or a flight.
@@ -61,6 +62,7 @@ export type ScheduleStopInput = {
   actualEnd?: number | null // when you really left
   leaveAt?: number | null // "Leave at": when the visit ends (minutes after midnight)
   train?: TrainTimes | null // a train on the leg INTO this stop
+  openingHours?: string | null // its hours text: a visit reached before the opening waits for it
 }
 
 // A train's times on a leg (lib/train-plan.ts trainTimes): minutes after midnight, the arrival
@@ -85,8 +87,9 @@ export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate
 
 export type ScheduledStop = {
   arrival: number // when you get there (an anchor: fixedTime − arriveEarlyMin)
-  start: number // when the visit starts (an anchor: fixedTime)
+  start: number // when the visit starts (an anchor: fixedTime; reached before the opening: the opening)
   end: number
+  waitMin: number | null // minutes waited for the opening (arrival → start), else null
   fixed: boolean
   travelIn: TravelLeg // from the previous stop, or from the base for the first
   leaveBy: number | null // for the leg to the next stop; null for the day's last stop
@@ -133,7 +136,10 @@ function legBetween(from: RoutePoint, to: ScheduleStopInput, fromBase: boolean):
 // `opts.returnTrain`: a train planned for the trip back to the base — the last stop must be left by
 // its leave-by (an anchor like a train into a stop), and the day ends at its arrival + the walk.
 // `opts.endBase`: where the day ends, when not where it started (a hotel change): the trip back goes there.
-export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint, opts: { returnTrain?: TrainTimes | null; endBase?: RoutePoint | null } = {}): DaySchedule {
+// `opts.weekday`/`opts.date`: the day's (lib/trip-dates.ts weekdayIndex), for the opening hours — a
+// stop reached before it opens that day starts at the opening (not a fixed stop, one with actual
+// times, or one with a leave time: those keep their own times).
+export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base: RoutePoint, opts: { returnTrain?: TrainTimes | null; endBase?: RoutePoint | null; weekday?: number | null; date?: string | null } = {}): DaySchedule {
   const legs = stops.map((s, i) => legBetween(i === 0 ? base : stops[i - 1], s, i === 0))
 
   // Forward: arrival, start and end of every stop.
@@ -154,14 +160,20 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     const anchor = anchorArrival(s)
     const actualStart = s.fixedTime == null && s.actualStart != null ? s.actualStart : null
     const arrival = anchor != null ? anchor : actualStart != null ? actualStart : trainArrival != null ? trainArrival : clock + legs[i].minutes
-    const start = s.fixedTime != null ? s.fixedTime : arrival
+    let start = s.fixedTime != null ? s.fixedTime : arrival
+    // Not open yet when you get there: the visit starts at the opening, and the day runs on from it.
+    let waitMin: number | null = null
+    if (s.fixedTime == null && actualStart == null && s.actualEnd == null && s.leaveAt == null && s.openingHours) {
+      const c = checkHours(s.openingHours, opts.weekday ?? null, arrival, arrival + s.durationMin, opts.date ?? null)
+      if (c.kind === 'before-open' && c.opens > arrival) { waitMin = c.opens - arrival; start = c.opens }
+    }
     const leaveAt = s.leaveAt != null ? (s.leaveAt + 720 < start ? s.leaveAt + 1440 : s.leaveAt) : null
     const late = leaveAt != null && s.actualEnd == null && arrival >= leaveAt
     const end = s.actualEnd != null ? Math.max(s.actualEnd, start)
       : leaveAt != null ? (late ? start : Math.max(leaveAt, start))
       : start + s.durationMin
     out.push({
-      arrival, start, end, fixed: s.fixedTime != null, travelIn: legs[i],
+      arrival, start, end, waitMin, fixed: s.fixedTime != null, travelIn: legs[i],
       leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, latestLeave: null, doesntFit: null,
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
       arrivesAfterLeave: late ? leaveAt : null,

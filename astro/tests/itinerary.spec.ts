@@ -233,16 +233,20 @@ test.describe('route-optimizer: optimizeRoute', () => {
     expect(result.suggested.times[1]).toBe(600) // still visited at its pinned time
   })
 
-  test('avoids an ordering that arrives at a shop while it is closed, when a better order exists', () => {
+  test('avoids an ordering that waits for a shop to open, when a better order exists', () => {
     const start = { lat: 35.0, lng: 139.0 }
     // Both stops sit essentially at the start location, isolating the effect to opening
     // hours rather than travel distance. A (long, always open) then B (opens at 11:00)
-    // arrives at B well after opening; B then A arrives at B immediately at 08:00, closed.
+    // arrives at B well after opening; B then A gets to B at 08:00 and waits until 11:00 (as the
+    // schedule now does — lib/itinerary-schedule.ts), three hours lost.
     const a = stop({ lat: 35.0, lng: 139.0, durationMin: 200, openingHours: '08:00–22:00' })
     const b = stop({ lat: 35.0, lng: 139.0, durationMin: 60, openingHours: '11:00–20:00' })
     const result = optimizeRoute([b, a], 480, start) // current order: b first (bad)
-    expect(result.current.closedCount).toBe(1)
+    expect(result.current.closedCount).toBe(0)
+    expect(result.current.waitMin).toBeGreaterThanOrEqual(175) // 08:00 (+ the shortest walk) to 11:00
+    expect(result.current.times[0]).toBe(660) // b starts at its opening
     expect(result.suggested.closedCount).toBe(0)
+    expect(result.suggested.waitMin).toBe(0)
     expect(result.order).toEqual([1, 0]) // a (idx 1) first, then b (idx 0)
     expect(result.improved).toBe(true)
   })

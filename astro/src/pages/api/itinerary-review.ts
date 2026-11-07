@@ -121,7 +121,8 @@ export const POST: APIRoute = async ({ request }) => {
   // flight day when one is planned (the day ends at the airport), else a train back to the base.
   const airportTrainTimes = flight ? trainTimes(body.flight?.airportTrain ? validTrain(body.flight.airportTrain) : null) : null
   const returnTrainTimes = !airportTrainTimes && body.returnTrain ? trainTimes(validTrain(body.returnTrain)) : null
-  const daySchedule = base ? scheduleDay(scheduleInputs, startMin, base, { returnTrain: airportTrainTimes || returnTrainTimes }) : null
+  const dayDate = isIsoDate(body.dayDate) ? body.dayDate : null
+  const daySchedule = base ? scheduleDay(scheduleInputs.map((x, i) => ({ ...x, openingHours: openingHoursByStop[i] })), startMin, base, { returnTrain: airportTrainTimes || returnTrainTimes, weekday: dayDate ? weekdayIndex(dayDate) : null, date: dayDate }) : null
   // When to leave the last stop for it, and when it reaches the airport (its arrival + the walk).
   const airportTrain = airportTrainTimes
     ? { leaveBy: trainLeaveBy(airportTrainTimes), atAirport: (daySchedule ? daySchedule.end : airportTrainTimes.arrival + airportTrainTimes.walkFromStationMin), summary: trainSummary(validTrain(body.flight.airportTrain)!).replace(/^🚆 /, '') }

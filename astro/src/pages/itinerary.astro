@@ -628,6 +628,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         el.innerHTML = `
           ${firstLine()}
           ${times}
+          ${x.waitMin ? `<span class="itl-wait">⏳ Waits ${x.waitMin} min for opening</span>` : ''}
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
@@ -1184,6 +1185,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (s.hours) lines.push(`Opening hours: ${s.hours}`)
       // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
       if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.leaveBy, shopById)}` })
+      if (x.waitMin) lines.push(`⏳ Waits ${x.waitMin} min for opening (there ${formatClock(x.arrival)}, opens ${formatClock(x.start)})`)
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       // The warning with its one-tap fix (leaveFixFor), when leaving earlier can fix it.
       const fix = fixButton(leaveFixFor(sched, idx, flightDeadlineFor(day)))
@@ -1975,6 +1977,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text);
     }
     .itl-here-hint { font-size: 0.75rem; color: var(--muted); }
+    .itl-wait { font-size: 0.7rem; font-weight: 600; color: #e0a04c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
     .itl-start-toast { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; padding: 0.4rem 0.6rem; border: 1px solid var(--accent); border-radius: 6px; font-size: 0.85rem; font-weight: 600; }
     .itl-start-toast[hidden] { display: none; }
     .itl-sheet-addprice { display: inline-block; margin: 0.3rem 0; padding: 0.35rem 0.7rem; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); font-weight: 600; font-size: 0.85rem; text-decoration: none; }

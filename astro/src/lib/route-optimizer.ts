@@ -147,11 +147,17 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
     }
     // Closed when you get there (closed that weekday, not open yet, or closed already): the
     // large penalty. Not open yet also counts the wait (lib/opening-hours.ts).
+    // Not open yet: wait for the opening, as the schedule does (lib/itinerary-schedule.ts); still
+    // closed after that (closed that day, already closed): the large penalty.
     const leaveAt = stop.leaveAt != null ? (stop.leaveAt + 720 < clock ? stop.leaveAt + 1440 : stop.leaveAt) : null
-    const ends = leaveAt != null ? Math.max(clock, leaveAt) : clock + stop.durationMin
-    const hours = checkHours(stop.openingHours, weekday, clock, ends, date)
-    if (hours.kind === 'before-open') waitMin += hours.opens - clock
+    let hours = checkHours(stop.openingHours, weekday, clock, leaveAt != null ? Math.max(clock, leaveAt) : clock + stop.durationMin, date)
+    if (hours.kind === 'before-open' && stop.fixedTime == null && leaveAt == null) {
+      waitMin += hours.opens - clock
+      clock = hours.opens
+      hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin, date)
+    }
     if (closedOnArrival(hours)) closedCount++
+    const ends = leaveAt != null ? Math.max(clock, leaveAt) : clock + stop.durationMin
     times.push(clock)
     clock = ends
     prevPoint = { lat: stop.lat, lng: stop.lng }

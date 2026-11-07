@@ -107,13 +107,13 @@ test.describe('/itinerary: the day view', () => {
     await expect(block('SURUGA-YA').locator('.itl-badge')).toHaveText(/^⚠️ Doesn't fit before 16:30 \(\d+ min short\)$/)
   })
 
-  test('a closed shop is marked', async ({ page, sanity, trackDoc }) => {
+  test('a closed shop is marked (reached after it closes; reached before it opens, the visit waits instead)', async ({ page, sanity, trackDoc }) => {
     await openTimeline(page, sanity, trackDoc, [
-      { name: 'Early Shop', hours: '11:00–20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, travelMin: 0, travelFrom: '__base__' },
-    ], {}, '09:00')
-    const block = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Early Shop' }) })
+      { name: 'Late Shop', hours: '11:00–20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, travelMin: 0, travelFrom: '__base__' },
+    ], {}, '21:00')
+    const block = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Late Shop' }) })
     await expect(block).toHaveClass(/itl-warn-closed/)
-    await expect(block.locator('.itl-hours-badge')).toHaveText('Opens 11:00')
+    await expect(block.locator('.itl-hours-badge')).toHaveText('Closes 20:00')
   })
 
   test('the flight deadline is a line on the flight day', async ({ page, sanity, trackDoc }) => {
@@ -2800,5 +2800,44 @@ test.describe('/itinerary on a phone: a base per day ("🏨 Base")', () => {
     await page.locator('#itl-start').dispatchEvent('change')
     await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
     expect(Object.keys(saves[saves.length - 1].days['2026-12-05'])).toEqual(['startTime', 'stops'])
+  })
+})
+
+test.describe('/itinerary: waiting for a shop to open', () => {
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  const stop = (name: string, extra: Record<string, unknown> = {}) => ({ name, lat: null, lng: null, durationMin: 30, fixedTime: null, arriveEarlyMin: null, manualTravelMin: 0, noteTravelMin: null, ...extra })
+
+  test('the engine: there at 10:30, opens 11:00 — the visit starts at 11:00 and the next stop moves by 30 min; fixed stops and leave times as before', () => {
+    const SAT = { weekday: 6, date: '2026-12-05' }
+    const without = scheduleDay([stop('First'), stop('Opens at 11', { durationMin: 45 }), stop('Next')], t('10:00'), BASE, SAT)
+    const withHours = scheduleDay([stop('First'), stop('Opens at 11', { durationMin: 45, openingHours: '11:00-20:00' }), stop('Next')], t('10:00'), BASE, SAT)
+    expect(without.stops[1]).toMatchObject({ arrival: t('10:30'), start: t('10:30'), waitMin: null })
+    expect(withHours.stops[1]).toMatchObject({ arrival: t('10:30'), start: t('11:00'), end: t('11:45'), waitMin: 30 })
+    expect(withHours.stops[2].start).toBe(without.stops[2].start + 30)
+    // The leave-by of the stop before is when it ends (10:30): you leave, then wait there.
+    expect(withHours.stops[0].leaveBy).toBe(t('10:30'))
+    // A fixed time, or a leave time, keeps its own times.
+    const fixed = scheduleDay([stop('First'), stop('Fixed', { fixedTime: t('10:45'), openingHours: '11:00-20:00' })], t('10:00'), BASE, SAT)
+    expect(fixed.stops[1]).toMatchObject({ start: t('10:45'), waitMin: null })
+    const leave = scheduleDay([stop('First'), stop('Leave', { leaveAt: t('11:30'), openingHours: '11:00-20:00' })], t('10:00'), BASE, SAT)
+    expect(leave.stops[1]).toMatchObject({ start: t('10:30'), end: t('11:30'), waitMin: null })
+    // Without the day's weekday, weekday hours still apply when they're the same every day.
+    expect(scheduleDay([stop('First'), stop('Opens at 11', { openingHours: '11:00-20:00' })], t('10:00'), BASE).stops[1].start).toBe(t('11:00'))
+  })
+
+  test('on the timeline: "⏳ Waits 30 min for opening" on the block and in the sheet; the next stop 30 min later', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Coffee First', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Opens At Eleven', hours: '11:00-20:00', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 45, travelMin: 0, travelFrom: 'Coffee First' },
+      { name: 'After The Wait', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30, travelMin: 0, travelFrom: 'Opens At Eleven' },
+    ], {}, '10:00')
+    const b = block(page, 'Opens At Eleven')
+    await expect(b).toHaveAttribute('data-start', String(t('11:00')))
+    await expect(b.locator('.itl-wait')).toHaveText('⏳ Waits 30 min for opening')
+    await expect(b.locator('.itl-arrive')).toHaveText('Arrive 10:30')
+    await expect(b.locator('.itl-hours-badge')).toHaveCount(0) // not "Opens 11:00": it waits
+    await expect(block(page, 'After The Wait')).toHaveAttribute('data-start', String(t('11:45')))
+    await b.locator('.itl-name').click()
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⏳ Waits 30 min for opening (there 10:30, opens 11:00)')
   })
 })

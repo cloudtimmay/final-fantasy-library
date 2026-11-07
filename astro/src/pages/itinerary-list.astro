@@ -583,7 +583,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       const resultsEl = daysEl.querySelector(`.day-route-results[data-day="${di}"]`)
       if (!day.stops.length) { LIB().renderNoStopsToReorder(resultsEl); return }
       const input = LIB().optimizerInput(day, { base, shopById })
-      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
+      // On the flight day, the day must end by the time to leave for the airport.
+      const result = LIB().optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date, flight && flight.date === day.day ? (LIB().flightDeadline(day, flight)?.leaveBy ?? null) : null)
       LIB().renderRouteSuggestion(resultsEl, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx]).name,
         fmt,

@@ -7,7 +7,7 @@
 //
 // Opening hours come from lib/opening-hours.ts, the one parser every page uses.
 
-import { checkHours, closedOnArrival } from './opening-hours'
+import { checkHours, closedOnArrival, closingTime } from './opening-hours'
 
 export type RoutePoint = { lat: number | null; lng: number | null }
 
@@ -39,8 +39,13 @@ export type RouteSchedule = {
   score: number
 }
 
+// A stop the opening-hours heuristic couldn't place anywhere it's open (listed, not placed closed):
+// `closes` is its closing time that day when known ("Couldn't fit: X (closes 20:00)").
+export type Unplaced = { index: number; closes: number | null }
+
 export type OptimizeResult = {
-  order: number[] // original indices, in the suggested order
+  order: number[] // original indices, in the suggested order (stops that couldn't fit last)
+  unplaced: Unplaced[]
   currentOrder: number[] // original indices, in today's (unchanged) order — for comparison
   suggested: RouteSchedule
   current: RouteSchedule
@@ -161,7 +166,9 @@ function permutations<T>(items: T[]): T[][] {
   return result
 }
 
-const BRUTE_FORCE_LIMIT = 8
+// Up to this many stops to move, every order is tried (anchors in place); more: the opening-hours
+// heuristic (insertionOrder).
+const BRUTE_FORCE_LIMIT = 6
 
 // Finds the best order for the movable (non-fixed-time) stops, leaving every fixed-time
 // stop in its original structural position — "plan the others around them". Up to
@@ -232,6 +239,80 @@ function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlo
   return order
 }
 
+// --- The opening-hours heuristic (days with more than BRUTE_FORCE_LIMIT stops to move) ----------
+// The anchors (fixed-time stops, the stops of a train leg) keep their order and times; the other
+// stops are inserted one by one, earliest-closing first, where each is open for its whole visit
+// (waiting for the opening is fine), every anchor after it is still reached in time, and the day
+// ends by `endBy` (the flight home), choosing the place that adds the least travel and waiting —
+// earlier gaps between anchors first. A stop with no such place is left out (`unplaced`), never
+// put where it's closed.
+const LATER_SEGMENT_MIN = 15 // the cost of each anchor further on, so earlier gaps fill first
+
+type Sim = { feasible: boolean; travelMin: number; waitMin: number; times: number[] }
+function simulateFeasible(order: OptimizerStop[], movable: boolean[], startTime: number, start: RoutePoint, weekday: number | null, date: string | null, endBy: number | null): Sim {
+  let clock = startTime
+  let prev: RoutePoint = start
+  let travelMin = 0, waitMin = 0
+  const times: number[] = []
+  for (let i = 0; i < order.length; i++) {
+    const stop = order[i]
+    if (stop.train) {
+      const leaveBy = stop.train.departure - TRAIN_PLATFORM_MIN - Math.max(0, stop.train.walkToStationMin || 0)
+      if (clock > leaveBy) return { feasible: false, travelMin, waitMin, times }
+      clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + (stop.train.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
+    } else {
+      const travel = estimateTravelMinutes(prev, stop, i === 0 ? extractNoteTravelMinutes(stop.note) : null)
+      travelMin += travel
+      clock += travel
+      if (stop.fixedTime != null) {
+        if (clock > stop.fixedTime) return { feasible: false, travelMin, waitMin, times }
+        clock = stop.fixedTime
+      }
+    }
+    if (movable[i]) {
+      let hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin, date)
+      if (hours.kind === 'before-open') {
+        waitMin += hours.opens - clock
+        clock = hours.opens
+        hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin, date)
+      }
+      if (closedOnArrival(hours) || hours.kind === 'closes-during') return { feasible: false, travelMin, waitMin, times }
+    }
+    times.push(clock)
+    const leaveAt = stop.leaveAt != null ? (stop.leaveAt + 720 < clock ? stop.leaveAt + 1440 : stop.leaveAt) : null
+    clock = leaveAt != null ? Math.max(clock, leaveAt) : clock + stop.durationMin
+    prev = { lat: stop.lat, lng: stop.lng }
+  }
+  if (endBy != null && clock > endBy) return { feasible: false, travelMin, waitMin, times }
+  return { feasible: true, travelMin, waitMin, times }
+}
+
+function insertionOrder(stops: OptimizerStop[], anchorIdx: number[], movableIdx: number[], startTime: number, start: RoutePoint, weekday: number | null, date: string | null, endBy: number | null): { order: number[]; unplaced: Unplaced[]; times: number[] } {
+  // Its closing time that day (the first opening stretch from midnight): the order to insert in, and
+  // the reason shown for a stop that couldn't fit.
+  const closesOf = (i: number) => closingTime(stops[i].openingHours, weekday, 0, date)
+  const queue = movableIdx.slice().sort((a, b) => (closesOf(a) ?? Infinity) - (closesOf(b) ?? Infinity) || a - b)
+  let route = anchorIdx.slice()
+  const unplaced: Unplaced[] = []
+  const sim = (r: number[]) => simulateFeasible(r.map((i) => stops[i]), r.map((i) => movableIdx.includes(i)), startTime, start, weekday, date, endBy)
+  for (const m of queue) {
+    let best: { route: number[]; cost: number } | null = null
+    for (let p = 0; p <= route.length; p++) {
+      // Never between the two stops of a train leg (the leg into a stop with a train).
+      if (p < route.length && stops[route[p]].train && p > 0) continue
+      const cand = [...route.slice(0, p), m, ...route.slice(p)]
+      const s = sim(cand)
+      if (!s.feasible) continue
+      const anchorsBefore = route.slice(0, p).filter((i) => anchorIdx.includes(i)).length
+      const cost = s.travelMin + s.waitMin + anchorsBefore * LATER_SEGMENT_MIN
+      if (!best || cost < best.cost) best = { route: cand, cost }
+    }
+    if (best) route = best.route
+    else unplaced.push({ index: m, closes: closesOf(m) })
+  }
+  return { order: [...route, ...unplaced.map((u) => u.index)], unplaced, times: sim(route).times }
+}
+
 // Finds the best order for one day's stops, starting and ending at `start`. Fixed-time
 // stops never move from their original position; only the other stops are reordered.
 // `start` is the day's configured start location (e.g. the hotel/base); if it has no
@@ -240,7 +321,8 @@ function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlo
 // `weekday`: the day's (0 = Sunday, lib/trip-dates.ts weekdayIndex), so closed days and weekday
 // hours count; null when the day has no date.
 // `date`: the day itself ("YYYY-MM-DD"), for hours on given dates only.
-export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: RoutePoint | null, weekday: number | null = null, date: string | null = null): OptimizeResult {
+// `endBy`: on the flight day, when the day must end (the time to leave for the airport).
+export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: RoutePoint | null, weekday: number | null = null, date: string | null = null, endBy: number | null = null): OptimizeResult {
   const currentOrder = stops.map((_, i) => i)
   const hasStart = !!start && start.lat != null && start.lng != null
   const usedFirstStopAsStart = !hasStart && stops.length > 0
@@ -249,13 +331,22 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
   const current = computeSchedule(stops, startTime, effectiveStart, weekday, date)
 
   if (stops.length === 0) {
-    return { order: [], currentOrder, suggested: current, current, usedFirstStopAsStart, improved: false }
+    return { order: [], unplaced: [], currentOrder, suggested: current, current, usedFirstStopAsStart, improved: false }
   }
 
   // Fixed-time stops and the stops of a train leg keep their places; the rest are ordered around them.
   const stays = (i: number) => stops[i].fixedTime != null || !!stops[i].locked
   const fixedIdx = currentOrder.filter(stays)
   const movableIdx = currentOrder.filter((i) => !stays(i))
+  if (movableIdx.length > BRUTE_FORCE_LIMIT) {
+    // The opening-hours heuristic: anchors keep their order, the others go where they're open.
+    const h = insertionOrder(stops, fixedIdx, movableIdx, startTime, effectiveStart, weekday, date, endBy)
+    const scored = computeSchedule(h.order.map((i) => stops[i]), startTime, effectiveStart, weekday, date)
+    // The times shown: with the waits for opening (the stops that couldn't fit: as scheduled after).
+    const suggested = { ...scored, times: [...h.times, ...scored.times.slice(h.times.length)] }
+    const changed = h.order.some((i, pos) => i !== currentOrder[pos])
+    return { order: h.order, unplaced: h.unplaced, currentOrder, suggested, current, usedFirstStopAsStart, improved: changed && (suggested.score < current.score || h.unplaced.length < stops.length) }
+  }
   const bestMovable = bestMovableOrder(stops, movableIdx, fixedIdx, startTime, effectiveStart, weekday, date)
 
   const order: number[] = new Array(stops.length)
@@ -269,6 +360,7 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
 
   return {
     order,
+    unplaced: [],
     currentOrder,
     suggested,
     current,

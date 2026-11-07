@@ -904,7 +904,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const day = currentDayPlan()
       if (!day.stops.length) { renderNoStopsToReorder(routePanel); return }
       const input = optimizerInput(day, { base: basesOf(day).start, shopById })
-      const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
+      // On the flight day, the day must end by the time to leave for the airport.
+      const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date, flightDeadlineFor(day))
       renderRouteSuggestion(routePanel, result, {
         stopName: (origIdx) => resolveStop(day.stops[origIdx], shopById).name,
         fmt: formatClock,

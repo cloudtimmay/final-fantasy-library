@@ -188,6 +188,7 @@ export async function runCheckDay(btn: HTMLButtonElement, resultsEl: HTMLElement
 // --- "Suggest route" (route-optimizer.ts, never the AI) ----------------------------------------
 type RouteResult = {
   order: number[]
+  unplaced?: { index: number; closes: number | null }[]
   currentOrder: number[]
   suggested: { times: number[]; score: number }
   current: { times: number[]; score: number }
@@ -248,8 +249,15 @@ export function renderRouteSuggestion(
   const cols = document.createElement('div')
   cols.className = 'rt-columns'
   cols.appendChild(buildColumn('Current', result.currentOrder, result.current))
-  cols.appendChild(buildColumn('Suggested', result.order, result.suggested))
+  cols.appendChild(buildColumn('Suggested', result.order.filter((i) => !(result.unplaced || []).some((u) => u.index === i)), result.suggested))
   resultsEl.appendChild(cols)
+  // Stops with no open slot: listed, not placed closed (they go last if the order is applied).
+  for (const u of result.unplaced || []) {
+    const p = document.createElement('p')
+    p.className = 'rt-unplaced'
+    p.textContent = `Couldn't fit: ${opts.stopName(u.index)}${u.closes != null ? ` (closes ${opts.fmt(u.closes)})` : ''}`
+    resultsEl.appendChild(p)
+  }
   if (result.improved) {
     const applyBtn = document.createElement('button')
     applyBtn.type = 'button'

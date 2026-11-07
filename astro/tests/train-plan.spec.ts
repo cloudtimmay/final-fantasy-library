@@ -136,7 +136,7 @@ test.describe('reading a train from a screenshot (lib/train-plan.ts trainFromMod
 })
 
 test.describe('Suggest route with a planned train', () => {
-  test('the train leg stays intact (the stops before and after it keep their places); the others are reordered around it', async () => {
+  test('the train leg stays intact (the stops before and after it together, in order, at its time); the others are ordered around it', async () => {
     const { optimizeRoute } = await import('../src/lib/route-optimizer')
     const { optimizerInput } = await import('../src/lib/itinerary-plan')
     const at = (lat: number, name: string, extra: Record<string, unknown> = {}) => ({ name, hours: '', tag: '', slot: '', lat, lng: 139.77, dur: 30, ...extra })
@@ -148,12 +148,15 @@ test.describe('Suggest route with a planned train', () => {
     const input = optimizerInput(day as any, { base: BASE, shopById: new Map() })
     expect(input.stops.map((s) => !!s.locked)).toEqual([false, false, true, true, false, false])
     const result = optimizeRoute(input.stops, input.startTime, input.start, input.weekday, input.date)
-    expect(result.order.indexOf(2)).toBe(2) // Before Train
-    expect(result.order.indexOf(3)).toBe(3) // After Train, right after it
+    // The leg: Before Train, then After Train right after it — placed by its time, not its place in
+    // the list (lib/route-optimizer.ts exhaustiveByTime).
+    const leg = result.order.indexOf(3)
+    expect(result.order[leg - 1]).toBe(2)
     expect(new Set(result.order)).toEqual(new Set([0, 1, 2, 3, 4, 5]))
-    expect(result.order.slice(0, 2)).toEqual([1, 0]) // the near one first now
-    // The train sets the time after the leg.
-    expect(result.suggested.times[3]).toBe(t('12:40') + TRAIN_EXIT_WALK_MIN)
+    expect(result.order[0]).toBe(1) // the near one first now
+    // The train sets the time after the leg, and it's caught (no missed train).
+    expect(result.suggested.times[leg]).toBe(t('12:40') + TRAIN_EXIT_WALK_MIN)
+    expect(result.suggested.closedCount).toBe(0)
   })
 })
 

@@ -51,6 +51,30 @@ test.describe('Suggest route: opening hours (lib/route-optimizer.ts)', () => {
     expect(r.improved).toBe(true)
   })
 
+  test('a small day (5 stops to move, every order tried): the fixed 20:00 stop second in the list goes by its time — all five before it', () => {
+    const small: OptimizerStop[] = [
+      shop(0, '10:00-20:00'),
+      { ...at(1), durationMin: 90, fixedTime: t('20:00'), openingHours: null, note: null }, // second in the list
+      shop(2, '11:00-20:00'),
+      shop(3, '12:00-19:00'),
+      shop(4, 'Open 24 hours'),
+      shop(6, '10:00-18:00'),
+    ]
+    const r = optimizeRoute(small, t('12:00'), BASE, SATURDAY, '2026-12-05')
+    expect(r.unplaced).toEqual([])
+    const dinnerPos = r.order.indexOf(1)
+    expect(dinnerPos).toBe(5) // the old search kept it second: one shop before it, four after (closed)
+    expect(r.suggested.times[dinnerPos]).toBe(t('20:00'))
+    r.order.forEach((i, pos) => {
+      if (small[i].fixedTime != null) return
+      const start = r.suggested.times[pos]
+      const c = checkHours(small[i].openingHours, SATURDAY, start, start + small[i].durationMin, '2026-12-05')
+      expect(closedOnArrival(c) || c.kind === 'closes-during', `stop ${i} at ${start}: ${c.kind}`).toBe(false)
+    })
+    expect(r.improved).toBe(true)
+    expect(r.suggested.closedCount).toBe(0)
+  })
+
   test('the flight day: nothing placed after the time to leave for the airport', () => {
     const shops = [0, 2, 3, 4, 5, 6, 7].map((k) => shop(k, 'Open 24 hours'))
     const r = optimizeRoute(shops, t('10:00'), BASE, SATURDAY, '2026-12-05', t('14:00'))

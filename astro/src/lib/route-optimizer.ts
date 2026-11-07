@@ -133,6 +133,11 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       if (clock > leaveBy) closedCount++
       clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + (stop.train.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
     } else if (stop.fixedTime != null) {
+      // The trip there counts, and getting there after its time is missing it (like a closed shop)
+      // — so an order that puts too much before a fixed stop scores badly.
+      const travel = estimateTravelMinutes(prevPoint, stop, i === 0 ? extractNoteTravelMinutes(stop.note) : null)
+      travelMin += travel
+      if (clock + travel > stop.fixedTime) closedCount++
       clock = stop.fixedTime
     } else {
       const preferMinutes = i === 0 ? extractNoteTravelMinutes(stop.note) : null
@@ -166,77 +171,55 @@ function permutations<T>(items: T[]): T[][] {
   return result
 }
 
-// Up to this many stops to move, every order is tried (anchors in place); more: the opening-hours
-// heuristic (insertionOrder).
+// Up to this many stops to move, every order is tried, the anchors placed by time
+// (exhaustiveByTime); more: the opening-hours heuristic (insertionOrder).
 const BRUTE_FORCE_LIMIT = 6
 
-// Finds the best order for the movable (non-fixed-time) stops, leaving every fixed-time
-// stop in its original structural position — "plan the others around them". Up to
-// BRUTE_FORCE_LIMIT movable stops, every ordering is tried; beyond that, a nearest-
-// neighbour construction followed by 2-opt improvement is used instead, since the full
-// permutation space becomes impractically large.
-function bestMovableOrder(stops: OptimizerStop[], movableIdx: number[], fixedSlotsOrder: number[], startTime: number, start: RoutePoint, weekday: number | null, date: string | null): number[] {
-  if (movableIdx.length === 0) return []
+// Small days: every order of the movable stops, with the anchors placed among them by time, not by
+// their place in the list — each anchor unit (a fixed-time stop; the two stops of a train leg, kept
+// together and in order) can come anywhere, the units keeping their own order; the computed
+// schedule (a missed fixed time or train costs like a closed shop) decides. A fixed 20:00 stop
+// second in the list can so have five shops before it. Above MAX_EXHAUSTIVE_SCHEDULES (orders ×
+// placements), the opening-hours heuristic instead.
+const MAX_EXHAUSTIVE_SCHEDULES = 60000
 
-  function assembleFullOrder(movablePermutation: number[]): number[] {
-    const full: number[] = new Array(stops.length)
-    fixedSlotsOrder.forEach((origIdx) => { full[origIdx] = origIdx })
-    let m = 0
-    for (let pos = 0; pos < stops.length; pos++) {
-      if (full[pos] === undefined) full[pos] = movablePermutation[m++]
-    }
-    return full
+// The anchors as units, in their list order: a train stop together with the locked stop before it.
+function anchorUnits(stops: OptimizerStop[], anchorIdx: number[]): number[][] {
+  const units: number[][] = []
+  for (const i of anchorIdx) {
+    const prev = units[units.length - 1]
+    if (stops[i].train && prev && prev[prev.length - 1] === i - 1) prev.push(i)
+    else units.push([i])
   }
-  function scoreOf(movablePermutation: number[]): number {
-    const full = assembleFullOrder(movablePermutation)
-    return computeSchedule(full.map((i) => stops[i]), startTime, start, weekday, date).score
-  }
-
-  if (movableIdx.length <= BRUTE_FORCE_LIMIT) {
-    let best = movableIdx
-    let bestScore = Infinity
-    for (const perm of permutations(movableIdx)) {
-      const s = scoreOf(perm)
-      if (s < bestScore) { bestScore = s; best = perm }
-    }
-    return best
-  }
-
-  // Nearest-neighbour construction, starting from `start`.
-  const remaining = new Set(movableIdx)
-  let order: number[] = []
-  let cursor: RoutePoint = start
-  while (remaining.size > 0) {
-    let nearest: number | null = null
-    let nearestDist = Infinity
-    for (const idx of remaining) {
-      const stop = stops[idx]
-      const d = cursor.lat != null && cursor.lng != null && stop.lat != null && stop.lng != null
-        ? haversineKm({ lat: cursor.lat, lng: cursor.lng }, { lat: stop.lat, lng: stop.lng })
-        : 0
-      if (d < nearestDist) { nearestDist = d; nearest = idx }
-    }
-    order.push(nearest as number)
-    remaining.delete(nearest as number)
-    cursor = { lat: stops[nearest as number].lat, lng: stops[nearest as number].lng }
-  }
-
-  // 2-opt: repeatedly try swapping every pair of positions, keep any swap that improves
-  // the full schedule's score, until a full pass makes no improvement.
-  let improved = true
-  let bestScore = scoreOf(order)
-  while (improved) {
-    improved = false
-    for (let i = 0; i < order.length - 1; i++) {
-      for (let j = i + 1; j < order.length; j++) {
-        const candidate = order.slice()
-        ;[candidate[i], candidate[j]] = [candidate[j], candidate[i]]
-        const s = scoreOf(candidate)
-        if (s < bestScore) { bestScore = s; order = candidate; improved = true }
-      }
+  return units
+}
+// Every interleaving of `a` (the movable stops, in one order) with the units (in theirs).
+function interleavings(a: number[], units: number[][]): number[][] {
+  if (!units.length) return [a]
+  if (!a.length) return [units.flat()]
+  return [
+    ...interleavings(a.slice(1), units).map((rest) => [a[0], ...rest]),
+    ...interleavings(a, units.slice(1)).map((rest) => [...units[0], ...rest]),
+  ]
+}
+function binomial(n: number, k: number): number {
+  let r = 1
+  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i
+  return r
+}
+function exhaustiveByTime(stops: OptimizerStop[], anchorIdx: number[], movableIdx: number[], startTime: number, start: RoutePoint, weekday: number | null, date: string | null): number[] | null {
+  const units = anchorUnits(stops, anchorIdx)
+  const perms = permutations(movableIdx)
+  if (perms.length * binomial(movableIdx.length + units.length, units.length) > MAX_EXHAUSTIVE_SCHEDULES) return null
+  let best: number[] | null = null
+  let bestScore = Infinity
+  for (const perm of perms) {
+    for (const order of interleavings(perm, units)) {
+      const score = computeSchedule(order.map((i) => stops[i]), startTime, start, weekday, date).score
+      if (score < bestScore) { bestScore = score; best = order }
     }
   }
-  return order
+  return best
 }
 
 // --- The opening-hours heuristic (days with more than BRUTE_FORCE_LIMIT stops to move) ----------
@@ -313,8 +296,9 @@ function insertionOrder(stops: OptimizerStop[], anchorIdx: number[], movableIdx:
   return { order: [...route, ...unplaced.map((u) => u.index)], unplaced, times: sim(route).times }
 }
 
-// Finds the best order for one day's stops, starting and ending at `start`. Fixed-time
-// stops never move from their original position; only the other stops are reordered.
+// Finds the best order for one day's stops, starting and ending at `start`. Fixed-time stops
+// and train legs keep their times and their order among themselves; the other stops are placed
+// around them by time (exhaustiveByTime on small days, insertionOrder on full ones).
 // `start` is the day's configured start location (e.g. the hotel/base); if it has no
 // coordinates, the first stop's own location is used instead and `usedFirstStopAsStart`
 // is set so the caller can say so.
@@ -338,7 +322,8 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
   const stays = (i: number) => stops[i].fixedTime != null || !!stops[i].locked
   const fixedIdx = currentOrder.filter(stays)
   const movableIdx = currentOrder.filter((i) => !stays(i))
-  if (movableIdx.length > BRUTE_FORCE_LIMIT) {
+  const byTime = movableIdx.length <= BRUTE_FORCE_LIMIT ? exhaustiveByTime(stops, fixedIdx, movableIdx, startTime, effectiveStart, weekday, date) : null
+  if (!byTime) {
     // The opening-hours heuristic: anchors keep their order, the others go where they're open.
     const h = insertionOrder(stops, fixedIdx, movableIdx, startTime, effectiveStart, weekday, date, endBy)
     const scored = computeSchedule(h.order.map((i) => stops[i]), startTime, effectiveStart, weekday, date)
@@ -347,15 +332,7 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
     const changed = h.order.some((i, pos) => i !== currentOrder[pos])
     return { order: h.order, unplaced: h.unplaced, currentOrder, suggested, current, usedFirstStopAsStart, improved: changed && (suggested.score < current.score || h.unplaced.length < stops.length) }
   }
-  const bestMovable = bestMovableOrder(stops, movableIdx, fixedIdx, startTime, effectiveStart, weekday, date)
-
-  const order: number[] = new Array(stops.length)
-  fixedIdx.forEach((i) => { order[i] = i })
-  let m = 0
-  for (let pos = 0; pos < stops.length; pos++) {
-    if (order[pos] === undefined) order[pos] = bestMovable[m++]
-  }
-
+  const order = byTime
   const suggested = computeSchedule(order.map((i) => stops[i]), startTime, effectiveStart, weekday, date)
 
   return {

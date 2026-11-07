@@ -17,17 +17,18 @@ export const MIN_BLOCK_PX = 30
 
 export type TimelineRange = { start: number; end: number }
 
-// 08:00–23:00, widened to whole hours when the day reaches outside: it starts at least an hour
-// before its first event — leaving the base (`dayStart`), any leg's departure (trains included),
-// a visit, and `events` (a landing, the time to leave for the airport) — down to 00:00; it ends
-// after the last one, with room for the "🏠 Back at base" label.
+// Starts an hour before the day's first event, on the hour, never earlier: leaving the base
+// (`dayStart`), a visit, a train's departure (a planned train leg starts at its leave-by), and
+// `events` (a landing, the time to leave for the airport). A walk or an estimated trip doesn't
+// count — the day doesn't start before it starts. Down to 00:00. Ends at 23:00 or after the last
+// event, with room for the "🏠 Back at base" label.
 export const BASE_LABEL_MIN = 20
 export const EARLY_ROOM_MIN = 60
 export function timelineRange(sched: DaySchedule, extra: { dayStart?: number | null; events?: (number | null | undefined)[] } = {}): TimelineRange {
   let first = Infinity
   let end = AXIS_END_MIN
   sched.stops.forEach((x) => {
-    first = Math.min(first, x.arrival - x.travelIn.minutes, x.start)
+    first = Math.min(first, x.arrival, x.start, x.travelIn.source === 'train' ? x.arrival - x.travelIn.minutes : Infinity)
     end = Math.max(end, x.end)
   })
   if (sched.stops.length) end = Math.max(end, sched.end + BASE_LABEL_MIN) // back at the base
@@ -36,7 +37,7 @@ export function timelineRange(sched: DaySchedule, extra: { dayStart?: number | n
     first = Math.min(first, e)
     end = Math.max(end, e + BASE_LABEL_MIN)
   }
-  const start = Math.max(0, Math.min(AXIS_START_MIN, first - EARLY_ROOM_MIN))
+  const start = Math.max(0, (Number.isFinite(first) ? first : AXIS_START_MIN + EARLY_ROOM_MIN) - EARLY_ROOM_MIN)
   return { start: Math.floor(start / 60) * 60, end: Math.ceil(end / 60) * 60 }
 }
 

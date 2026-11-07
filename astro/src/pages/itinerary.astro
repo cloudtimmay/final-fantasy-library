@@ -148,7 +148,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <div class="itl-train-actions">
           <a id="itl-train-maps" class="itl-train-btn" href="https://www.google.com/maps" target="_blank" rel="noopener">🗺️ Transit in Google Maps</a>
           <a id="itl-train-maps-time" class="itl-train-btn" href="https://maps.google.com/maps" target="_blank" rel="noopener">🗺️ Google Maps (with time)</a>
-          <a id="itl-train-yahoo" class="itl-train-btn" href="https://transit.yahoo.co.jp/" target="_blank" rel="noopener">🚃 Yahoo! 乗換案内</a>
+          <a id="itl-train-yahoo" class="itl-train-btn" href="https://transit.yahoo.co.jp/" target="_blank" rel="noopener">🚃 Yahoo! 乗換案内 (works in Japan)</a>
           <button id="itl-train-manual" type="button" class="itl-train-btn">✏️ Enter train</button>
           <label class="itl-train-btn">📷 From a screenshot<input id="itl-train-shot" type="file" accept="image/*" hidden /></label>
           <button id="itl-train-remove" type="button" class="itl-train-btn itl-train-remove" hidden>🗑️ Remove train</button>
@@ -190,7 +190,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
          note). Fixed to the bottom of the screen above the nav; no sticky, no backdrop-filter. -->
     <div id="itl-detail" class="itl-detail itl-sheet" role="dialog" aria-label="Edit stop" hidden>
       <div class="itl-detail-head">
-        <strong id="itl-detail-name"></strong>
+        <span id="itl-detail-num" class="itl-num"></span><strong id="itl-detail-name"></strong>
         <button id="itl-detail-close" type="button" aria-label="Close">✕</button>
       </div>
       <ul id="itl-detail-lines" class="itl-detail-lines"></ul>
@@ -455,7 +455,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const lateTrains = new Map(lastTrainLegs(sched).map((l) => [l.index, l]))
       // The axis takes in the day's start, a landing and the time to leave for the airport.
       const landingAt = DATA.arrival && DATA.arrival.date === day.day ? Number(DATA.arrival.time.slice(0, 2)) * 60 + Number(DATA.arrival.time.slice(3)) : null
-      const range = timelineRange(sched, { dayStart: baseStart, events: [landingAt, flightDeadlineFor(day)] })
+      // Today: "now" too, so the red line is on the axis.
+      const nowHere = nowTokyo()
+      const range = timelineRange(sched, { dayStart: baseStart, events: [landingAt, flightDeadlineFor(day), nowHere.date === day.day ? nowHere.minutes : null] })
       const px = ZOOM_LEVELS[zoomIndex]
       zoomOut.disabled = zoomIndex === 0
       zoomIn.disabled = zoomIndex === ZOOM_LEVELS.length - 1
@@ -502,7 +504,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // is in the page, where their height can be measured).
       // Per block, the icons standing in for its rows: ⚠️ for the warnings, 🚆 the train line, ⏰ the
       // "Leave by" line's reminder.
-      const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string; now: string }[] = []
+      const compactCandidates: { el: HTMLElement; warn: string; train: string; reminder: string; now: string; area: string }[] = []
       // The flight home's deadline on its day (for the "Fix: leave at" buttons).
       const flightDl = flightDeadlineFor(day)
       // Stops: side by side in columns where they overlap (layoutTimeline).
@@ -556,7 +558,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
         // The second line: "Arrive HH:MM" (green) and "Leave by HH:MM" (orange) — always there,
         // whatever the name's length does to the first line's time.
-        const times = `<span class="itl-times"><span class="itl-arrive">Arrive ${formatClock(x.arrival)}</span>${leaveBy}</span>`
+        const areaName = s.shopId ? shopById.get(s.shopId)?.area : null
+        const times = `<span class="itl-times">${areaName ? `<span class="itl-area">📍 ${esc(areaName)}</span>` : ''}<span class="itl-arrive">Arrive ${formatClock(x.arrival)}</span>${leaveBy}</span>`
         // First line "name · time" (the name only ever shortens with an ellipsis), then the
         // buttons above, the leave-by line, the opening hours, then any warnings.
         // The warnings right under the first line, so a short block still shows them.
@@ -565,15 +568,16 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
           + fixButton(leaveFixFor(sched, item.index, flightDl))
-        // The first line: "<name> · HH:MM–HH:MM · 📍 <area>" — the name is never hidden; the time
-        // and the linked shop's area (a stop written by hand has none) are cut off with "…" instead.
-        const area = s.shopId ? shopById.get(s.shopId)?.area : null
+        // The first line: "<n> <type> <name> · HH:MM–HH:MM" — the name is never hidden; the time is
+        // cut off with "…" instead. The linked shop's area is on the second line (whole), or back
+        // on this one on a block too short for that line.
         const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train))}</span>` : ''
         // The linked shop's place type (🛍️ 🍜 🗼 📌) before the name; none for a stop without a shop.
         const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
         const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span>` : ''
-        const firstLine = () => `<span class="itl-first">${typeIcon}<span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span>${
-            area ? `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(area)}</span>` : ''}</span></span>`
+        // The stop's place in the day (1, 2, 3 …) before its type; the area is on the second line.
+        const num = `<span class="itl-num" aria-label="Stop ${item.index + 1}">${item.index + 1}</span>`
+        const firstLine = () => `<span class="itl-first">${num}${typeIcon}<span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span></span></span>`
         // For a block too short for all its rows (see below): small icons on the first line —
         // ⚠️ (its title lists the warnings), 🚆 the train, ⏰ the reminder link.
         const problems = [
@@ -582,6 +586,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         ]
         compactCandidates.push({
           el,
+          area: (s.shopId ? shopById.get(s.shopId)?.area : '') || '',
           warn: problems.length ? `<span class="itl-icon" title="${esc(problems.join(' · '))}">⚠️</span>` : '',
           train: s.train ? `<span class="itl-icon itl-icon-train" title="${esc(trainSummary(s.train))}">🚆</span>` : '',
           reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.leaveBy, shopById, true) : '',
@@ -693,6 +698,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           gone.add(rows[i].className.split(' ')[0])
           rows[i].remove()
         }
+        if (gone.has('itl-times') && c.area) first.querySelector('.itl-rest')?.insertAdjacentHTML('beforeend', `<span class="itl-sep"> · </span><span class="itl-area">📍 ${esc(c.area)}</span>`)
         const icons = (gone.has('itl-badges') ? c.warn : '') + (gone.has('itl-train-line') ? c.train : '') + (gone.has('itl-times') ? c.reminder : '')
           + (gone.has('itl-actions') ? c.now : '')
         c.el.classList.add('itl-compact')
@@ -1182,6 +1188,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // With the place type's icon, as on the block.
       const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
       const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span> ` : ''
+      ;(document.querySelector('#itl-detail-num') as HTMLElement).textContent = String(idx + 1)
       if (s.shopId && shopById.has(s.shopId)) nameEl.innerHTML = `${typeIcon}<a id="itl-detail-shop" href="${esc(shopPageUrl(s.shopId))}">${esc(stopName)}</a>`
       else nameEl.textContent = stopName
       // The linked shop's photos and "Found here"; each strip only when it has something, and
@@ -1924,6 +1931,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     .itl-here-hint[hidden] { display: none; }
     .itl-type { flex-shrink: 0; margin-right: 0.2rem; font-size: 0.75rem; }
+    .itl-num {
+      flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 0.95rem; height: 0.95rem;
+      margin-right: 0.25rem; padding: 0 0.15rem; box-sizing: border-box; border-radius: 0.5rem; align-self: center;
+      background: var(--accent); color: var(--bg); font-size: 0.6rem; font-weight: 700; line-height: 1;
+    }
+    #itl-detail-num { margin-right: 0.4rem; vertical-align: middle; }
+    .itl-times .itl-area { flex-shrink: 0; color: var(--text); font-weight: 600; }
     .itl-photos { display: flex; flex-wrap: nowrap; gap: 0.25rem; overflow: hidden; margin-top: 0.15rem; flex-shrink: 0; }
     .itl-photos img {
       flex: 0 0 auto; width: 36px; height: 36px; object-fit: cover; border-radius: 4px;

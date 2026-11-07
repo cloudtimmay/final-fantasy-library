@@ -53,7 +53,13 @@ test.describe('timeline layout (lib/itinerary-timeline.ts)', () => {
     expect(timelineRange(sched, { dayStart: t('06:15') }).start).toBe(t('05:00'))
     expect(timelineRange(sched, { events: [t('05:55')] }).start).toBe(t('04:00'))
     expect(timelineRange(sched, { dayStart: t('00:30') }).start).toBe(0)
-    expect(timelineRange(scheduleDay([], t('10:00'), BASE), { dayStart: t('10:00') })).toEqual({ start: t('08:00'), end: t('23:00') })
+    // The real case: a day starting at 10:00 starts the axis at 09:00 (it used to show 06:00).
+    expect(timelineRange(scheduleDay([], t('10:00'), BASE), { dayStart: t('10:00') })).toEqual({ start: t('09:00'), end: t('23:00') })
+    // A long estimated first trip doesn't pull it earlier; a planned train does.
+    const far = scheduleDay([{ name: 'Far', lat: 34.97, lng: 138.39, durationMin: 60, fixedTime: t('12:00'), arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null }], t('10:00'), BASE)
+    expect(timelineRange(far, { dayStart: t('10:00') }).start).toBe(t('09:00'))
+    const byTrain = scheduleDay([{ name: 'Far', lat: 34.97, lng: 138.39, durationMin: 60, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null, train: { departure: t('09:20'), arrival: t('10:30'), walkToStationMin: 5 } }], t('10:00'), BASE)
+    expect(timelineRange(byTrain, { dayStart: t('10:00') }).start).toBe(t('08:00')) // leaves at 09:05
     const items = timelineItems(sched, range)
     const a = items.find((i) => i.kind === 'stop' && i.index === 0)!
     expect(a).toMatchObject({ top: Math.round((t('07:40') - t('06:00')) * PX_PER_MIN), height: Math.round(90 * PX_PER_MIN), start: t('07:40') })
@@ -194,7 +200,7 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
     expect(timelineGroups).toEqual(listGroups)
     await list.close()
 
-    await tapAt(page, '09:00')
+    await tapAt(page, '14:30') // on the axis (from 14:00), before the 15:06 stop
     const firstShop = page.locator('#itl-add-shop optgroup option').first()
     const shopName = (await firstShop.textContent())!.replace(' (uten koord.)', '')
     await page.locator('#itl-add-shop').selectOption(await firstShop.getAttribute('value'))
@@ -2115,8 +2121,8 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
     expect(saves[saves.length - 1].days['2026-12-05'].stops[0]).toMatchObject({ name: exact.shopName, note: 'my own note', dur: 30 }) // its own fields stay
     // The list now only has the close one left; the linked blocks show their area on the first line.
     await expect(page.locator('.itl-link-row .itl-link-name', { hasText: `Zebra${r}` })).toHaveCount(1)
-    await expect(block(page, exact.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Akihabara')
-    await expect(block(page, other.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Nakano')
+    await expect(block(page, exact.shopName).locator('.itl-times .itl-area')).toHaveText('📍 Akihabara')
+    await expect(block(page, other.shopName).locator('.itl-times .itl-area')).toHaveText('📍 Nakano')
     await expect(block(page, `Zebra${r} Retro Games`).locator('.itl-area')).toHaveCount(0)
   })
 
@@ -2130,11 +2136,11 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
     await expect(page.locator('#itl-ed-link-shop')).toHaveValue(close._id) // the suggestion
     await page.locator('#itl-ed-link-save').click()
     await expect(link).toBeHidden() // linked now
-    await expect(block(page, close.shopName).locator('.itl-first .itl-area')).toHaveText('📍 Akihabara')
+    await expect(block(page, close.shopName).locator('.itl-times .itl-area')).toHaveText('📍 Akihabara')
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[0].shopId, { timeout: 10000 }).toBe(close._id)
   })
 
-  test('the area on the first line, right of the time; the name is never hidden; a short block still shows it', async ({ page, sanity, trackDoc }) => {
+  test('the number and the name on the first line, the area whole on the second; the name is never hidden', async ({ page, sanity, trackDoc }) => {
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`A Rather Long Shop Name For The First Line ${Date.now()}`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
     trackDoc(shop._id)
     await openTimeline(page, sanity, trackDoc, [
@@ -2142,7 +2148,18 @@ test.describe('/itinerary on a phone: "🔗 Link stops to shops"', () => {
       { name: 'Next', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
     ], {}, '10:00')
     const b = block(page, 'A Rather Long')
-    await expect(b.locator('.itl-first')).toHaveText(/^🛍️\[test\] A Rather Long .* · 10:\d\d–10:\d\d · 📍 Akihabara$/)
+    await expect(b.locator('.itl-first')).toHaveText(/^1🛍️\[test\] A Rather Long .* · 10:\d\d–10:\d\d$/)
+    const area = b.locator('.itl-times .itl-area')
+    await expect(area).toHaveText('📍 Akihabara')
+    // Whole, inside the block (not cut off at its right edge).
+    const a = (await area.boundingBox())!, bb = (await b.boundingBox())!
+    expect(a.x + a.width).toBeLessThanOrEqual(bb.x + bb.width + 0.5)
+    expect(await area.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    // The stop numbers, in the day's order, and beside the sheet's title.
+    await expect(page.locator('.itl-block .itl-num')).toHaveText(['1', '2'])
+    await block(page, 'Next').locator('.itl-name').click()
+    await expect(page.locator('#itl-detail-num')).toHaveText('2')
+    await page.locator('#itl-detail-close').click()
     const name = (await b.locator('.itl-name').boundingBox())!, box = (await b.boundingBox())!
     expect(name.width).toBeGreaterThan(40) // never squeezed away
     expect(name.y + name.height).toBeLessThanOrEqual(box.y + box.height)
@@ -2380,6 +2397,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     expect(await q('#itl-train-maps-time')).toMatchObject({ dirflg: 'r', ttype: 'arr', date: '12/05/26', time: '9:00am' })
     await expect(page.locator('#itl-train-maps')).toHaveAttribute('href', /travelmode=transit/) // today's link stays
     await expect(page.locator('#itl-train-maps-time')).toHaveText('🗺️ Google Maps (with time)')
+    await expect(page.locator('#itl-train-yahoo')).toHaveText('🚃 Yahoo! 乗換案内 (works in Japan)')
     // With the real route planned: its stations, and departing when the hotel is left.
     await page.evaluate((legs) => {
       // @ts-ignore - the page's test hook

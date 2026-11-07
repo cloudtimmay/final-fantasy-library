@@ -261,7 +261,7 @@ export function customStopFrom(name: string, hours: string): PlanStop {
 // The body /api/itinerary-review gets for one day (it recomputes the timetable from it).
 export function checkDayRequestBody(
   day: PlanDay,
-  ctx: { base: { lat: number; lng: number }; shopById: Map<string, PlanShop>; flight: { date: string; time: string; airport: string; terminal?: string } | null }
+  ctx: { base: { lat: number; lng: number }; shopById: Map<string, PlanShop>; flight: { date: string; time: string; airport: string; terminal?: string } | null; tripDays?: string[] }
 ) {
   const { times, sched } = computeDayTimes(day, ctx.base, ctx.shopById)
   const stops = day.stops.map((s, si) => {
@@ -297,6 +297,8 @@ export function checkDayRequestBody(
     flight: flight && flight.date === day.day ? { time: flight.time, airport: flight.airport, terminal: flight.terminal, ...(day.airportTrain ? { airportTrain: day.airportTrain } : {}) } : undefined,
     // The train back to the base (not on a day that ends at the airport).
     ...(day.returnTrain && !lastLegTrain(day).toAirport ? { returnTrain: day.returnTrain } : {}),
+    // The trip's days: where a suggestion may move a stop to.
+    ...(ctx.tripDays ? { tripDays: ctx.tripDays } : {}),
     stops,
   }
 }
@@ -718,4 +720,45 @@ export function dayRouteLinks(
   }
   closeRun(run)
   return out
+}
+
+// --- Applying a Check day suggestion -----------------------------------------------------------
+// One of the server-checked actions (itinerary-review-helpers.ts validateReviewAction), applied to
+// the day — only when its stop is still the one it was about (same place, same name); false
+// otherwise (the plan changed since). `findDay`: another day of the trip, for move_day.
+export function applyReviewAction(
+  day: PlanDay,
+  action: { type: string; stopIndex: number; stopName: string; leaveAt?: string; durationMin?: number; toIndex?: number; toDate?: string },
+  shopById: Map<string, PlanShop>,
+  findDay: (date: string) => PlanDay | undefined,
+): boolean {
+  const stop = day.stops[action.stopIndex]
+  if (!stop || resolveStop(stop, shopById).name !== action.stopName) return false
+  switch (action.type) {
+    case 'set_leave_time':
+      if (!action.leaveAt) return false
+      setLeaveAt(stop, action.leaveAt)
+      return true
+    case 'change_duration':
+      if (!action.durationMin) return false
+      delete stop.leaveAt // a leave time would override the length
+      setStopDuration(stop, String(action.durationMin))
+      return true
+    case 'move_position': {
+      if (action.toIndex == null || action.toIndex < 0 || action.toIndex >= day.stops.length) return false
+      const [s] = day.stops.splice(action.stopIndex, 1)
+      day.stops.splice(action.toIndex, 0, s)
+      return true
+    }
+    case 'move_day': {
+      const to = action.toDate ? findDay(action.toDate) : undefined
+      if (!to || to === day) return false
+      moveStopToDay(day, action.stopIndex, to)
+      return true
+    }
+    case 'remove_stop':
+      removeStop(day, action.stopIndex)
+      return true
+  }
+  return false
 }

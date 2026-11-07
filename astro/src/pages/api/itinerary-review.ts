@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, modelReviewItems, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
 import { scheduleDay, trainLeaveBy, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
@@ -47,6 +47,13 @@ After your review, respond with ONLY a JSON array (no other text, no markdown co
 - stopIndex: the 0-based index of the specific stop this is about, or null if it concerns the whole day rather than one stop.
 - message: a short, concrete description of the problem.
 - suggestion: a short concrete suggestion, or null if there isn't one.
+- action: null, or ONE change to the plan that carries out the suggestion, for the item's stop, exactly one of:
+  {"type":"set_leave_time","leaveAt":"HH:MM"} (leave the stop then),
+  {"type":"change_duration","durationMin":45} (a new visit length in minutes),
+  {"type":"move_position","toIndex":2} (0-based new place in the day's order),
+  {"type":"move_day","toDate":"YYYY-MM-DD"} (only one of the other days listed under "Other days of the trip"),
+  {"type":"remove_stop"}.
+  Use null when the fix is not one of these, or the item has no stop. The owner decides whether to apply it.
 
 If the day looks fine, respond with an empty JSON array: []`
 
@@ -140,7 +147,11 @@ export const POST: APIRoute = async ({ request }) => {
   // Back at the base — not on a day that ends at the airport.
   const backAtBase = daySchedule && daySchedule.returnLeg && !airportTrain ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
   const trainLines = body.stops.map((raw: any) => { const t = trainOf(raw); return t ? trainSummary(t).replace(/^🚆 /, '') : null })
+  // The trip's other days, for a "move_day" action (checked against this list too).
+  const tripDays: string[] = Array.isArray(body.tripDays) ? body.tripDays.filter((d: unknown) => typeof d === 'string' && isIsoDate(d)).slice(0, 60) : []
+  const otherDays = tripDays.filter((d) => d !== body.dayDate)
   const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase, trainLines, airportTrain)
+    + (otherDays.length ? `\n\nOther days of the trip (for move_day): ${otherDays.join(', ')}` : '')
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)
@@ -211,17 +222,12 @@ export const POST: APIRoute = async ({ request }) => {
     return json(502, { error: 'Could not read the AI response' })
   }
 
-  const items: { severity: string; stopIndex: number | null; message: string; suggestion: string | null }[] = []
-  for (const item of parsed) {
-    if (!item || typeof item !== 'object') continue
-    if (!SEVERITIES.includes(item.severity)) continue
-    const message = typeof item.message === 'string' && item.message.trim() ? item.message.trim().slice(0, 300) : ''
-    if (!message) continue
-    const stopIndex = typeof item.stopIndex === 'number' && Number.isInteger(item.stopIndex) && item.stopIndex >= 0 && item.stopIndex < stops.length ? item.stopIndex : null
-    const suggestion = typeof item.suggestion === 'string' && item.suggestion.trim() ? item.suggestion.trim().slice(0, 300) : null
-    items.push({ severity: item.severity, stopIndex, message, suggestion })
-    if (items.length >= maxModelItems) break
-  }
+  // The model's items, each action checked against the plan (dropped when it doesn't apply).
+  const items: any[] = modelReviewItems(parsed, {
+    stops: stops.map((s, i) => ({ name: s.name, plannedTime: daySchedule ? daySchedule.stops[i].start : s.plannedTime, durationMin: daySchedule ? daySchedule.stops[i].end - daySchedule.stops[i].start : s.durationMin })),
+    dayDate: isIsoDate(body.dayDate) ? body.dayDate : null,
+    tripDays,
+  }, maxModelItems)
 
   if (flightWarning) items.unshift(flightWarning)
   items.unshift(...lateItems, ...timetableItems, ...hoursItems)

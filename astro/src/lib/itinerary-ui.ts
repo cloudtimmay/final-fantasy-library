@@ -5,7 +5,7 @@
 // callbacks — so each page saves through its own state/saveState/render, as before.
 
 import { transitRouteUrl, leaveReminderIcs, leaveRemindersIcs, reminderTitle, type TravelLeg, type DaySchedule, type ReminderInput } from './itinerary-schedule'
-import { formatClock } from './itinerary-review-helpers'
+import { formatClock, reviewActionLabel, type ReviewAction } from './itinerary-review-helpers'
 import { resolveStop, parseLatLng, type PlanDay, type PlanShop, type PlanStop } from './itinerary-plan'
 import { cdnImage } from './image-url'
 import { trainDeparture } from './train-plan'
@@ -101,8 +101,10 @@ export function bindTravelEditor(ed: Element, onSave: (minutes: number | null) =
 }
 
 // --- "Check day" (the AI review, /api/itinerary-review) ---------------------------------------
-type CheckItem = { severity: string; stopIndex: number | null; message: string; suggestion: string | null }
-type CheckOptions = { stopName: (i: number) => string; onStopClick: (i: number) => void }
+type CheckItem = { severity: string; stopIndex: number | null; message: string; suggestion: string | null; action?: ReviewAction }
+// `onApply`: applies an item's action (saving it); returns its undo, or null when it no longer
+// applies. Without it, no Apply buttons.
+type CheckOptions = { stopName: (i: number) => string; onStopClick: (i: number) => void; onApply?: (action: ReviewAction) => (() => void) | null }
 
 export function renderCheckError(resultsEl: HTMLElement, text: string): void {
   resultsEl.replaceChildren()
@@ -146,6 +148,41 @@ export function renderCheckResults(resultsEl: HTMLElement, items: CheckItem[], o
       sug.className = 'ir-item-suggestion'
       sug.textContent = `Suggestion: ${item.suggestion}`
       li.appendChild(sug)
+    }
+    // A checked change (server-validated): "Apply: Leave at 14:30" — nothing changes before it's
+    // pressed. Then "Applied ✓" with Undo, or "No longer applies" when the plan changed since.
+    const action = item.action
+    if (action && opts.onApply) {
+      const row = document.createElement('div')
+      row.className = 'ir-apply-row'
+      const apply = document.createElement('button')
+      apply.type = 'button'
+      apply.className = 'ir-apply-btn'
+      apply.textContent = `Apply: ${reviewActionLabel(action)}`
+      apply.addEventListener('click', () => {
+        const undo = opts.onApply!(action)
+        row.replaceChildren()
+        const done = document.createElement('span')
+        done.className = undo ? 'ir-applied' : 'ir-stale'
+        done.textContent = undo ? 'Applied ✓' : 'No longer applies (the plan has changed).'
+        row.appendChild(done)
+        if (!undo) return
+        const undoBtn = document.createElement('button')
+        undoBtn.type = 'button'
+        undoBtn.className = 'ir-undo-btn'
+        undoBtn.textContent = 'Undo'
+        undoBtn.addEventListener('click', () => {
+          undo()
+          row.replaceChildren()
+          const back = document.createElement('span')
+          back.className = 'ir-applied'
+          back.textContent = 'Undone.'
+          row.appendChild(back)
+        })
+        row.appendChild(undoBtn)
+      })
+      row.appendChild(apply)
+      li.appendChild(row)
     }
     list.appendChild(li)
   })

@@ -290,7 +290,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
-      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, earlierStartFor, arriveByBefore, parseClock, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
+      setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
     import {
@@ -885,9 +885,20 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     checkBtn.addEventListener('click', async () => {
       const day = currentDayPlan()
-      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base: basesOf(day).start, shopById, flight }), {
+      const items = await runCheckDay(checkBtn, checkPanel, checkDayRequestBody(day, { base: basesOf(day).start, shopById, flight, tripDays: days }), {
         stopName: (i) => (day.stops[i] ? resolveStop(day.stops[i], shopById).name : `Stop ${i + 1}`),
         onStopClick: (i) => scrollToBlock(i),
+        // "Apply": the suggestion's change (itinerary-plan.ts applyReviewAction), saved; Undo puts
+        // every day's stops back as they were.
+        onApply: (action) => {
+          const before = state.map((d) => ({ d, stops: JSON.parse(JSON.stringify(d.stops)) }))
+          if (!applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date))) return null
+          saveState(); render()
+          return () => {
+            before.forEach(({ d, stops }) => { d.stops = stops })
+            saveState(); render()
+          }
+        },
       })
       checkMarks = {}
       ;(items || []).forEach((it) => {

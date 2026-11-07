@@ -279,3 +279,86 @@ export function dayWarningReviewItems(names: string[], sched: DaySchedule, close
   }
   return items
 }
+
+// --- Check day's suggestions as changes that can be applied ----------------------------------
+// The model may attach one action to an item, from this fixed list; the server checks it against
+// the plan and drops it when it doesn't apply (the item's text stays). The page shows "Apply" on
+// the ones left, never applies anything by itself.
+export const REVIEW_ACTION_TYPES = ['set_leave_time', 'change_duration', 'move_position', 'move_day', 'remove_stop'] as const
+export type ReviewAction =
+  | { type: 'set_leave_time'; stopIndex: number; stopName: string; leaveAt: string }
+  | { type: 'change_duration'; stopIndex: number; stopName: string; durationMin: number }
+  | { type: 'move_position'; stopIndex: number; stopName: string; toIndex: number }
+  | { type: 'move_day'; stopIndex: number; stopName: string; toDate: string }
+  | { type: 'remove_stop'; stopIndex: number; stopName: string }
+export type ReviewActionContext = {
+  stops: { name: string; plannedTime: number; durationMin: number }[]
+  dayDate: string | null
+  tripDays: string[] // the trip's other days a stop can move to
+}
+const MIN_DURATION = 5, MAX_DURATION = 600
+export function validateReviewAction(raw: any, stopIndex: number | null, ctx: ReviewActionContext): ReviewAction | null {
+  if (!raw || typeof raw !== 'object' || !REVIEW_ACTION_TYPES.includes(raw.type)) return null
+  const idx = typeof raw.stopIndex === 'number' ? raw.stopIndex : stopIndex
+  if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= ctx.stops.length) return null
+  const stop = ctx.stops[idx]
+  const base = { stopIndex: idx, stopName: stop.name }
+  switch (raw.type) {
+    case 'set_leave_time': {
+      const m = typeof raw.leaveAt === 'string' ? /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.leaveAt.trim()) : null
+      if (!m) return null
+      let at = +m[1] * 60 + +m[2]
+      if (at + 720 < stop.plannedTime) at += 1440 // an evening visit left after midnight
+      if (at <= stop.plannedTime || at === stop.plannedTime + stop.durationMin) return null // before it starts, or no change
+      return { type: 'set_leave_time', ...base, leaveAt: raw.leaveAt.trim() }
+    }
+    case 'change_duration': {
+      const d = raw.durationMin
+      if (typeof d !== 'number' || !Number.isInteger(d) || d < MIN_DURATION || d > MAX_DURATION || d === stop.durationMin) return null
+      return { type: 'change_duration', ...base, durationMin: d }
+    }
+    case 'move_position': {
+      const to = raw.toIndex
+      if (typeof to !== 'number' || !Number.isInteger(to) || to < 0 || to >= ctx.stops.length || to === idx) return null
+      return { type: 'move_position', ...base, toIndex: to }
+    }
+    case 'move_day': {
+      const to = typeof raw.toDate === 'string' ? raw.toDate.trim() : ''
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(to) || to === ctx.dayDate || !ctx.tripDays.includes(to)) return null
+      return { type: 'move_day', ...base, toDate: to }
+    }
+    case 'remove_stop':
+      return { type: 'remove_stop', ...base }
+  }
+  return null
+}
+
+// The model's items, checked: severity, message, stop and suggestion as before, and its action
+// when it applies (validateReviewAction). At most `max`.
+export type ModelReviewItem = { severity: string; stopIndex: number | null; message: string; suggestion: string | null; action?: ReviewAction }
+export function modelReviewItems(parsed: unknown[], ctx: ReviewActionContext, max: number): ModelReviewItem[] {
+  const items: ModelReviewItem[] = []
+  for (const item of parsed as any[]) {
+    if (!item || typeof item !== 'object') continue
+    if (item.severity !== 'warning' && item.severity !== 'tip') continue
+    const message = typeof item.message === 'string' && item.message.trim() ? item.message.trim().slice(0, 300) : ''
+    if (!message) continue
+    const stopIndex = typeof item.stopIndex === 'number' && Number.isInteger(item.stopIndex) && item.stopIndex >= 0 && item.stopIndex < ctx.stops.length ? item.stopIndex : null
+    const suggestion = typeof item.suggestion === 'string' && item.suggestion.trim() ? item.suggestion.trim().slice(0, 300) : null
+    const action = item.action != null ? validateReviewAction(item.action, stopIndex, ctx) : null
+    items.push({ severity: item.severity, stopIndex, message, suggestion, ...(action ? { action } : {}) })
+    if (items.length >= max) break
+  }
+  return items
+}
+
+// "Leave at 14:30", "Make it 45 min", "Move to place 3", "Move to 2026-12-07", "Remove it".
+export function reviewActionLabel(a: ReviewAction): string {
+  switch (a.type) {
+    case 'set_leave_time': return `Leave at ${a.leaveAt}`
+    case 'change_duration': return `Make it ${a.durationMin} min`
+    case 'move_position': return `Move to place ${a.toIndex + 1}`
+    case 'move_day': return `Move to ${a.toDate}`
+    case 'remove_stop': return 'Remove it'
+  }
+}

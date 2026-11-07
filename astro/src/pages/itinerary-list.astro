@@ -546,7 +546,18 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       const day = state[di]
       const resultsEl = daysEl.querySelector(`.day-check-results[data-day="${di}"]`)
       const stopLi = (i) => daysEl.querySelector(`.stop[data-day="${di}"][data-idx="${i}"]`)
-      await LIB().runCheckDay(btn, resultsEl, LIB().checkDayRequestBody(day, { base, shopById, flight }), {
+      await LIB().runCheckDay(btn, resultsEl, LIB().checkDayRequestBody(day, { base, shopById, flight, tripDays: days }), {
+        // "Apply": the suggestion's change (lib/itinerary-plan.ts applyReviewAction), saved; Undo
+        // puts every day's stops back as they were.
+        onApply: (action) => {
+          const before = state.map((d) => ({ d, stops: JSON.parse(JSON.stringify(d.stops)) }))
+          if (!LIB().applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date))) return null
+          saveState(); render()
+          return () => {
+            before.forEach(({ d, stops }) => { d.stops = stops })
+            saveState(); render()
+          }
+        },
         stopName: (i) => {
           const nameEl = stopLi(i) ? stopLi(i).querySelector('.stop-name') : null
           return nameEl ? nameEl.textContent : `Stop ${i + 1}`

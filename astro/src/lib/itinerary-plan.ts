@@ -633,3 +633,26 @@ export function legSearchTime(
   const before = idx > 0 ? sched.stops[idx - 1] : null
   return at(before ? before.leaveBy ?? before.end : ctx.baseStart, 'depart')
 }
+
+// --- Starting the day earlier -----------------------------------------------------------------
+// A stop placed before the day's start (tapped in earlier, moved above the first stop, or given a
+// fixed time the start can't reach): the start that reaches the first stop by `arriveBy` from the
+// day's start base — `arriveBy` less the first leg. null when the day already starts early enough.
+export function earlierStartFor(
+  day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan },
+  base: RoutePoint | { start: RoutePoint; end: RoutePoint },
+  shopById: Map<string, PlanShop>,
+  arriveBy: number,
+): number | null {
+  if (!day.stops.length) return null
+  const { sched, baseStart } = computeDayTimes(day, base, shopById)
+  const need = Math.max(0, arriveBy - sched.stops[0].travelIn.minutes)
+  return need < baseStart ? need : null
+}
+// After moving stop `idx` above the first one (now stop 0, the old first now stop 1): the time it
+// must be reached so the old first stop is still reached at `oldFirstStart`.
+export function arriveByBefore(day: { startTime: string; stops: PlanStop[]; returnTrain?: TrainPlan; airportTrain?: TrainPlan }, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>, oldFirstStart: number): number | null {
+  if (day.stops.length < 2) return null
+  const { sched, inputs } = computeDayTimes(day, base, shopById)
+  return oldFirstStart - sched.stops[1].travelIn.minutes - inputs[0].durationMin
+}

@@ -158,6 +158,61 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
     await grid.click({ position: { x: 3, y: Math.round((t(hhmm) - start) * PX_PER_MIN) + 2 } })
   }
 
+  test('a stop tapped in before the day\'s start: the day starts earlier, saved, "Day now starts at HH:MM" with Undo', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'First Planned', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, travelMin: 0, travelFrom: '__base__' },
+    ], {}, '10:00')
+    await expect(page.locator('.itl-grid')).toHaveAttribute('data-start', String(t('09:00')))
+    await tapAt(page, '09:15')
+    await page.locator('#itl-add-shop').selectOption('__custom__')
+    await page.locator('#itl-add-name').fill('Early Coffee') // no coordinates: no trip from the base
+    await page.locator('#itl-add-dur').fill('30')
+    await page.locator('#itl-add-save').click()
+    await expect(page.locator('#itl-start-toast')).toHaveText(/Day now starts at 09:15\s*Undo/)
+    await expect(page.locator('#itl-start')).toHaveValue('09:15')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].startTime, { timeout: 10000 }).toBe('09:15')
+    await expect(page.locator('.itl-block').first().locator('.itl-name')).toHaveText('Early Coffee')
+    // Undo: back to 10:00 (the stop stays).
+    await page.locator('#itl-start-undo').click()
+    await expect(page.locator('#itl-start')).toHaveValue('10:00')
+    await expect(page.locator('#itl-start-toast')).toBeHidden()
+    await expect.poll(() => saves[saves.length - 1].days['2026-12-05'].startTime, { timeout: 10000 }).toBe('10:00')
+  })
+
+  test('▲ above the first stop: the day starts early enough to keep the old first stop at its time', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
+      { name: 'Old First', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Moved Up', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 },
+    ], {}, '10:00')
+    const oldFirst = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Old First' }) })
+    await expect(oldFirst).toHaveAttribute('data-start', String(t('10:00')))
+    await page.locator('.itl-block .itl-name', { hasText: 'Moved Up' }).click()
+    await page.locator('#itl-ed-up').click()
+    await expect(page.locator('#itl-start-toast')).toContainText(/Day now starts at 09:\d\d/)
+    await expect(oldFirst).toHaveAttribute('data-start', String(t('10:00'))) // still at its time
+    const start = await page.locator('#itl-start').inputValue()
+    expect(t(start)).toBeLessThan(t('09:31')) // 30 min visit + the short walks before 10:00
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].startTime, { timeout: 10000 }).toBe(start)
+  })
+
+  test('a fixed time earlier than the day\'s start can reach: the day starts in time for it', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Later Shop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Breakfast Booking', hours: '', tag: '', slot: '', lat: 35.698, lng: 139.771, dur: 45 },
+    ], {}, '10:00')
+    await page.locator('.itl-block .itl-name', { hasText: 'Breakfast Booking' }).click()
+    await page.locator('#itl-ed-time').fill('08:00')
+    await page.locator('#itl-ed-time').dispatchEvent('change')
+    await expect(page.locator('.itl-block').first().locator('.itl-name')).toHaveText('Breakfast Booking')
+    await expect(page.locator('#itl-start-toast')).toContainText(/Day now starts at 0[78]:\d\d/)
+    expect(t(await page.locator('#itl-start').inputValue())).toBeLessThanOrEqual(t('08:00'))
+    // A fixed time the start already reaches: nothing changes.
+    await page.locator('#itl-start-undo').click()
+    await page.locator('#itl-ed-time').fill('11:30')
+    await page.locator('#itl-ed-time').dispatchEvent('change')
+    await expect(page.locator('#itl-start')).toHaveValue('10:00')
+  })
+
   test('a stop added at 17:00 goes after the stops starting before 17:00, not pinned; saved in the list\'s format', async ({ page, sanity, trackDoc }) => {
     const { saves } = await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
     await tapAt(page, '17:00')

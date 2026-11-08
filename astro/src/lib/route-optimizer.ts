@@ -17,6 +17,9 @@ export type OptimizerStop = {
   durationMin: number
   fixedTime: number | null // minutes since midnight, or null if this stop isn't pinned
   arriveEarlyMin?: number | null // a fixed stop: be there this much before its time (the schedule's anchor)
+  // A meal (itinerary-review-helpers.ts isMealStop): kept at its time — reached between `from` and
+  // `to` (its current start ± MEAL_WINDOW_MIN), waiting until `from`; an anchor like a fixed stop.
+  mealWindow?: { from: number; to: number } | null
   openingHours: string | null // free text, e.g. "10:00–20:00, closed Tue"
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
@@ -35,6 +38,8 @@ const TRAIN_EXIT_WALK_MIN = 5
 const LEAVE_BUFFER_MIN = 10
 // When a fixed stop must be reached — the same anchor as the schedule: its time less arrive-early.
 const anchorOf = (stop: OptimizerStop) => stop.fixedTime! - Math.max(0, stop.arriveEarlyMin || 0)
+// How far Suggest route may move a meal from its current time.
+export const MEAL_WINDOW_MIN = 15
 
 export type RouteSchedule = {
   times: number[] // planned start time (minutes since midnight) per stop, in `order`
@@ -145,6 +150,13 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       // Missed: not there by its arrival time (fixed time − arrive-early) with the buffer.
       if (clock + travel + LEAVE_BUFFER_MIN > anchorOf(stop)) closedCount++
       clock = stop.fixedTime
+    } else if (stop.mealWindow) {
+      // A meal: at its time (± the window) — wait for the window, late for it costs like closed.
+      const travel = estimateTravelMinutes(prevPoint, stop, i === 0 ? extractNoteTravelMinutes(stop.note) : null)
+      clock += travel
+      travelMin += travel
+      if (clock < stop.mealWindow.from) { waitMin += stop.mealWindow.from - clock; clock = stop.mealWindow.from }
+      if (clock > stop.mealWindow.to) closedCount++
     } else {
       const preferMinutes = i === 0 ? extractNoteTravelMinutes(stop.note) : null
       const travel = estimateTravelMinutes(prevPoint, stop, preferMinutes)
@@ -263,6 +275,9 @@ function simulateFeasible(order: OptimizerStop[], movable: boolean[], startTime:
         // There by its arrival time (fixed time − arrive-early), with the buffer, as the schedule.
         if (clock + LEAVE_BUFFER_MIN > anchorOf(stop)) return { feasible: false, travelMin, waitMin, times }
         clock = stop.fixedTime
+      } else if (stop.mealWindow) {
+        if (clock < stop.mealWindow.from) { waitMin += stop.mealWindow.from - clock; clock = stop.mealWindow.from }
+        if (clock > stop.mealWindow.to) return { feasible: false, travelMin, waitMin, times }
       }
     }
     if (movable[i]) {
@@ -332,7 +347,7 @@ export function optimizeRoute(stops: OptimizerStop[], startTime: number, start: 
   }
 
   // Fixed-time stops and the stops of a train leg keep their places; the rest are ordered around them.
-  const stays = (i: number) => stops[i].fixedTime != null || !!stops[i].locked
+  const stays = (i: number) => stops[i].fixedTime != null || !!stops[i].locked || !!stops[i].mealWindow
   const fixedIdx = currentOrder.filter(stays)
   const movableIdx = currentOrder.filter((i) => !stays(i))
   const byTime = movableIdx.length <= BRUTE_FORCE_LIMIT ? exhaustiveByTime(stops, fixedIdx, movableIdx, startTime, effectiveStart, weekday, date) : null

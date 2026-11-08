@@ -7,6 +7,7 @@ import { trainEarlyHint } from './itinerary-schedule'
 import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
 
 export type ReviewStopInput = {
+  meal?: boolean // a meal (isMealStop): marked in the prompt
   name: string
   plannedTime: number // minutes since midnight
   durationMin: number
@@ -218,6 +219,7 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
     if (seg) lines.push(`  (PROBLEM for the stops before this fixed-time stop: together they need ${seg.overrunMin} min more than available; the first that can't make it is [${seg.firstLateIndex}])`)
     lines.push(`[${i}] ${s.name}`)
     lines.push(`    Planned time: ${formatClock(s.plannedTime)}, duration ${s.durationMin} min`)
+    if (s.meal) lines.push('    MEAL (already the day\'s meal here — don\'t suggest adding one around this time)')
     const sc = schedule?.[i]
     if (sc) {
       const leg = sc.sched.travelIn
@@ -345,6 +347,8 @@ export function modelReviewItems(parsed: unknown[], ctx: ReviewActionContext, ma
     if (!message) continue
     const stopIndex = typeof item.stopIndex === 'number' && Number.isInteger(item.stopIndex) && item.stopIndex >= 0 && item.stopIndex < ctx.stops.length ? item.stopIndex : null
     const suggestion = typeof item.suggestion === 'string' && item.suggestion.trim() ? item.suggestion.trim().slice(0, 300) : null
+    // "Add <a stop the plan already has>": dropped (e.g. the day's own lunch place suggested again).
+    if (suggestsAddingExisting(`${message} ${suggestion || ''}`, ctx.stops.map((s) => s.name))) continue
     const action = item.action != null ? validateReviewAction(item.action, stopIndex, ctx) : null
     items.push({ severity: item.severity, stopIndex, message, suggestion, ...(action ? { action } : {}) })
     if (items.length >= max) break
@@ -361,4 +365,25 @@ export function reviewActionLabel(a: ReviewAction): string {
     case 'move_day': return `Move to ${a.toDate}`
     case 'remove_stop': return 'Remove it'
   }
+}
+
+// --- Meals -------------------------------------------------------------------------------------
+// A stop is a meal when its shop's place type is restaurant, or its tag or its own note has one of
+// these words (any case). Suggest route keeps meals at their time; Check day is told which they are.
+export const MEAL_WORDS = ['mat', 'lunsj', 'lunch', 'middag', 'dinner', 'frokost', 'breakfast']
+const MEAL_RE = new RegExp(`(^|[^\\p{L}])(${MEAL_WORDS.join('|')})([^\\p{L}]|$)`, 'iu')
+export function isMealStop(s: { placeType?: string | null; tag?: string | null; note?: string | null }): boolean {
+  return s.placeType === 'restaurant' || MEAL_RE.test(s.tag || '') || MEAL_RE.test(s.note || '')
+}
+
+// A suggestion to add a stop the day already has (the same shop or the same name), e.g. "add a
+// lunch stop at Darumanome" when Darumanome Akihabara is stop 5: dropped by the server. A stop's
+// name matches by any distinctive word (5+ letters, not an area or a common word).
+const COMMON_NAME_WORDS = new Set(['akihabara', 'shinjuku', 'ikebukuro', 'shibuya', 'harajuku', 'nakano', 'yokohama', 'shinagawa', 'tokyo', 'station',
+  'store', 'shop', 'shops', 'flagship', 'building', 'tower', 'cafe', 'square', 'enix', 'final', 'fantasy', 'marui', 'annex', 'ekimae', 'honten', 'branch', 'world'])
+const ADD_RE = /\b(add|adding|include|insert|visit|stop (?:at|by)|eat at|have (?:lunch|dinner|breakfast) at|go to|try)\b/i
+export function suggestsAddingExisting(text: string, stopNames: string[]): boolean {
+  if (!ADD_RE.test(text)) return false
+  const lower = text.toLowerCase()
+  return stopNames.some((name) => name.toLowerCase().split(/[^\p{L}\p{N}]+/u).some((w) => w.length >= 5 && !COMMON_NAME_WORDS.has(w) && lower.includes(w)))
 }

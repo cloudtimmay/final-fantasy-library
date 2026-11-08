@@ -7,11 +7,11 @@
 // `window.__routeOptimizer` (see itinerary-list.astro).
 
 import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type ScheduleStopInput } from './itinerary-schedule'
-import { extractNoteTravelMinutes, type RoutePoint } from './route-optimizer'
+import { extractNoteTravelMinutes, MEAL_WINDOW_MIN, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
 import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
-import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN } from './itinerary-review-helpers'
+import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN, isMealStop } from './itinerary-review-helpers'
 import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
 import { googleMapsTimedUrl } from './transit-links'
@@ -279,6 +279,10 @@ export function checkDayRequestBody(
       lng: r.lng,
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
+      // For "is this a meal" (the server's isMealStop): the place type, the tag, the stop's own note.
+      placeType: (s.shopId && ctx.shopById.get(s.shopId)?.placeType) || null,
+      tag: s.tag || null,
+      ownNote: typeof s.note === 'string' && s.note.trim() ? s.note : null,
       fixedTime: s.fixedTime || null,
       arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
       manualTravelMin: manualTravelFor(day, si, ctx.shopById),
@@ -306,8 +310,14 @@ export function checkDayRequestBody(
 }
 
 // What the route optimizer (route-optimizer.ts optimizeRoute) needs for one day.
+// A meal (isMealStop): the stop's shop is a restaurant, or its tag or its own note says so.
+export function stopIsMeal(s: PlanStop, shopById: Map<string, PlanShop>): boolean {
+  return isMealStop({ placeType: s.shopId ? shopById.get(s.shopId)?.placeType : null, tag: s.tag || null, note: typeof s.note === 'string' ? s.note : null })
+}
 export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; lng: number | null }; shopById: Map<string, PlanShop> }) {
   const startTime = parseClock(day.startTime)
+  // Meals stay at their time (± MEAL_WINDOW_MIN): their current start in the timetable.
+  const nowTimes = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? computeDayTimes(day, { lat: ctx.base.lat, lng: ctx.base.lng }, ctx.shopById).times : null
   const start = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? { lat: ctx.base.lat, lng: ctx.base.lng } : null
   const stops = day.stops.map((s, i) => {
     const r = resolveStop(s, ctx.shopById)
@@ -319,6 +329,7 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       fixedTime: s.fixedTime ? parseClock(s.fixedTime) : null,
       // The schedule's anchor: be there this much before the fixed time.
       arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
+      mealWindow: !s.fixedTime && !train && nowTimes && stopIsMeal(s, ctx.shopById) ? { from: nowTimes[i] - MEAL_WINDOW_MIN, to: nowTimes[i] + MEAL_WINDOW_MIN } : null,
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
       leaveAt: parseClock(s.leaveAt),

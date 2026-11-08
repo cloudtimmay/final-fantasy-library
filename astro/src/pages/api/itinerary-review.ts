@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, modelReviewItems, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, modelReviewItems, isMealStop, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
 import { scheduleDay, trainLeaveBy, type ScheduleStopInput } from '../../lib/itinerary-schedule'
 import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
 import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
@@ -39,6 +39,8 @@ Report CONCRETE problems only — things actually wrong with this specific plan,
 - Arriving at a stop long before shops in that area typically open.
 - On a day with a flight home: a plan whose last stop ends later than the latest time given.
 - Stops marked FIXED TIME are anchors (a reservation, a session): a tight connection into one is worth flagging. The timetable's travel times, leave-by times and PROBLEM lines are already computed — rely on them, don't recompute them.
+
+Meals: a stop marked MEAL is the day's meal there (its place is a restaurant, or its tag or note says mat, lunsj, lunch, middag, dinner, frokost or breakfast). Don't suggest adding a meal near it, and never suggest adding a stop that is already in the plan (the same place or the same name).
 
 Each stop may include a "note" written by the trip's owner, in their own words. That note can contain the REAL train route, travel time and fare they already looked up — when a note gives real travel information, trust it over the straight-line distance given for that gap, since the straight-line distance does not account for the actual train route.
 
@@ -86,6 +88,9 @@ export const POST: APIRoute = async ({ request }) => {
     const lng = typeof raw?.lng === 'number' && isFinite(raw.lng) ? raw.lng : null
     stops.push({ name, plannedTime, durationMin, lat, lng })
     notesByStop.push(typeof raw?.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 500) : null)
+    // A meal: its place type, its tag or its own note (lib/itinerary-review-helpers.ts isMealStop).
+    const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+    stops[stops.length - 1].meal = isMealStop({ placeType: str(raw?.placeType, 20), tag: str(raw?.tag, 40), note: str(raw?.ownNote, 500) })
     openingHoursByStop.push(typeof raw?.openingHours === 'string' && raw.openingHours.trim() ? raw.openingHours.trim().slice(0, 200) : null)
   }
 

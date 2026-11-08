@@ -476,11 +476,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       renderLateDay(day, sched)
       // Train legs after the last trains: the stop they go to (or back to the base).
       const lateTrains = new Map(lastTrainLegs(sched).map((l) => [l.index, l]))
-      // The axis takes in the day's start, a landing and the time to leave for the airport.
-      const landingAt = DATA.arrival && DATA.arrival.date === day.day ? Number(DATA.arrival.time.slice(0, 2)) * 60 + Number(DATA.arrival.time.slice(3)) : null
-      // Today: "now" too, so the red line is on the axis.
+      // The axis: only what's drawn on it — the day's start, the visits and trips (trains included),
+      // the line to leave for the airport, and today the "now" line. Not the landing: it's only in
+      // the header ("✈️ Landing 07:55 …"), and counting it started the arrival day at 06:00.
       const nowHere = nowTokyo()
-      const range = timelineRange(sched, { dayStart: baseStart, events: [landingAt, flightDeadlineFor(day), nowHere.date === day.day ? nowHere.minutes : null] })
+      const range = timelineRange(sched, { dayStart: baseStart, events: [flightDeadlineFor(day), nowHere.date === day.day ? nowHere.minutes : null] })
       const px = ZOOM_LEVELS[zoomIndex]
       zoomOut.disabled = zoomIndex === 0
       zoomIn.disabled = zoomIndex === ZOOM_LEVELS.length - 1

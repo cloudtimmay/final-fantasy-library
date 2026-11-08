@@ -17,11 +17,12 @@ export const MIN_BLOCK_PX = 30
 
 export type TimelineRange = { start: number; end: number }
 
-// Starts an hour before the day's first event, on the hour, never earlier: leaving the base
-// (`dayStart`), a visit, a train's departure (a planned train leg starts at its leave-by), and
-// `events` (a landing, the time to leave for the airport). A walk or an estimated trip doesn't
-// count — the day doesn't start before it starts. Down to 00:00. Ends at 23:00 or after the last
-// event, with room for the "🏠 Back at base" label.
+// Starts an hour before the earliest thing drawn that day, on the hour, never earlier: leaving the
+// base (`dayStart`), a visit (from its arrival: an arrive-early zone starts there), a train's
+// departure (a planned train leg starts at its leave-by), and `events` drawn on the grid (the time
+// to leave for the airport, the "now" line). A walk or an estimated trip doesn't count — the day
+// doesn't start before it starts. Down to 00:00. Ends at 23:00 or after the last event, with room
+// for the "🏠 Back at base" label.
 export const BASE_LABEL_MIN = 20
 export const EARLY_ROOM_MIN = 60
 export function timelineRange(sched: DaySchedule, extra: { dayStart?: number | null; events?: (number | null | undefined)[] } = {}): TimelineRange {

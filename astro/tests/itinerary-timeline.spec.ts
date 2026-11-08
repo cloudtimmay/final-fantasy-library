@@ -2841,3 +2841,31 @@ test.describe('/itinerary: waiting for a shop to open', () => {
     expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⏳ Waits 30 min for opening (there 10:30, opens 11:00)')
   })
 })
+
+test.describe('/itinerary: the axis on the arrival day', () => {
+  test('landing 07:55, the day starting 10:00 and the first stop at 10:03: the axis from 09:00 (the landing is only in the header)', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({
+      _type: 'tripSettings', label: testName(`Axis Arrival Trip ${Date.now()}`),
+      firstTokyoDay: '2027-02-21', lastTokyoDay: '2027-02-22', arrivalDate: '2027-02-21', arrivalTime: '07:55', arrivalAirport: 'Haneda',
+    })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary?trip=${trip._id}&day=2027-02-21`)
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[0].startTime = '10:00'
+      itl.state[0].stops = [{ name: 'First After Landing', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.775, dur: 60 }]
+      itl.render()
+    })
+    await expect(page.locator('#itl-arrival')).toHaveText('✈️ Landing 07:55 at Haneda Airport')
+    await expect(page.locator('.itl-grid')).toHaveAttribute('data-start', String(9 * 60))
+    // Nothing is drawn above the axis.
+    const gridTop = (await page.locator('.itl-grid').boundingBox())!.y
+    for (const el of await page.locator('.itl-grid > *:not(.itl-now)').all()) {
+      if (!(await el.isVisible())) continue
+      expect((await el.boundingBox())!.y).toBeGreaterThanOrEqual(gridTop - 25) // the start label sits just above its line
+    }
+  })
+})

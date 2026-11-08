@@ -73,7 +73,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <label class="itl-start">🕗 Start <input id="itl-start" type="time" /></label>
       <button id="itl-check-btn" type="button" class="itl-daybtn">🔍 Check day</button>
       <button id="itl-route-btn" type="button" class="itl-daybtn">🧭 Suggest route</button>
-      <span id="itl-dayroute" class="itl-dayroute"></span>
+      <button id="itl-routes-btn" type="button" class="itl-daybtn" aria-expanded="false">🗺️ Routes</button>
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
       <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
       <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
@@ -133,6 +133,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <p class="itl-rem-note">If you change the plan later, add the reminders again. Old ones stay in your calendar.</p>
     </div>
     <div id="itl-route-results" class="itl-panel" hidden></div>
+    <!-- "🗺️ Routes": walking routes per area and trains between areas (itinerary-plan.ts dayRouteLinks). -->
+    <div id="itl-routes-panel" class="itl-panel" hidden></div>
     <div id="itl-travel-editor" class="itl-travel-editor" hidden>
       <div class="itl-travel-editor-head">
         <strong id="itl-travel-editor-title"></strong>
@@ -296,7 +298,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       loadLeaflet, drawDayMap, travelEditorInnerHtml, bindTravelEditor, runCheckDay,
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
-      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml, dayReminders, remindersHref,
+      reminderLinkHtml, shopPhotoStripHtml, foundStripHtml, dayReminders, remindersHref, routesColumnsHtml, addPanelClose,
     } from '../lib/itinerary-ui'
     import type { FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
@@ -829,7 +831,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const startInput = document.querySelector('#itl-start') as HTMLInputElement
     const checkBtn = document.querySelector('#itl-check-btn') as HTMLButtonElement
     const routeBtn = document.querySelector('#itl-route-btn') as HTMLButtonElement
-    const dayRouteEl = document.querySelector('#itl-dayroute') as HTMLElement
+    const routesPanel = document.querySelector('#itl-routes-panel') as HTMLElement
+    const routesBtn = document.querySelector('#itl-routes-btn') as HTMLButtonElement
+    routesBtn.addEventListener('click', () => {
+      routesPanel.hidden = !routesPanel.hidden
+      routesBtn.setAttribute('aria-expanded', String(!routesPanel.hidden))
+    })
     const checkPanel = document.querySelector('#itl-check-results') as HTMLElement
     const routePanel = document.querySelector('#itl-route-results') as HTMLElement
     const mapSection = document.querySelector('#itl-map-section') as HTMLDetailsElement
@@ -851,9 +858,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     function renderDayBar(day: PlanDay) {
       startInput.value = day.startTime
       const { sched, baseStart } = computeDayTimes(day, basesOf(day), shopById)
-      dayRouteEl.innerHTML = dayRouteLinks(day, sched, basesOf(day), shopById, baseStart)
-        .map((l) => `<a class="itl-dayroute-link itl-route-${l.kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`)
-        .join('')
+      const routeLinks = dayRouteLinks(day, sched, basesOf(day), shopById, baseStart)
+      routesBtn.hidden = !routeLinks.length
+      routesPanel.innerHTML = routesColumnsHtml(routeLinks, 'itl-dayroute-link')
+      addPanelClose(routesPanel)
+      if (!routeLinks.length) routesPanel.hidden = true
       if (mapSection.open) drawMap(day)
       resetDayBtn.hidden = !hasActualTimes(day)
     }

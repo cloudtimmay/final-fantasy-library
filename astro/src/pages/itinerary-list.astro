@@ -376,7 +376,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         const card = document.createElement('div')
         card.className = 'day-card'
         const links = dayRouteLinks(day)
-        const routeBtns = links.length ? '<div class="route-parts">' + links.map((l) => `<a class="route-btn route-${l.kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join('') + '</div>' : ''
+        // One "🗺️ Routes" fold-out: walking routes left, trains right (lib/itinerary-ui.ts routesColumnsHtml).
+        const routeBtns = links.length ? `<details class="route-toggle"><summary>🗺️ Routes</summary>${LIB().routesColumnsHtml(links, 'route-btn')}</details>` : ''
 
         const shopSelectHtml = SHOP_OPTIONS
           ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`

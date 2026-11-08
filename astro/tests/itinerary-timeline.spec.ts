@@ -437,24 +437,32 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     // Shinjuku (its trip from the base typed in, not a train: the base walks with it), then Yokohama
     // (two stops a walk apart), then the temple — the other legs by train.
     await openTimeline(page, sanity, trackDoc, YOKOHAMA_DAY)
-    const links = page.locator('.itl-dayroute-link')
-    await expect(links).toHaveText([
-      '🗺️ Yellow Submarine Shinjuku (1 stop)',
-      '🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama',
-      '🗺️ SURUGA-YA Marui City Yokohama (2 stops)',
-      '🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple',
-      '🗺️ Tokyo Temple (1 stop)',
-      '🚆 Tokyo Temple → Base',
-    ])
+    // One "🗺️ Routes" toggle; open: walking routes left, trains right, each in day order.
+    const panel = page.locator('#itl-routes-panel')
+    await expect(panel).toBeHidden()
+    await page.locator('#itl-routes-btn').click()
+    await expect(panel).toBeVisible()
+    const walks = panel.locator('.routes-walk .itl-dayroute-link')
+    const trains = panel.locator('.routes-train .itl-dayroute-link')
+    await expect(walks).toHaveText(['🗺️ Yellow Submarine Shinjuku (1 stop)', '🗺️ SURUGA-YA Marui City Yokohama (2 stops)', '🗺️ Tokyo Temple (1 stop)'])
+    await expect(trains).toHaveText(['🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama', '🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple', '🚆 Tokyo Temple → Base'])
+    // Side by side on the phone (walking left).
+    const w = (await panel.locator('.routes-walk').boundingBox())!, tr = (await panel.locator('.routes-train').boundingBox())!
+    expect(w.x).toBeLessThan(tr.x)
     // The walk through both Yokohama stops.
-    const walk = new URL((await links.nth(2).getAttribute('href'))!)
+    const walk = new URL((await walks.nth(1).getAttribute('href'))!)
     expect(walk.searchParams.get('travelmode')).toBe('walking')
     expect(walk.searchParams.get('origin')).toBe('35.464556,139.624649')
     expect(walk.searchParams.get('destination')).toBe('35.4658,139.6223')
     // A move: transit with its time (the older maps URL, "Google Maps (with time)") — the fixed
     // 19:00 temple with arrive-early 30: arriving by 18:30.
-    const move = Object.fromEntries(new URL((await links.nth(3).getAttribute('href'))!).searchParams)
+    const move = Object.fromEntries(new URL((await trains.nth(1).getAttribute('href'))!).searchParams)
     expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'arr', date: '12/05/26', time: '6:30pm' })
+    // ✕ closes it; the toggle opens it again.
+    await panel.locator('.panel-close').click()
+    await expect(panel).toBeHidden()
+    await page.locator('#itl-routes-btn').click()
+    await expect(panel).toBeVisible()
   })
 
   test('the day\'s route by area: shops in the same area are one walk (the base with them when it\'s a walk away); a new area is a move', async ({ page, sanity, trackDoc }) => {
@@ -468,13 +476,15 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
       await shop('Shin One', 'Shinjuku', 35.6905, 139.7005), await shop('Shin Two', 'Shinjuku', 35.6910, 139.7010),
     ]
     await openTimeline(page, sanity, trackDoc, stops, {}, '10:00')
-    await expect(page.locator('.itl-dayroute-link')).toHaveText(['🗺️ Akihabara (3 stops)', '🚆 Akihabara → Shinjuku', '🗺️ Shinjuku (2 stops)', '🚆 Shinjuku → Base'])
+    await page.locator('#itl-routes-btn').click()
+    await expect(page.locator('.routes-walk .itl-dayroute-link')).toHaveText(['🗺️ Akihabara (3 stops)', '🗺️ Shinjuku (2 stops)'])
+    await expect(page.locator('.routes-train .itl-dayroute-link')).toHaveText(['🚆 Akihabara → Shinjuku', '🚆 Shinjuku → Base'])
     // The walk starts at the base (a short walk to the first shop).
-    const walk = new URL((await page.locator('.itl-dayroute-link').first().getAttribute('href'))!)
+    const walk = new URL((await page.locator('.routes-walk .itl-dayroute-link').first().getAttribute('href'))!)
     expect(walk.searchParams.get('origin')).toBe('35.697999,139.77083')
     expect(walk.searchParams.get('waypoints')).toBe('35.699,139.771|35.7,139.7715')
     expect(walk.searchParams.get('destination')).toBe('35.7005,139.772')
-    await expect(page.locator('.itl-dayroute-link.itl-route-train')).toHaveCount(2)
+    await expect(page.locator('.itl-dayroute-link.route-train')).toHaveCount(2)
   })
 
   test('the map is closed by default and shows the stops numbered in order when opened', async ({ page, sanity, trackDoc }) => {
@@ -551,13 +561,34 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
 
     await panel.locator('.rt-apply-btn').click()
     expect(await names()).toEqual(['Near', 'Far'])
+    // The preview closes: one line, "Route applied ✓" with Undo and ✕.
     await expect(panel).toContainText('Route applied ✓')
+    await expect(panel.locator('.rt-column, .rt-apply-btn')).toHaveCount(0)
     await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)
     expect(saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name)).toEqual(['Near', 'Far'])
 
     await panel.locator('.rt-undo-btn').click()
     expect(await names()).toEqual(['Far', 'Near'])
     await expect.poll(() => saves[saves.length - 1].days['2026-12-05'].stops.map((s: any) => s.name), { timeout: 10000 }).toEqual(['Far', 'Near'])
+  })
+
+  test('✕ closes the Suggest route preview and the Check day results', async ({ page, sanity, trackDoc }) => {
+    await openTimeline(page, sanity, trackDoc, [
+      { name: 'Far', hours: '', tag: '', slot: '', lat: 35.797999, lng: 139.77083, dur: 30 },
+      { name: 'Near', hours: '', tag: '', slot: '', lat: 35.698999, lng: 139.77083, dur: 30 },
+    ], {}, '08:00')
+    const route = page.locator('#itl-route-results')
+    await page.locator('#itl-route-btn').click()
+    await expect(route.locator('.rt-column')).toHaveCount(2)
+    await route.locator('.panel-close').click()
+    await expect(route).toBeHidden()
+    expect(await page.evaluate(() => (window as any).__itl.state[0].stops.map((s: any) => s.name))).toEqual(['Far', 'Near']) // nothing applied
+    await page.route('**/api/itinerary-review', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [{ severity: 'tip', stopIndex: 0, message: 'A tip.', suggestion: null }] }) }))
+    const check = page.locator('#itl-check-results')
+    await page.locator('#itl-check-btn').click()
+    await expect(check).toContainText('A tip.')
+    await check.locator('.panel-close').click()
+    await expect(check).toBeHidden()
   })
 })
 

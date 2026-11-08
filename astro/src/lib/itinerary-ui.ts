@@ -106,8 +106,32 @@ type CheckItem = { severity: string; stopIndex: number | null; message: string; 
 // applies. Without it, no Apply buttons.
 type CheckOptions = { stopName: (i: number) => string; onStopClick: (i: number) => void; onApply?: (action: ReviewAction) => (() => void) | null }
 
+// The day's routes (itinerary-plan.ts dayRouteLinks) in two columns, each in day order: walking
+// routes per area, train moves between areas. `linkClass`: the page's own class for the links.
+export function routesColumnsHtml(links: { kind: 'walk' | 'train'; label: string; url: string }[], linkClass: string): string {
+  const col = (kind: 'walk' | 'train', title: string) => {
+    const items = links.filter((l) => l.kind === kind)
+    return `<div class="routes-col routes-${kind}"><p class="routes-col-title">${title}</p>${items.length
+      ? items.map((l) => `<a class="${linkClass} route-${kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join('')
+      : `<span class="routes-none">${kind === 'walk' ? 'No walking routes' : 'No trains between areas'}</span>`}</div>`
+  }
+  return `<div class="routes-cols">${col('walk', 'Walking')}${col('train', 'Trains')}</div>`
+}
+
+// An ✕ in the panel's corner that closes it (the Check day results, the Suggest route preview).
+export function addPanelClose(panel: HTMLElement): void {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'panel-close'
+  btn.setAttribute('aria-label', 'Close')
+  btn.textContent = '✕'
+  btn.addEventListener('click', () => { panel.hidden = true })
+  panel.prepend(btn)
+}
+
 export function renderCheckError(resultsEl: HTMLElement, text: string): void {
   resultsEl.replaceChildren()
+  addPanelClose(resultsEl)
   const p = document.createElement('p')
   p.className = 'ir-error'
   p.textContent = text
@@ -117,6 +141,7 @@ export function renderCheckError(resultsEl: HTMLElement, text: string): void {
 
 export function renderCheckResults(resultsEl: HTMLElement, items: CheckItem[], opts: CheckOptions): void {
   resultsEl.replaceChildren()
+  addPanelClose(resultsEl)
   if (!items.length) {
     const p = document.createElement('p')
     p.className = 'ir-good'
@@ -235,6 +260,7 @@ type RouteResult = {
 
 export function renderNoStopsToReorder(resultsEl: HTMLElement): void {
   resultsEl.replaceChildren()
+  addPanelClose(resultsEl)
   const p = document.createElement('p')
   p.className = 'ir-error'
   p.textContent = 'No stops to reorder.'
@@ -250,6 +276,8 @@ export function renderRouteSuggestion(
   opts: { stopName: (origIdx: number) => string; fmt: (minutes: number) => string; onApply: () => void }
 ): void {
   resultsEl.replaceChildren()
+  resultsEl.classList.remove('rt-applied-line')
+  addPanelClose(resultsEl)
   const summary = document.createElement('p')
   summary.className = 'rt-summary'
   if (result.improved) {
@@ -306,10 +334,11 @@ export function renderRouteSuggestion(
   resultsEl.hidden = false
 }
 
-// After Apply: "Route applied ✓" and an Undo button.
+// After Apply: the preview closes — what stays is one line, "Route applied ✓", Undo and ✕.
 export function renderRouteApplied(el: HTMLElement, onUndo: () => void): void {
   el.replaceChildren()
-  const p = document.createElement('p')
+  el.classList.add('rt-applied-line')
+  const p = document.createElement('span')
   p.className = 'ir-good'
   p.textContent = 'Route applied ✓'
   const undoBtn = document.createElement('button')
@@ -317,8 +346,8 @@ export function renderRouteApplied(el: HTMLElement, onUndo: () => void): void {
   undoBtn.className = 'rt-undo-btn'
   undoBtn.textContent = 'Undo'
   undoBtn.addEventListener('click', () => onUndo())
-  el.appendChild(p)
-  el.appendChild(undoBtn)
+  el.append(p, undoBtn)
+  addPanelClose(el)
   el.hidden = false
 }
 

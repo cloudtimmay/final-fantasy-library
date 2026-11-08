@@ -1,5 +1,5 @@
 import { test, expect, testName } from './fixtures'
-import { optimizeRoute, type OptimizerStop } from '../src/lib/route-optimizer'
+import { optimizeRoute, estimateTravelMinutes, type OptimizerStop } from '../src/lib/route-optimizer'
 import { checkHours, closedOnArrival } from '../src/lib/opening-hours'
 
 // "🧭 Suggest route" on a full day (more stops than the exhaustive limit): the opening-hours
@@ -107,5 +107,40 @@ test.describe('/itinerary: Suggest route lists what couldn\'t fit', () => {
     expect(suggested).toHaveLength(8)
     expect(suggested.some((s) => s.includes('Morning 09–12'))).toBe(false)
     expect(suggested.findIndex((s) => s.endsWith('Dinner 20:00'))).toBeGreaterThanOrEqual(5)
+  })
+})
+
+// The real case: BOOKOFF Akihabara Ekimae placed at 19:45 right before Final Fantasy Eorzea Cafe,
+// fixed at 20:00 with "arrive 19:45" — no time to walk there. The anchor is the arrival time.
+test.describe('Suggest route: arrive-early and the walk to a fixed stop', () => {
+  const CAFE: OptimizerStop = { lat: 35.70095, lng: 139.77223, durationMin: 90, fixedTime: t('20:00'), arriveEarlyMin: 15, openingHours: null, note: null }
+  const BOOKOFF: OptimizerStop = { lat: 35.69845, lng: 139.77322, durationMin: 45, fixedTime: null, openingHours: '10:00-22:00', note: null }
+  const extra = (k: number, hours = '10:00-21:00'): OptimizerStop => ({ lat: 35.6990 + k * 0.0005, lng: 139.7705 + (k % 3) * 0.0005, durationMin: 45, fixedTime: null, openingHours: hours, note: null })
+  // Before the cafe, every stop must end by its arrival (19:45) less the walk there.
+  const check = (stops: OptimizerStop[], cafeIdx: number, startTime: number) => {
+    const r = optimizeRoute(stops, startTime, BASE, SATURDAY, '2026-12-05')
+    const pos = r.order.indexOf(cafeIdx)
+    expect(r.suggested.times[pos]).toBe(t('20:00'))
+    const before = r.order[pos - 1]
+    if (before != null) {
+      const end = r.suggested.times[pos - 1] + stops[before].durationMin
+      expect(end, 'the stop before the cafe').toBeLessThanOrEqual(t('19:45') - estimateTravelMinutes(stops[before], CAFE))
+    }
+    return r
+  }
+  test('a small day (every order tried): the stop before the cafe ends in time to walk there by 19:45', () => {
+    // Four shops and the cafe; the day starts late, so BOOKOFF can only just fit before it.
+    check([extra(0), extra(1), BOOKOFF, extra(2), CAFE], 4, t('16:30'))
+  })
+  test('a full day (the heuristic): the same', () => {
+    check([extra(0), extra(1), extra(2), extra(3), BOOKOFF, extra(4), extra(5), CAFE, extra(6, '10:00-23:00')], 7, t('14:00'))
+  })
+  test('optimizerInput passes arrive-early (the schedule\'s anchor)', async () => {
+    const { optimizerInput } = await import('../src/lib/itinerary-plan')
+    const input = optimizerInput({ day: '2026-12-05', date: '', area: '', note: '', startTime: '16:00', stops: [
+      { name: 'BOOKOFF Akihabara Ekimae', lat: 35.69845, lng: 139.77322, dur: 45 },
+      { name: 'Final Fantasy Eorzea Cafe', lat: 35.70095, lng: 139.77223, dur: 90, fixedTime: '20:00', arriveEarly: 15 },
+    ] } as any, { base: BASE, shopById: new Map() })
+    expect(input.stops[1]).toMatchObject({ fixedTime: t('20:00'), arriveEarlyMin: 15 })
   })
 })

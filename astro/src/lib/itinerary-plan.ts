@@ -317,6 +317,8 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       lng: r.lng,
       durationMin: s.dur != null ? s.dur : defaultDurationMin(s),
       fixedTime: s.fixedTime ? parseClock(s.fixedTime) : null,
+      // The schedule's anchor: be there this much before the fixed time.
+      arriveEarlyMin: s.fixedTime && typeof s.arriveEarly === 'number' ? s.arriveEarly : null,
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
       leaveAt: parseClock(s.leaveAt),

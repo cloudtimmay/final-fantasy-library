@@ -16,6 +16,7 @@ export type OptimizerStop = {
   lng: number | null
   durationMin: number
   fixedTime: number | null // minutes since midnight, or null if this stop isn't pinned
+  arriveEarlyMin?: number | null // a fixed stop: be there this much before its time (the schedule's anchor)
   openingHours: string | null // free text, e.g. "10:00–20:00, closed Tue"
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
@@ -30,6 +31,10 @@ export type OptimizerStop = {
 // this one, so the numbers are repeated here rather than imported).
 const TRAIN_PLATFORM_MIN = 10
 const TRAIN_EXIT_WALK_MIN = 5
+// Matches itinerary-schedule.ts LEAVE_BUFFER_MIN: the margin before reaching a fixed stop.
+const LEAVE_BUFFER_MIN = 10
+// When a fixed stop must be reached — the same anchor as the schedule: its time less arrive-early.
+const anchorOf = (stop: OptimizerStop) => stop.fixedTime! - Math.max(0, stop.arriveEarlyMin || 0)
 
 export type RouteSchedule = {
   times: number[] // planned start time (minutes since midnight) per stop, in `order`
@@ -137,7 +142,8 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       // — so an order that puts too much before a fixed stop scores badly.
       const travel = estimateTravelMinutes(prevPoint, stop, i === 0 ? extractNoteTravelMinutes(stop.note) : null)
       travelMin += travel
-      if (clock + travel > stop.fixedTime) closedCount++
+      // Missed: not there by its arrival time (fixed time − arrive-early) with the buffer.
+      if (clock + travel + LEAVE_BUFFER_MIN > anchorOf(stop)) closedCount++
       clock = stop.fixedTime
     } else {
       const preferMinutes = i === 0 ? extractNoteTravelMinutes(stop.note) : null
@@ -254,7 +260,8 @@ function simulateFeasible(order: OptimizerStop[], movable: boolean[], startTime:
       travelMin += travel
       clock += travel
       if (stop.fixedTime != null) {
-        if (clock > stop.fixedTime) return { feasible: false, travelMin, waitMin, times }
+        // There by its arrival time (fixed time − arrive-early), with the buffer, as the schedule.
+        if (clock + LEAVE_BUFFER_MIN > anchorOf(stop)) return { feasible: false, travelMin, waitMin, times }
         clock = stop.fixedTime
       }
     }

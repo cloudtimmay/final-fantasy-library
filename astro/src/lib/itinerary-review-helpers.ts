@@ -4,7 +4,10 @@
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
 import { trainEarlyHint } from './itinerary-schedule'
-import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, type DaySchedule, type ScheduledStop, type SegmentOverrun } from './itinerary-schedule'
+import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, scheduleDay, trainLeaveBy, type DaySchedule, type ScheduledStop, type SegmentOverrun, type ScheduleStopInput, type TrainTimes } from './itinerary-schedule'
+import { validateTrain, trainTimes, trainSummary, type TrainPlan } from './train-plan'
+import { extractNoteTravelMinutes } from './route-optimizer'
+import { isIsoDate, weekdayIndex } from './trip-dates'
 
 export type ReviewStopInput = {
   meal?: boolean // a meal (isMealStop): marked in the prompt
@@ -386,4 +389,127 @@ export function suggestsAddingExisting(text: string, stopNames: string[]): boole
   if (!ADD_RE.test(text)) return false
   const lower = text.toLowerCase()
   return stopNames.some((name) => name.toLowerCase().split(/[^\p{L}\p{N}]+/u).some((w) => w.length >= 5 && !COMMON_NAME_WORDS.has(w) && lower.includes(w)))
+}
+
+// --- Check day on the server: the request, the schedule, and every check made without the AI ----
+// The request (lib/itinerary-plan.ts checkDayRequestBody) → the day's stops and the timetable, from
+// the same lib/itinerary-schedule.ts as the timeline (fixed times, arrive-early, typed-in travel,
+// trains, leave times, waiting for openings) — nothing the client computed is trusted.
+const validTrainOf = (raw: unknown): TrainPlan | null => {
+  const v = raw ? validateTrain(raw) : null
+  return v && 'train' in v ? v.train : null
+}
+export type ReviewInputs = {
+  stops: ReviewStopInput[]
+  notesByStop: (string | null)[]
+  openingHoursByStop: (string | null)[]
+  scheduleInputs: ScheduleStopInput[]
+  startMin: number
+  dayDate: string | null
+  weekday: number | null
+  flight: FlightHome | null
+  daySchedule: DaySchedule | null
+  schedule: ReviewScheduleStop[] | null
+  airportTrain: { leaveBy: number; atAirport: number; summary: string } | null
+}
+export function reviewInputsFromBody(body: any): { error: string } | ReviewInputs {
+  if (!Array.isArray(body?.stops) || body.stops.length === 0) return { error: 'Missing stops' }
+  if (body.stops.length > 40) return { error: 'Too many stops' }
+  const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
+  const stops: ReviewStopInput[] = []
+  const notesByStop: (string | null)[] = []
+  const openingHoursByStop: (string | null)[] = []
+  for (const raw of body.stops) {
+    const name = str(raw?.name, 200) || ''
+    const plannedTime = typeof raw?.plannedTime === 'number' && isFinite(raw.plannedTime) ? raw.plannedTime : null
+    const durationMin = typeof raw?.durationMin === 'number' && isFinite(raw.durationMin) ? raw.durationMin : null
+    if (!name || plannedTime == null || durationMin == null) return { error: 'Invalid stop data' }
+    const lat = typeof raw?.lat === 'number' && isFinite(raw.lat) ? raw.lat : null
+    const lng = typeof raw?.lng === 'number' && isFinite(raw.lng) ? raw.lng : null
+    // A meal: its place type, its tag or its own note (isMealStop).
+    stops.push({ name, plannedTime, durationMin, lat, lng, meal: isMealStop({ placeType: str(raw?.placeType, 20), tag: str(raw?.tag, 40), note: str(raw?.ownNote, 500) }) })
+    notesByStop.push(str(raw?.note, 500))
+    openingHoursByStop.push(str(raw?.openingHours, 200))
+  }
+  const hhmm = (v: unknown) => {
+    const m = typeof v === 'string' ? /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v.trim()) : null
+    return m ? +m[1] * 60 + +m[2] : null
+  }
+  const minutesField = (v: unknown, max: number) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : null)
+  const point = (v: any) => (typeof v?.lat === 'number' && isFinite(v.lat) && typeof v?.lng === 'number' && isFinite(v.lng) ? { lat: v.lat, lng: v.lng } : null)
+  const scheduleInputs: ScheduleStopInput[] = body.stops.map((raw: any, i: number) => {
+    const fixedTime = hhmm(raw?.fixedTime)
+    return {
+      name: stops[i].name, lat: stops[i].lat, lng: stops[i].lng, durationMin: stops[i].durationMin,
+      fixedTime,
+      arriveEarlyMin: fixedTime != null ? minutesField(raw?.arriveEarlyMin, 240) : null,
+      manualTravelMin: minutesField(raw?.manualTravelMin, 600),
+      noteTravelMin: extractNoteTravelMinutes(notesByStop[i]),
+      must: raw?.must === true,
+      actualStart: hhmm(raw?.actualStart),
+      actualEnd: hhmm(raw?.actualEnd),
+      leaveAt: hhmm(raw?.leaveAt),
+      train: trainTimes(validTrainOf(raw?.train)),
+      openingHours: openingHoursByStop[i],
+    }
+  })
+  const flight = parseFlightHome(body.flight)
+  const base = point(body.base)
+  const startMin = hhmm(typeof body.dayStartTime === 'string' ? body.dayStartTime : null) ?? stops[0].plannedTime
+  // The leg after the last stop: the airport train on the flight day, else a train back to the base.
+  const airportPlan = flight ? validTrainOf(body.flight?.airportTrain) : null
+  const airportTrainTimes: TrainTimes | null = airportPlan ? trainTimes(airportPlan) : null
+  const returnTrainTimes = !airportTrainTimes ? trainTimes(validTrainOf(body.returnTrain)) : null
+  const dayDate = isIsoDate(body.dayDate) ? body.dayDate : null
+  const weekday = dayDate ? weekdayIndex(dayDate) : null
+  const daySchedule = base ? scheduleDay(scheduleInputs, startMin, base, { returnTrain: airportTrainTimes || returnTrainTimes, weekday, date: dayDate }) : null
+  const airportTrain = airportTrainTimes && airportPlan
+    ? { leaveBy: trainLeaveBy(airportTrainTimes), atAirport: daySchedule ? daySchedule.end : airportTrainTimes.arrival + (airportTrainTimes.walkFromStationMin ?? 5), summary: trainSummary(airportPlan).replace(/^🚆 /, '') }
+    : null
+  const schedule: ReviewScheduleStop[] | null = daySchedule
+    ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
+    : null
+  return { stops, notesByStop, openingHoursByStop, scheduleInputs, startMin, dayDate, weekday, flight, daySchedule, schedule, airportTrain }
+}
+
+// Every timing problem the server finds itself, before the AI is asked — listed first, marked
+// `source: 'timetable'`: the day warning (late trains, closed stops), leave earlier / doesn't fit
+// (a missed arrive-early, too little time to walk), the first fixed stop the day's start can't
+// reach, waiting for an opening, opening hours, and the flight deadline.
+export type ServerReviewItem = { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null; source: 'timetable' }
+export function serverReviewItems(inp: ReviewInputs): ServerReviewItem[] {
+  const names = inp.stops.map((s) => s.name)
+  const out: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
+  const sched = inp.daySchedule
+  const visits = inp.stops.map((s, i) => (sched ? { start: sched.stops[i].start, end: sched.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
+  if (sched && inp.schedule) {
+    const closedIdx = closedStopIndexes(inp.openingHoursByStop, inp.weekday, visits, inp.dayDate)
+    out.push(...dayWarningReviewItems(names, sched, closedIdx))
+    // The first stop has a fixed time the day's start can't reach (nothing before it to leave earlier).
+    const first = sched.stops[0]
+    if (first && first.fixed && inp.startMin + first.travelIn.minutes > first.arrival) {
+      const need = first.arrival - first.travelIn.minutes
+      const early = inp.scheduleInputs[0].arriveEarlyMin
+      out.push({
+        severity: 'warning', stopIndex: 0,
+        message: `The day starts at ${formatClock(inp.startMin)}, too late to reach ${names[0]} by ${formatClock(first.arrival)}${early ? ` (${early} min before its ${formatClock(first.start)})` : ''} — ${first.travelIn.minutes} min to get there.`,
+        suggestion: `Start the day by ${formatClock(need)}.`,
+      })
+    }
+    out.push(...scheduleReviewItems(names, inp.schedule, sched.segments))
+    sched.stops.forEach((x, i) => {
+      if (x.waitMin) out.push({ severity: 'tip', stopIndex: i, message: `${names[i]}: you get there at ${formatClock(x.arrival)} and it opens at ${formatClock(x.start)} — ${x.waitMin} min waiting.`, suggestion: 'Start later, or visit something else first.' })
+    })
+  }
+  out.push(...hoursReviewItems(names, inp.openingHoursByStop, inp.weekday, visits, inp.dayDate))
+  const fw = inp.flight ? flightDeadlineWarning(inp.stops, inp.flight, sched ? sched.end : null, inp.airportTrain) : null
+  if (fw) out.push(fw as any)
+  return out.map((x) => ({ ...x, source: 'timetable' as const }))
+}
+
+// For the AI: what the timetable already found and the owner sees first — not to be repeated or
+// contradicted.
+export function alreadyListedText(items: { message: string }[]): string {
+  if (!items.length) return ''
+  return `\n\nALREADY LISTED for the owner by the timetable (computed exactly; don't repeat or contradict these):\n${items.map((x) => `- ${x.message}`).join('\n')}`
 }

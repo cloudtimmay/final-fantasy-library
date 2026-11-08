@@ -101,7 +101,7 @@ export function bindTravelEditor(ed: Element, onSave: (minutes: number | null) =
 }
 
 // --- "Check day" (the AI review, /api/itinerary-review) ---------------------------------------
-type CheckItem = { severity: string; stopIndex: number | null; message: string; suggestion: string | null; action?: ReviewAction }
+type CheckItem = { severity: string; stopIndex: number | null; message: string; suggestion: string | null; action?: ReviewAction; source?: string }
 // `onApply`: applies an item's action (saving it); returns its undo, or null when it no longer
 // applies. Without it, no Apply buttons.
 type CheckOptions = { stopName: (i: number) => string; onStopClick: (i: number) => void; onApply?: (action: ReviewAction) => (() => void) | null }
@@ -154,7 +154,14 @@ export function renderCheckResults(resultsEl: HTMLElement, items: CheckItem[], o
   list.className = 'ir-list'
   items.forEach((item) => {
     const li = document.createElement('li')
-    li.className = 'ir-item ' + (item.severity === 'warning' ? 'ir-warning' : 'ir-tip')
+    li.className = 'ir-item ' + (item.severity === 'warning' ? 'ir-warning' : 'ir-tip') + (item.source === 'timetable' ? ' ir-server' : '')
+    // Found by the timetable itself (exact), before the AI's — they come first.
+    if (item.source === 'timetable') {
+      const tag = document.createElement('span')
+      tag.className = 'ir-source'
+      tag.textContent = '⏱ Timetable'
+      li.appendChild(tag)
+    }
     if (typeof item.stopIndex === 'number') {
       const idx = item.stopIndex
       const link = document.createElement('button')

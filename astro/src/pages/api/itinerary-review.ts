@@ -1,10 +1,8 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { extractJpyTotal, buildUserPrompt, parseFlightHome, flightDeadlineWarning, modelReviewItems, isMealStop, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
-import { scheduleDay, trainLeaveBy, type ScheduleStopInput } from '../../lib/itinerary-schedule'
-import { extractNoteTravelMinutes } from '../../lib/route-optimizer'
-import { isIsoDate, formatDateLong, weekdayIndex } from '../../lib/trip-dates'
-import { validateTrain, trainTimes, trainSummary, type TrainPlan } from '../../lib/train-plan'
+import { extractJpyTotal, buildUserPrompt, modelReviewItems, reviewInputsFromBody, serverReviewItems, alreadyListedText, scheduleReviewItems, hoursReviewItems, dayWarningReviewItems, closedStopIndexes, type ReviewStopInput, type ReviewScheduleStop } from '../../lib/itinerary-review-helpers'
+import { isIsoDate, formatDateLong } from '../../lib/trip-dates'
+import { validateTrain, trainSummary, type TrainPlan } from '../../lib/train-plan'
 
 // A train from the request, only when it's valid.
 const validTrain = (raw: unknown): TrainPlan | null => {
@@ -32,7 +30,7 @@ const MAX_MODEL_ITEMS = 8
 const SYSTEM_PROMPT = `You are reviewing one day of a shopping itinerary in Tokyo, for problems worth flagging before the trip.
 
 Report CONCRETE problems only — things actually wrong with this specific plan, not generic travel advice:
-- Opening hours are already checked against the day's weekday and the timetable (closed that day, before opening, after closing, closing during the visit) and listed first — don't repeat those. Do flag hours text that looks wrong or a shop type that is often closed at that time.
+- The timetable's own findings are computed exactly and already shown to the owner first (see "ALREADY LISTED" in the input): late arrivals, too little time to walk, arrive-early not met, closed shops, waiting for an opening, the flight deadline. Never repeat or contradict them. Do flag hours text that looks wrong or a shop type that is often closed at that time.
 - Unrealistic travel time for the straight-line distance given between two consecutive stops, by train or on foot.
 - Too many stops for the time actually available in the day.
 - No break for food over a long day.
@@ -70,85 +68,16 @@ export const POST: APIRoute = async ({ request }) => {
     : typeof body.dayLabel === 'string' && body.dayLabel.trim() ? body.dayLabel.trim() : null
   const dayArea = typeof body.dayArea === 'string' && body.dayArea.trim() ? body.dayArea.trim() : null
   const dayStartTime = typeof body.dayStartTime === 'string' && body.dayStartTime.trim() ? body.dayStartTime.trim() : null
-  // Only on the day the flight home leaves (sent by /itinerary); anything malformed is ignored.
-  const flight = parseFlightHome(body.flight)
 
-  if (!Array.isArray(body.stops) || body.stops.length === 0) return json(400, { error: 'Missing stops' })
-  if (body.stops.length > 40) return json(400, { error: 'Too many stops' })
-
-  const stops: ReviewStopInput[] = []
-  const notesByStop: Array<string | null> = []
-  const openingHoursByStop: Array<string | null> = []
-  for (const raw of body.stops) {
-    const name = typeof raw?.name === 'string' && raw.name.trim() ? raw.name.trim() : ''
-    const plannedTime = typeof raw?.plannedTime === 'number' && isFinite(raw.plannedTime) ? raw.plannedTime : null
-    const durationMin = typeof raw?.durationMin === 'number' && isFinite(raw.durationMin) ? raw.durationMin : null
-    if (!name || plannedTime == null || durationMin == null) return json(400, { error: 'Invalid stop data' })
-    const lat = typeof raw?.lat === 'number' && isFinite(raw.lat) ? raw.lat : null
-    const lng = typeof raw?.lng === 'number' && isFinite(raw.lng) ? raw.lng : null
-    stops.push({ name, plannedTime, durationMin, lat, lng })
-    notesByStop.push(typeof raw?.note === 'string' && raw.note.trim() ? raw.note.trim().slice(0, 500) : null)
-    // A meal: its place type, its tag or its own note (lib/itinerary-review-helpers.ts isMealStop).
-    const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
-    stops[stops.length - 1].meal = isMealStop({ placeType: str(raw?.placeType, 20), tag: str(raw?.tag, 40), note: str(raw?.ownNote, 500) })
-    openingHoursByStop.push(typeof raw?.openingHours === 'string' && raw.openingHours.trim() ? raw.openingHours.trim().slice(0, 200) : null)
-  }
-
-  // The timetable, recomputed here from the raw stops with the same lib/itinerary-schedule.ts
-  // /itinerary uses (fixed times, arrive-early, a travel time entered for a leg, the shop note,
-  // otherwise the estimate) — nothing computed by the client is trusted.
-  const hhmm = (v: unknown) => {
-    const m = typeof v === 'string' ? /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v.trim()) : null
-    return m ? +m[1] * 60 + +m[2] : null
-  }
-  const minutesField = (v: unknown, max: number) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : null)
-  const point = (v: any) => (typeof v?.lat === 'number' && isFinite(v.lat) && typeof v?.lng === 'number' && isFinite(v.lng) ? { lat: v.lat, lng: v.lng } : null)
-  const scheduleInputs: ScheduleStopInput[] = body.stops.map((raw: any, i: number) => {
-    const fixedTime = hhmm(raw?.fixedTime)
-    return {
-      name: stops[i].name, lat: stops[i].lat, lng: stops[i].lng, durationMin: stops[i].durationMin,
-      fixedTime,
-      arriveEarlyMin: fixedTime != null ? minutesField(raw?.arriveEarlyMin, 240) : null,
-      manualTravelMin: minutesField(raw?.manualTravelMin, 600),
-      noteTravelMin: extractNoteTravelMinutes(notesByStop[i]),
-      must: raw?.must === true,
-      // "I'm here now" / "Leaving now" on the timeline: the same "HH:MM" check as fixed times.
-      actualStart: hhmm(raw?.actualStart),
-      actualEnd: hhmm(raw?.actualEnd),
-      leaveAt: hhmm(raw?.leaveAt),
-      // A chosen train on the leg in: validated like on the page (lib/train-plan.ts).
-      train: trainTimes(trainOf(raw)),
-    }
-  })
-  const base = point(body.base)
-  const startMin = hhmm(dayStartTime) ?? stops[0].plannedTime
-  // The leg after the last stop (lib/itinerary-plan.ts lastLegTrain): the train to the airport on the
-  // flight day when one is planned (the day ends at the airport), else a train back to the base.
-  const airportTrainTimes = flight ? trainTimes(body.flight?.airportTrain ? validTrain(body.flight.airportTrain) : null) : null
-  const returnTrainTimes = !airportTrainTimes && body.returnTrain ? trainTimes(validTrain(body.returnTrain)) : null
-  const dayDate = isIsoDate(body.dayDate) ? body.dayDate : null
-  const daySchedule = base ? scheduleDay(scheduleInputs.map((x, i) => ({ ...x, openingHours: openingHoursByStop[i] })), startMin, base, { returnTrain: airportTrainTimes || returnTrainTimes, weekday: dayDate ? weekdayIndex(dayDate) : null, date: dayDate }) : null
-  // When to leave the last stop for it, and when it reaches the airport (its arrival + the walk).
-  const airportTrain = airportTrainTimes
-    ? { leaveBy: trainLeaveBy(airportTrainTimes), atAirport: (daySchedule ? daySchedule.end : airportTrainTimes.arrival + airportTrainTimes.walkFromStationMin), summary: trainSummary(validTrain(body.flight.airportTrain)!).replace(/^🚆 /, '') }
-    : null
-  const schedule: ReviewScheduleStop[] | null = daySchedule
-    ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
-    : null
-  const timetableItems = schedule ? scheduleReviewItems(stops.map((s) => s.name), schedule, daySchedule!.segments) : []
-  // Opening hours against the day's weekday and the visits (the timetable's, else the client's times).
-  const weekday = isIsoDate(body.dayDate) ? weekdayIndex(body.dayDate) : null
-  const visits = stops.map((s, i) => (daySchedule ? { start: daySchedule.stops[i].start, end: daySchedule.stops[i].end } : { start: s.plannedTime, end: s.plannedTime + s.durationMin }))
-  const hoursItems = hoursReviewItems(stops.map((s) => s.name), openingHoursByStop, weekday, visits, isIsoDate(body.dayDate) ? body.dayDate : null)
-  // The day warning (a late train back to the base, closed stops) and late train legs.
-  const closedIdx = closedStopIndexes(openingHoursByStop, weekday, visits, isIsoDate(body.dayDate) ? body.dayDate : null)
-  const lateItems = daySchedule ? dayWarningReviewItems(stops.map((s) => s.name), daySchedule, closedIdx) : []
-
+  // The stops and the timetable (lib/itinerary-review-helpers.ts reviewInputsFromBody), and every
+  // problem the server finds itself (serverReviewItems) — listed first, and given to the AI as found.
+  const inputs = reviewInputsFromBody(body)
+  if ('error' in inputs) return json(400, { error: inputs.error })
+  // The flight only on the day it leaves (sent by /itinerary); anything malformed is ignored.
+  const { stops, notesByStop, openingHoursByStop, daySchedule, schedule, airportTrain, flight } = inputs
+  const serverItems = serverReviewItems(inputs)
   const totalFareJpy = extractJpyTotal(notesByStop)
-  // The flight deadline is checked here (flightDeadlineWarning), not left to the model.
-  // … from when you're back at the base (the trip from the last stop included).
-  const flightWarning = flight ? flightDeadlineWarning(stops, flight, daySchedule ? daySchedule.end : null, airportTrain) : null
-  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - (flightWarning ? 1 : 0) - timetableItems.length - hoursItems.length - lateItems.length)
+  const maxModelItems = Math.max(1, MAX_MODEL_ITEMS - (totalFareJpy > 0 ? 1 : 0) - serverItems.length)
 
   // Back at the base — not on a day that ends at the airport.
   const backAtBase = daySchedule && daySchedule.returnLeg && !airportTrain ? { end: daySchedule.end, minutes: daySchedule.returnLeg.minutes } : null
@@ -158,6 +87,7 @@ export const POST: APIRoute = async ({ request }) => {
   const otherDays = tripDays.filter((d) => d !== body.dayDate)
   const userPrompt = buildUserPrompt(dayLabel, dayArea, dayStartTime, stops, notesByStop, openingHoursByStop, flight, schedule, daySchedule?.segments || [], backAtBase, trainLines, airportTrain)
     + (otherDays.length ? `\n\nOther days of the trip (for move_day): ${otherDays.join(', ')}` : '')
+    + alreadyListedText(serverItems)
 
   const apiKey = import.meta.env.ANTHROPIC_API_KEY
   console.error('[itinerary-review] ANTHROPIC_API_KEY set:', !!apiKey)
@@ -235,8 +165,8 @@ export const POST: APIRoute = async ({ request }) => {
     tripDays,
   }, maxModelItems)
 
-  if (flightWarning) items.unshift(flightWarning)
-  items.unshift(...lateItems, ...timetableItems, ...hoursItems)
+  // The server's own findings first, then the AI's.
+  items.unshift(...serverItems)
 
   // Computed deterministically from the notes' own fares, not left to the model's
   // arithmetic — matches the project's convention (see computeTransitions above) of

@@ -177,7 +177,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     <form id="itl-add" class="itl-add" hidden>
       <p class="itl-add-title">Add a stop around <strong id="itl-add-time"></strong></p>
-      <select id="itl-add-shop" aria-label="Shop"></select>
+      <div class="itl-add-pick">
+        <select id="itl-add-shop" aria-label="Shop"></select>
+        <button id="itl-add-search-btn" type="button" class="itl-add-searchbtn">🔍 Search place</button>
+      </div>
+      <!-- A place from OpenStreetMap (lib/place-search-ui.ts): added as a stop, and by default saved in
+           Shop Notes too (then the stop is linked to it). -->
+      <div id="itl-add-search" class="itl-add-search" hidden>
+        <input id="itl-add-search-q" type="search" placeholder="Ueno Park, or an address…" autocomplete="off" />
+        <div id="itl-add-search-results"></div>
+        <p id="itl-add-chosen" class="itl-add-note" hidden></p>
+        <label class="itl-add-saveplace"><input id="itl-add-saveplace" type="checkbox" checked /> Save it in Shop Notes too</label>
+      </div>
       <div id="itl-add-custom" class="itl-add-custom" hidden>
         <input id="itl-add-name" type="text" placeholder="Name *" />
         <input id="itl-add-hours" type="text" placeholder="Info (optional)" />
@@ -304,6 +315,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
     import { googleMapsTimedUrl, yahooTransitUrl, transitWhenText } from '../lib/transit-links'
     import { cdnImage } from '../lib/image-url'
+    import { attachPlaceSearch } from '../lib/place-search-ui'
+    import type { PlaceResult } from '../lib/place-search'
     import { fromTimelineQuery } from '../lib/timeline-back'
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
@@ -1562,7 +1575,28 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) =>
         `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
       ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
-    addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__' })
+    addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__'; if (addShop.value) clearAddPlace() })
+    // "🔍 Search place": a place from OpenStreetMap instead of the list.
+    const addSearch = document.querySelector('#itl-add-search') as HTMLElement
+    const addChosen = document.querySelector('#itl-add-chosen') as HTMLElement
+    const addSavePlace = document.querySelector('#itl-add-saveplace') as HTMLInputElement
+    let addPlace: PlaceResult | null = null
+    function clearAddPlace() { addPlace = null; addChosen.hidden = true; addChosen.textContent = '' }
+    document.querySelector('#itl-add-search-btn')!.addEventListener('click', () => {
+      addSearch.hidden = !addSearch.hidden
+      if (!addSearch.hidden) (document.querySelector('#itl-add-search-q') as HTMLInputElement).focus()
+    })
+    attachPlaceSearch({
+      input: document.querySelector('#itl-add-search-q') as HTMLInputElement,
+      results: document.querySelector('#itl-add-search-results') as HTMLElement,
+      onChoose: (p) => {
+        addPlace = p
+        addShop.value = ''; addCustom.hidden = true
+        ;(document.querySelector('#itl-add-search-results') as HTMLElement).hidden = true
+        addChosen.hidden = false
+        addChosen.textContent = `📍 ${p.name} (${p.kind})`
+      },
+    })
 
     dayEl.addEventListener('click', (e) => {
       const target = e.target as HTMLElement
@@ -1572,16 +1606,32 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range, Number(grid.dataset.px))
       addTime.textContent = formatClock(addMinutes)
       addShop.value = ''; addCustom.hidden = true; addName.value = ''; addHours.value = ''; addDur.value = '45'
+      addSearch.hidden = true; clearAddPlace(); addSavePlace.checked = true
       addForm.hidden = false
       addForm.scrollIntoView({ block: 'nearest' })
     })
     document.querySelector('#itl-add-cancel')!.addEventListener('click', () => { addForm.hidden = true })
-    addForm.addEventListener('submit', (e) => {
+    addForm.addEventListener('submit', async (e) => {
       e.preventDefault()
       const day = state.find((d) => d.day === currentDay)
       if (!day) return
       let stop
-      if (addShop.value === '__custom__') {
+      if (addPlace) {
+        const p = addPlace
+        if (addSavePlace.checked) {
+          // Saved in Shop Notes (/api/shop-note), then the stop is linked to it.
+          const body = { shopName: p.name, placeType: p.placeType, area: p.area || '', address: p.address, latitude: p.lat, longitude: p.lng, openingHours: p.openingHours || '' }
+          const res = await fetch('/api/shop-note', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
+          const data = res ? await res.json().catch(() => ({})) : {}
+          if (!res || !res.ok || !data.id) { addChosen.hidden = false; addChosen.textContent = '⚠️ Could not save the place — try again, or untick "Save it in Shop Notes too".'; return }
+          const shop: PlanShop = { _id: data.id, shopName: p.name, latitude: p.lat, longitude: p.lng, area: p.area, address: p.address, openingHours: p.openingHours, placeType: p.placeType }
+          shops.push(shop)
+          shopById.set(shop._id, shop)
+          stop = shopStopFrom(shop)
+        } else {
+          stop = { ...customStopFrom(p.name, p.openingHours || ''), lat: p.lat, lng: p.lng }
+        }
+      } else if (addShop.value === '__custom__') {
         const name = addName.value.trim()
         if (!name) { addName.focus(); return }
         stop = customStopFrom(name, addHours.value.trim())
@@ -1822,6 +1872,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       padding: 0.5rem 0.6rem; font-size: 0.95rem; font-family: inherit; box-sizing: border-box; width: 100%;
     }
     .itl-add-custom { display: flex; flex-direction: column; gap: 0.5rem; }
+    .itl-add-pick { display: flex; gap: 0.4rem; }
+    .itl-add-pick select { flex: 1; min-width: 0; }
+    .itl-add-searchbtn { flex-shrink: 0; white-space: nowrap; }
+    .itl-add-search { display: flex; flex-direction: column; gap: 0.35rem; }
+    .itl-add-search[hidden] { display: none; }
+    .itl-add-saveplace { font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
     .itl-add-custom[hidden] { display: none; }
     .itl-add-dur { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
     .itl-add-dur input { width: 5rem; }

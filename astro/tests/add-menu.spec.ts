@@ -8,7 +8,7 @@ test.describe('add menu', () => {
       ['Add price', '/add-price'],
       ['All prices', '/prices'],
       ['Family purchase', '/add'],
-      ['Shop', '/add-store'],
+      ['Place', '/add-store'],
       ['Airport checklist', '/checklist'],
       ['Scan / search', '/scan'],
       ['Add item', '/add-item'],

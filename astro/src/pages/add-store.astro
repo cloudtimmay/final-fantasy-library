@@ -12,14 +12,26 @@ const usedAreas: string[] = await sanity.fetch(
 const DEFAULT_AREAS = ['Akihabara', 'Ikebukuro', 'Nakano', 'Shinjuku', 'Shibuya', 'Other']
 const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filter(Boolean).sort()
 ---
-<Base title="Add shop">
+<Base title="Add place">
   <div class="add-wrap">
-    <h1>Add shop</h1>
-    <p class="hint">Save a shop with an optional pinned location. Use “Use my location” while you're standing there, or paste coordinates from Google Maps.</p>
+    <h1>Add place</h1>
+    <p class="hint">Search for a place (OpenStreetMap), or fill it in yourself — with a pinned location from “Use my location” or coordinates pasted from Google Maps.</p>
+
+    <!-- Search by name or address (lib/place-search.ts, OpenStreetMap): choosing a result fills the
+         name, address, coordinates, a suggested type and area, and opening hours when known. -->
+    <div class="field">
+      <label for="s-search">🔍 Search place</label>
+      <div class="search-row">
+        <input id="s-search" type="search" placeholder="Ueno Park, or a street address…" autocomplete="off" />
+        <button id="s-search-btn" type="button" class="coord-apply-btn">Search</button>
+      </div>
+      <div id="s-search-results" hidden></div>
+      <p id="s-search-msg" class="locate-msg" hidden></p>
+    </div>
 
     <div class="field">
-      <label>Shop / Place *</label>
-      <input id="s-name" type="text" placeholder="Shop name" />
+      <label>Name *</label>
+      <input id="s-name" type="text" placeholder="Shop or place name" />
     </div>
 
     <div class="field" id="s-ai-fill-wrap">
@@ -35,6 +47,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
         <option value="restaurant">🍜 Restaurant</option>
         <option value="sight">🗼 Sight to see</option>
         <option value="hotel">🏨 Hotel</option>
+        <option value="area">📍 Area (explore around here)</option>
         <option value="other">📌 Other</option>
       </select>
     </div>
@@ -117,13 +130,14 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
       <p id="s-locate-msg" class="locate-msg" hidden></p>
     </div>
 
-    <button id="s-save" type="button" class="save-btn">Save shop</button>
+    <button id="s-save" type="button" class="save-btn">Save place</button>
     <p id="s-msg" class="save-msg" hidden></p>
 
     <a href="/notes" class="back-link">← Back to shop notes</a>
   </div>
 
   <script>
+    import { attachPlaceSearch } from '../lib/place-search-ui'
     const nameInput = document.querySelector('#s-name')
     const typeSel = document.querySelector('#s-type')
     const areaSel = document.querySelector('#s-area')
@@ -144,6 +158,29 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     const locateMsg = document.querySelector('#s-locate-msg')
     const saveBtn = document.querySelector('#s-save')
     const msg = document.querySelector('#s-msg')
+
+    // A search result fills the form (the area: an existing one when it matches, else a new one).
+    const searchMsg = document.querySelector('#s-search-msg')
+    attachPlaceSearch({
+      input: document.querySelector('#s-search'),
+      button: document.querySelector('#s-search-btn'),
+      results: document.querySelector('#s-search-results'),
+      onChoose: (p) => {
+        nameInput.value = p.name
+        if (p.address) addressInput.value = p.address
+        setCoords(p.lat, p.lng)
+        if ([...typeSel.options].some((o) => o.value === p.placeType)) typeSel.value = p.placeType
+        if (p.area) {
+          const match = [...areaSel.options].find((o) => o.value && o.value !== '__new__' && o.value.toLowerCase() === p.area.toLowerCase())
+          if (match) { areaSel.value = match.value; areaNewInput.hidden = true; areaNewInput.value = '' }
+          else { areaSel.value = '__new__'; areaNewInput.hidden = false; areaNewInput.value = p.area }
+        }
+        if (p.openingHours) hoursInput.value = p.openingHours
+        document.querySelector('#s-search-results').hidden = true
+        searchMsg.hidden = false
+        searchMsg.textContent = `Filled in from OpenStreetMap: ${p.name} (${p.kind}). Check it, then Save place.`
+      },
+    })
 
     let lat = null
     let lng = null
@@ -518,7 +555,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
         showMsg('Network error.', false)
       } finally {
         saveBtn.disabled = false
-        saveBtn.textContent = 'Save shop'
+        saveBtn.textContent = 'Save place'
       }
     }
 
@@ -580,6 +617,8 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
     .ai-fill-msg[hidden] { display: none; }
     .ai-fill-results { margin-top: 0.75rem; }
     .ai-fill-results[hidden] { display: none; }
+    .search-row { display: flex; gap: 0.4rem; }
+    .search-row input { flex: 1; min-width: 0; }
   </style>
 
   <!-- Suggestion card content is built with document.createElement/innerHTML in the

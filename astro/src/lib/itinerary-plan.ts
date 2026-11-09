@@ -427,6 +427,8 @@ export function hasActualTimes(day: { stops: PlanStop[] }): boolean {
 // ("Lunsj · kontant") rather than hours.
 export function stopHoursText(s: PlanStop, shopById: Map<string, PlanShop>): { text: string; fromShop: boolean } {
   const shop = s.shopId ? shopById.get(s.shopId) : undefined
+  // "📍 Area" (explore around here): no opening hours — never closed, never waited for.
+  if (shop?.placeType === 'area') return { text: '', fromShop: true }
   const shopHours = shop && typeof shop.openingHours === 'string' ? shop.openingHours.trim() : ''
   if (shopHours) return { text: shopHours, fromShop: true }
   return { text: typeof s.hours === 'string' ? s.hours.trim() : '', fromShop: false }

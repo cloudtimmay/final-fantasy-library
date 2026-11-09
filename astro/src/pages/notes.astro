@@ -38,10 +38,10 @@ const foundThumbsFor = (id: string) => {
 const areas = [...new Set(notes.map((n: any) => n.area).filter(Boolean))].sort()
 
 const TYPE_ICON: Record<string, string> = {
-  shop: '🛍️', restaurant: '🍜', sight: '🗼', hotel: '🏨', other: '📌',
+  shop: '🛍️', restaurant: '🍜', sight: '🗼', hotel: '🏨', area: '📍', other: '📌',
 }
 const TYPE_LABEL: Record<string, string> = {
-  shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', hotel: 'Hotel', other: 'Other',
+  shop: 'Shop', restaurant: 'Restaurant', sight: 'Sight', hotel: 'Hotel', area: 'Area', other: 'Other',
 }
 
 function isUrl(s: string): boolean {
@@ -54,7 +54,7 @@ function isUrl(s: string): boolean {
     <span class="count" id="notes-count">{notes.length} places</span>
   </div>
 
-  <p class="hint">Places to check and notes from the trip. Add via <a href="/add-store">Add shop</a>, edit in Studio.</p>
+  <p class="hint">Places to check and notes from the trip. Add via <a href="/add-store">Add place</a>, edit in Studio.</p>
 
   <div class="notes-search">
     <input id="search-input" type="search" placeholder="Search shops, notes, areas…" autocomplete="off" />
@@ -74,6 +74,7 @@ function isUrl(s: string): boolean {
       <option value="restaurant">🍜 Restaurants</option>
       <option value="sight">🗼 Sights</option>
       <option value="hotel">🏨 Hotels</option>
+      <option value="area">📍 Areas</option>
       <option value="other">📌 Other</option>
     </select>
     <select id="area-filter">

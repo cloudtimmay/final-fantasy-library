@@ -80,6 +80,9 @@ export function planTrips<T extends PlanTrip>(trips: T[]): T[] {
 export const ARRIVAL_IMMIGRATION_MIN = 90
 export const AIRPORT_TO_BASE_MIN: Record<string, number> = { Narita: 75, Haneda: 40 }
 export const AIRPORT_NAMES: Record<string, string> = { Narita: 'Narita International Airport', Haneda: 'Haneda Airport' }
+// Where a day starts or ends at an airport (the 🏨 Base picker, the arrival day): the terminals'
+// stations — Haneda Airport Terminal 3, Narita Airport Terminal 1.
+export const AIRPORT_POINTS: Record<string, { lat: number; lng: number }> = { Haneda: { lat: 35.5494, lng: 139.7798 }, Narita: { lat: 35.7720, lng: 140.3929 } }
 
 const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 const parseHhmm = (s: unknown): number | null => {
@@ -95,7 +98,8 @@ export function arrivalFor(t: PlanTrip | null | undefined): Arrival | null {
   const airport = t.arrivalAirport || ''
   const date = isIsoDate(t.arrivalDate) ? t.arrivalDate! : isIsoDate(t.firstTokyoDay) ? t.firstTokyoDay! : null
   if (landing == null || !(airport in AIRPORT_TO_BASE_MIN) || !date) return null
-  const start = landing + ARRIVAL_IMMIGRATION_MIN + AIRPORT_TO_BASE_MIN[airport]
+  // The day starts at the airport after immigration and baggage; the trip from there is its first leg.
+  const start = landing + ARRIVAL_IMMIGRATION_MIN
   return {
     date, time: clock(landing), airport, airportName: AIRPORT_NAMES[airport],
     // Past midnight it would be the next day: the day starts at 23:59 at the latest.

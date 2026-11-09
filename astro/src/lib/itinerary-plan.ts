@@ -14,6 +14,7 @@ import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, ty
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN, isMealStop } from './itinerary-review-helpers'
 import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
+import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
 import { googleMapsTimedUrl } from './transit-links'
 
 export const DEFAULT_START = '08:00'
@@ -578,15 +579,24 @@ export function leaveFixFor(sched: DaySchedule, idx: number, flightLatest: numbe
 // trip's base. Unset: the start is where the day before ended (the first day: the trip's base),
 // the end is the start. A trip that never sets one keeps its single base.
 export const TRIP_BASE_KEY = '__trip__'
+// An airport as a base: "__airport:Haneda", "__airport:Narita".
+export const AIRPORT_BASE_PREFIX = '__airport:'
 export type DayBase = RoutePoint & { name: string; key: string }
 export type DayBases = { start: DayBase; end: DayBase; changes: boolean }
-export function dayBases(days: { day: string; startBase?: string; endBase?: string }[], tripBase: { name?: string; lat: number | null; lng: number | null }, shopById: Map<string, PlanShop>): Map<string, DayBases> {
+// `arrival`: the trip's arrival in Japan — that day starts at the airport by default (landing +
+// immigration) and ends at the trip's base (the hotel).
+export function dayBases(days: { day: string; startBase?: string; endBase?: string }[], tripBase: { name?: string; lat: number | null; lng: number | null }, shopById: Map<string, PlanShop>, arrival: { date: string; airport: string } | null = null): Map<string, DayBases> {
   // Named plainly "Base" in lines like "🏨 Base → Hotel B" (the trip's own label is longer).
   const trip: DayBase = { name: 'Base', lat: tripBase.lat, lng: tripBase.lng, key: TRIP_BASE_KEY }
   // A shop without coordinates still names the base, but the trips are timed from the trip's base.
   const resolve = (key: string | undefined): DayBase | null => {
     if (!key) return null
     if (key === TRIP_BASE_KEY) return trip
+    if (key.startsWith(AIRPORT_BASE_PREFIX)) {
+      const code = key.slice(AIRPORT_BASE_PREFIX.length)
+      const p = AIRPORT_POINTS[code]
+      return p ? { name: AIRPORT_NAMES[code], lat: p.lat, lng: p.lng, key } : null
+    }
     const shop = shopById.get(key)
     if (!shop) return null
     const has = typeof shop.latitude === 'number' && typeof shop.longitude === 'number'
@@ -595,8 +605,9 @@ export function dayBases(days: { day: string; startBase?: string; endBase?: stri
   const out = new Map<string, DayBases>()
   let before = trip
   for (const d of [...days].sort((a, b) => a.day.localeCompare(b.day))) {
-    const start = resolve(d.startBase) || before
-    const end = resolve(d.endBase) || start
+    const arrivalDay = !!arrival && d.day === arrival.date
+    const start = resolve(d.startBase) || (arrivalDay ? resolve(AIRPORT_BASE_PREFIX + arrival!.airport) : null) || before
+    const end = resolve(d.endBase) || (arrivalDay && start.key.startsWith(AIRPORT_BASE_PREFIX) ? trip : start)
     out.set(d.day, { start, end, changes: start.key !== end.key })
     before = end
   }

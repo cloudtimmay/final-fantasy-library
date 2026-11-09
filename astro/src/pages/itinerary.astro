@@ -399,7 +399,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     // The day's bases (itinerary-plan.ts dayBases): its own hotel(s), else the night before's,
     // else the trip's base — worked out over all the trip's days, in order.
-    const basesOf = (day: PlanDay) => dayBases(state, base, shopById).get(day.day) || { start: { ...base, key: TRIP_BASE_KEY }, end: { ...base, key: TRIP_BASE_KEY }, changes: false }
+    const basesOf = (day: PlanDay) => dayBases(state, base, shopById, DATA.arrival ? { date: DATA.arrival.date, airport: DATA.arrival.airport } : null).get(day.day) || { start: { ...base, key: TRIP_BASE_KEY }, end: { ...base, key: TRIP_BASE_KEY }, changes: false }
     // "Fix: leave at HH:MM" for a warning that leaving earlier fixes (itinerary-plan.ts leaveFixFor).
     const fixButton = (t: number | null) => t == null ? '' : `<button type="button" class="itl-fix" data-time="${formatClock(t)}">Fix: leave at ${formatClock(t)}</button>`
     const flightDeadlineFor = (day: PlanDay) => flightDeadline(day, flight)?.leaveBy ?? null
@@ -663,7 +663,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         startEl.className = 'itl-base itl-base-start'
         startEl.style.top = `${offsetFor(baseStart, range, px)}px`
         const dayBase = basesOf(day)
-        startEl.textContent = dayBase.start.key === TRIP_BASE_KEY ? `🏠 Start: base · ${formatClock(baseStart)}` : `🏨 Start: ${dayBase.start.name} · ${formatClock(baseStart)}`
+        startEl.textContent = dayBase.start.key === TRIP_BASE_KEY ? `🏠 Start: base · ${formatClock(baseStart)}`
+          : dayBase.start.key.startsWith('__airport:') ? `✈️ Start: ${dayBase.start.name} ~${formatClock(baseStart)}`
+          : `🏨 Start: ${dayBase.start.name} · ${formatClock(baseStart)}`
         grid.appendChild(startEl)
         const endEl = document.createElement('div')
         // On the flight day, back at the base after the time to leave for the airport is a problem.
@@ -674,7 +676,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         endEl.dataset.minutes = String(sched.end)
         endEl.textContent = toAirport
           ? `✈️ At ${flight!.airport} Airport ~${formatClock(sched.end)}` + (late ? ` — ⚠️ after check-in closes (${formatClock(flightInfo!.checkInBy)})` : '')
-          : (dayBase.end.key === TRIP_BASE_KEY ? `🏠 Back at base ~${formatClock(sched.end)}` : `🏨 Back at ${dayBase.end.name} ~${formatClock(sched.end)}`) + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
+          : (dayBase.end.key === TRIP_BASE_KEY ? `🏠 Back at base ~${formatClock(sched.end)}`
+            : dayBase.end.key.startsWith('__airport:') ? `✈️ At ${dayBase.end.name} ~${formatClock(sched.end)}`
+            : `🏨 Back at ${dayBase.end.name} ~${formatClock(sched.end)}`) + (late ? ` — ⚠️ after ${formatClock(flightLatest!)}, when you must leave for ${flight!.airport}` : '')
           + (lateTrains.has(day.stops.length) ? ` — 🚆 ${LAST_TRAIN_MESSAGE}` : '')
         if (lateTrains.has(day.stops.length)) endEl.classList.add('itl-base-late')
         grid.appendChild(endEl)
@@ -1627,6 +1631,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const opt = (v: string, label: string) => `<option value="${esc(v)}"${(selected || '') === v ? ' selected' : ''}>${esc(label)}</option>`
       // The same area groups as the other pickers (shopOptionGroups), hotels marked 🏨.
       return opt('', defaultLabel) + opt(TRIP_BASE_KEY, '🏠 The trip base')
+        + `<optgroup label="✈️ Airports">${opt('__airport:Haneda', '✈️ Haneda Airport')}${opt('__airport:Narita', '✈️ Narita International Airport')}</optgroup>`
         + shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) => `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
           const shop = (shops || [])[i] as PlanShop
           return opt(shop._id, `${shop.placeType === 'hotel' ? '🏨 ' : ''}${name}`)

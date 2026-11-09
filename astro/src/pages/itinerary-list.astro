@@ -238,7 +238,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     function manualTravelFor(day, si) { return LIB().manualTravelFor(day, si, shopById) }
     // The day's own bases (lib/itinerary-plan.ts dayBases: a hotel, else the night before's, else
     // the trip's base) — the first leg from its start, the trip back to its end.
-    function basesOf(day) { return LIB().dayBases(state, base, shopById).get(day.day) || { start: base, end: base, changes: false } }
+    function basesOf(day) { return LIB().dayBases(state, base, shopById, arrival ? { date: arrival.date, airport: arrival.airport } : null).get(day.day) || { start: base, end: base, changes: false } }
     function computeTimes(day) { return LIB().computeDayTimes(day, basesOf(day), shopById) }
 
     // The travel line into stop si, tappable: "🚃 ~45 min (estimate)" etc., opening an editor

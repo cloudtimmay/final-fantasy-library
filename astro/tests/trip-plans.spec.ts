@@ -45,12 +45,12 @@ test.describe('trip plans (lib/trip-plans.ts)', () => {
     expect(planDocIdFor(withFlightDays({ _id: 'feb', arrivalDate: '2027-02-21', flightHomeDate: '2027-03-05' }))).toBe('itineraryState-feb')
   })
 
-  test('the arrival: landing + 90 min + the airport to the base (Haneda 40, Narita 75); its date defaults to the first day in Tokyo', () => {
+  test('the arrival: the day starts at the airport, landing + 90 min (immigration, baggage); its date defaults to the first day in Tokyo', () => {
     expect(arrivalFor({ ...FEB, arrivalDate: '2027-02-21', arrivalTime: '07:55', arrivalAirport: 'Haneda' })).toEqual({
-      date: '2027-02-21', time: '07:55', airport: 'Haneda', airportName: 'Haneda Airport', start: '10:05',
+      date: '2027-02-21', time: '07:55', airport: 'Haneda', airportName: 'Haneda Airport', start: '09:25',
       line: '✈️ Landing 07:55 at Haneda Airport',
     })
-    expect(arrivalFor({ ...FEB, arrivalTime: '07:55', arrivalAirport: 'Narita' })).toMatchObject({ date: '2027-02-21', start: '10:40' })
+    expect(arrivalFor({ ...FEB, arrivalTime: '07:55', arrivalAirport: 'Narita' })).toMatchObject({ date: '2027-02-21', start: '09:25' })
     expect(arrivalFor({ ...FEB, arrivalTime: '7:55', arrivalAirport: 'Haneda' })).toBeNull()
     expect(arrivalFor({ ...FEB, arrivalTime: '07:55' })).toBeNull()
     expect(arrivalFor(DEC)).toBeNull()
@@ -200,20 +200,20 @@ test.describe('/itinerary with several trips', () => {
     await expect(page.locator('.day-card')).toHaveCount(2)
   })
 
-  test('the arrival flight: "✈️ Landing 07:55 at Haneda Airport" on the first day, which starts at 10:05; the next day at 08:00', async ({ page, sanity, trackDoc }) => {
+  test('the arrival flight: "✈️ Landing 07:55 at Haneda Airport" on the first day, which starts at 09:25; the next day at 08:00', async ({ page, sanity, trackDoc }) => {
     const trip = await makeTrip(sanity, trackDoc, 'Arrival Trip', {
       firstTokyoDay: '2027-02-21', lastTokyoDay: '2027-02-22', arrivalDate: '2027-02-21', arrivalTime: '07:55', arrivalAirport: 'Haneda',
     })
     await mockSaves(page)
     await page.goto(`/itinerary?trip=${trip._id}&day=2027-02-21`)
     await expect(page.locator('#itl-arrival')).toHaveText('✈️ Landing 07:55 at Haneda Airport')
-    await expect(page.locator('#itl-start')).toHaveValue('10:05')
+    await expect(page.locator('#itl-start')).toHaveValue('09:25')
     await page.locator('.itl-tab', { hasText: '22. feb' }).click()
     await expect(page.locator('#itl-arrival')).toBeHidden()
     await expect(page.locator('#itl-start')).toHaveValue('08:00')
     await page.goto(`/itinerary-list?trip=${trip._id}`)
     await expect(page.locator('.day-card').first().locator('.day-arrival')).toHaveText('✈️ Landing 07:55 at Haneda Airport')
-    await expect(page.locator('.day-start-input').first()).toHaveValue('10:05')
+    await expect(page.locator('.day-start-input').first()).toHaveValue('09:25')
     await expect(page.locator('.day-card').nth(1).locator('.day-arrival')).toHaveCount(0)
   })
 
@@ -298,4 +298,60 @@ test('a trip button\'s range: "1.–6. des", "21. feb–5. mar", across a new ye
   expect(shortDateRange('2027-02-21', '2027-03-05')).toBe('21. feb–5. mar')
   expect(shortDateRange('2026-12-28', '2027-01-03')).toBe('28. des 2026–3. jan 2027')
   expect(shortDateRange('2027-02-21', '2027-02-21')).toBe('21. feb')
+})
+
+// --- Airports as the start and end of a day ---------------------------------------------------
+test.describe('airports as bases', () => {
+  test('the arrival day starts at the airport and ends at the trip base; the next day starts there; an airport can be chosen', async () => {
+    const { dayBases, dayBasesLine } = await import('../src/lib/itinerary-plan')
+    const days: any[] = [{ day: '2027-02-21' }, { day: '2027-02-22' }, { day: '2027-03-05', startBase: '__airport:Narita' }]
+    const b = dayBases(days, { name: 'Base (overnatting)', lat: 35.698, lng: 139.771 }, new Map(), { date: '2027-02-21', airport: 'Haneda' })
+    expect(b.get('2027-02-21')).toMatchObject({ start: { name: 'Haneda Airport', key: '__airport:Haneda', lat: 35.5494 }, end: { name: 'Base' }, changes: true })
+    expect(dayBasesLine(b.get('2027-02-21'))).toBe('🏨 Haneda Airport → Base')
+    expect(b.get('2027-02-22')!.start.name).toBe('Base') // the night before's
+    expect(b.get('2027-03-05')!.start).toMatchObject({ name: 'Narita International Airport', lat: 35.772 })
+    // Without an arrival: as before.
+    expect(dayBases(days.slice(0, 1), { lat: 35.698, lng: 139.771 }, new Map()).get('2027-02-21')!.start.name).toBe('Base')
+  })
+})
+
+test.describe('/itinerary: the February trip — landing 07:55 at Haneda, the hotel later that day', () => {
+  test('"✈️ Start: Haneda Airport ~09:25", the first leg from the airport; the day ends at the hotel, where the next starts; the flight day starts there too', async ({ page, sanity, trackDoc }) => {
+    const hotel = await sanity.create({ _type: 'shopNote', shopName: testName(`Hotel Ueno ${Date.now()}`), placeType: 'hotel', area: 'Ueno', latitude: 35.7128, longitude: 139.7774 })
+    trackDoc(hotel._id)
+    const trip = await makeTrip(sanity, trackDoc, 'Feb Airport Trip', {
+      firstTokyoDay: '2027-02-21', lastTokyoDay: '2027-02-23', arrivalDate: '2027-02-21', arrivalTime: '07:55', arrivalAirport: 'Haneda',
+      flightHomeDate: '2027-02-23', flightHomeTime: '17:55', flightHomeAirport: 'Haneda',
+    })
+    const saves = await mockSaves(page)
+    await page.goto(`/itinerary?trip=${trip._id}&day=2027-02-21`)
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await page.evaluate(() => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[0].stops = [{ name: 'Akihabara First', hours: '', tag: '', slot: '', lat: 35.6995, lng: 139.7712, dur: 60 }]
+      itl.render()
+    })
+    await expect(page.locator('.itl-base-start')).toHaveText('✈️ Start: Haneda Airport ~09:25')
+    await expect(page.locator('#itl-day-hotels')).toHaveText('🏨 Haneda Airport → Base')
+    // The first leg from Haneda: a train, not a walk from the base.
+    await expect(page.locator('.itl-travel[data-index="0"]')).toHaveText(/^🚆 \d+ min$/)
+    // Check-in at the hotel later that day: its end base.
+    await page.locator('#itl-base-btn').click()
+    await expect(page.locator('#itl-base-end optgroup[label="✈️ Airports"] option')).toHaveText(['✈️ Haneda Airport', '✈️ Narita International Airport'])
+    await page.locator('#itl-base-end').selectOption(hotel._id)
+    await page.locator('#itl-base-save').click()
+    await expect(page.locator('.itl-base-end')).toHaveText(new RegExp(`^🏨 Back at \\[test\\] Hotel Ueno \\d+ ~`))
+    await expect(page.locator('#itl-day-hotels')).toHaveText(`🏨 Haneda Airport → ${hotel.shopName}`)
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].data && JSON.parse(saves[saves.length - 1].data).days['2027-02-21'].endBase, { timeout: 10000 }).toBe(hotel._id)
+    // The next day, and the flight day, start at the hotel.
+    for (const day of ['22. feb', '23. feb']) {
+      await page.locator('.itl-tab', { hasText: day }).click()
+      await page.evaluate((idx) => {
+        // @ts-ignore
+        const itl = window.__itl; itl.state[idx].stops = [{ name: 'Day Stop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 }]; itl.render()
+      }, day === '22. feb' ? 1 : 2)
+      await expect(page.locator('.itl-base-start')).toHaveText(new RegExp(`^🏨 Start: \\[test\\] Hotel Ueno \\d+ · `))
+    }
+  })
 })

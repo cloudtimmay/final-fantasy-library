@@ -37,13 +37,16 @@ export const POST: APIRoute = async ({ request }) => {
   if (!id) return json(400, { error: 'Missing id' })
   if (isNaN(lat) || isNaN(lng)) return json(400, { error: 'Invalid coordinates' })
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return json(400, { error: 'Out of range' })
+  // "📍 Find location" sends the match's address: saved only when the shop has none.
+  const address = typeof body.address === 'string' ? body.address.trim().slice(0, 300) : ''
 
   try {
-    const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type }`, { id })
+    const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type, address }`, { id })
     if (!existing) return json(404, { error: 'Not found' })
     if (existing._type !== 'shopNote') return json(400, { error: 'Not a shop note' })
-    await sanityWrite.patch(id).set({ latitude: lat, longitude: lng }).commit()
-    return json(200, { ok: true })
+    const setAddress = !!address && !(typeof existing.address === 'string' && existing.address.trim())
+    await sanityWrite.patch(id).set({ latitude: lat, longitude: lng, ...(setAddress ? { address } : {}) }).commit()
+    return json(200, { ok: true, addressSaved: setAddress })
   } catch (e) {
     return json(500, { error: 'Save failed' })
   }

@@ -171,6 +171,10 @@ if (shop) {
             <input id="s-lng" type="text" inputmode="decimal" placeholder="Longitude" />
           </div>
           <button id="s-locate" type="button" class="locate-btn">📍 Use my location</button>
+          <!-- No coordinates yet: search OpenStreetMap with the name and area, confirm a match, and
+               it's saved (/api/shop-coords; the address too when there's none). -->
+          <button id="s-find" type="button" class="locate-btn" hidden={typeof shop.latitude === 'number' && typeof shop.longitude === 'number'}>📍 Find location</button>
+          <div id="s-find-results" hidden></div>
           <p id="s-coords" class="coords" hidden></p>
           <p id="s-locate-msg" class="locate-msg" hidden></p>
         </div>
@@ -653,7 +657,37 @@ if (shop) {
   <script>
     // "📷 Shop photos" (does nothing when the shop wasn't found).
     import { initShopPhotos } from '../scripts/shop-photos'
+    import { findLocation, findLocationQuery } from '../lib/place-search-ui'
     initShopPhotos()
+
+    // "📍 Find location": the chosen match is saved right away and shown in the fields.
+    const findBtn = document.querySelector('#s-find') as HTMLButtonElement | null
+    findBtn?.addEventListener('click', () => {
+      const val = (sel: string) => ((document.querySelector(sel) as HTMLInputElement | null)?.value || '').trim()
+      const areaVal = val('#s-area')
+      const area = areaVal === '__new__' ? val('#s-area-new') : areaVal
+      const results = document.querySelector('#s-find-results') as HTMLElement
+      const msg = document.querySelector('#s-locate-msg') as HTMLElement
+      findLocation(results, findLocationQuery(val('#s-name'), area), async (p) => {
+        results.hidden = true; results.innerHTML = ''
+        const addressInput = document.querySelector('#s-address') as HTMLInputElement
+        const fillAddress = !addressInput.value.trim() && !!p.address
+        msg.hidden = false; msg.textContent = 'Saving the location…'
+        const res = await fetch('/api/shop-coords', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: val('#s-id'), latitude: p.lat, longitude: p.lng, ...(fillAddress ? { address: p.address } : {}) }),
+        }).catch(() => null)
+        if (!res || !res.ok) { msg.textContent = '⚠️ Could not save the location — try again.'; return }
+        // The fields (their own listeners redraw the coordinates line and the Maps link).
+        for (const [sel, v] of [['#s-lat', p.lat.toFixed(5)], ['#s-lng', p.lng.toFixed(5)], ...(fillAddress ? [['#s-address', p.address]] : [])] as [string, string][]) {
+          const input = document.querySelector(sel) as HTMLInputElement
+          input.value = v
+          input.dispatchEvent(new Event('input'))
+        }
+        findBtn.hidden = true
+        msg.textContent = `📍 Location saved: ${p.name}${fillAddress ? ' (and its address)' : ''}.`
+      })
+    })
   </script>
 
   <style>

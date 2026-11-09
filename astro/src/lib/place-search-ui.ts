@@ -40,6 +40,25 @@ export function renderPlaces(results: HTMLElement, places: PlaceResult[], onChoo
   results.querySelectorAll<HTMLButtonElement>('.ps-result').forEach((b) => b.addEventListener('click', () => onChoose(places[Number(b.dataset.i)])))
 }
 
+// "📍 Find location": a search with the place's name and area, its top matches to confirm one.
+export const FIND_LOCATION_MATCHES = 3
+export function findLocationQuery(name: string, area?: string | null): string {
+  return [name, area].map((s) => (s || '').trim()).filter(Boolean).join(' ')
+}
+export async function findLocation(results: HTMLElement, query: string, onChoose: (p: PlaceResult) => void): Promise<void> {
+  ensureStyle()
+  results.hidden = false
+  if (query.length < 2) { results.innerHTML = '<p class="ps-msg">No name to search for.</p>'; return }
+  results.innerHTML = `<p class="ps-msg">Searching for “${esc(query)}”…</p>`
+  try {
+    const places = (await fetchPlaces(query)).slice(0, FIND_LOCATION_MATCHES)
+    renderPlaces(results, places, onChoose, `No matches for “${query}” — paste coordinates instead.`)
+    if (places.length) results.insertAdjacentHTML('afterbegin', '<p class="ps-msg">Which one is it? Choosing one saves its location.</p>')
+  } catch (e) {
+    results.innerHTML = '<p class="ps-msg">⚠️ The search failed — try again.</p>'
+  }
+}
+
 export function attachPlaceSearch(o: { input: HTMLInputElement; button?: HTMLElement | null; results: HTMLElement; onChoose: (p: PlaceResult) => void; debounceMs?: number }): { search: (q?: string) => Promise<void> } {
   ensureStyle()
   let timer: ReturnType<typeof setTimeout> | undefined

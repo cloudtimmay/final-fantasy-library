@@ -81,6 +81,9 @@ function isUrl(s: string): boolean {
       <option value="">All areas</option>
       {areas.map((a: any) => <option value={a}>{a}</option>)}
     </select>
+    <!-- Places without coordinates (fix them with "📍 Find location" on the shop page): a toggle,
+         with how many there are among the places the other filters show. -->
+    <button id="missing-filter" type="button" class="missing-filter" aria-pressed="false">📍 Missing location (<span id="missing-count">{notes.filter((n: any) => !(typeof n.latitude === 'number' && typeof n.longitude === 'number')).length}</span>)</button>
     <select id="priority-filter">
       <option value="">All</option>
       <option value="must">Must visit</option>
@@ -116,7 +119,7 @@ function isUrl(s: string): boolean {
         .filter(Boolean).join(' ').toLowerCase()
 
       return (
-        <div class="note-card" data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr} data-search={haystack}>
+        <div class="note-card" data-missing={hasCoords ? '' : '1'} data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr} data-search={haystack}>
           <div class="note-head">
             {n.placeType && <span class="type-icon" title={TYPE_LABEL[n.placeType] || n.placeType}>{TYPE_ICON[n.placeType] || '📌'}</span>}
             <span class="note-name">{n.shopName}</span>
@@ -186,6 +189,11 @@ function isUrl(s: string): boolean {
     .search-clear:hover { color: var(--text); }
 
     .notes-tools { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .missing-filter {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem; border-radius: 6px; font: inherit; cursor: pointer;
+    }
+    .missing-filter[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
     .notes-tools select {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
       padding: 0.6rem 0.75rem; border-radius: 6px; max-width: 100%;
@@ -257,6 +265,8 @@ function isUrl(s: string): boolean {
     const areaFilter = document.querySelector('#area-filter')
     const priorityFilter = document.querySelector('#priority-filter')
     const countEl = document.querySelector('#notes-count')
+    const missingFilter = document.querySelector('#missing-filter')
+    const missingCount = document.querySelector('#missing-count')
     const emptyMsg = document.querySelector('#notes-empty')
 
     // The selected trip's shops first, then the rest, each in their own order (never filtered —
@@ -289,7 +299,9 @@ function isUrl(s: string): boolean {
       const type = typeFilter.value
       const area = areaFilter.value
       const priority = priorityFilter.value
+      const missingOnly = missingFilter.getAttribute('aria-pressed') === 'true'
       let visible = 0
+      let missing = 0
 
       searchClear.hidden = q === ''
 
@@ -300,12 +312,16 @@ function isUrl(s: string): boolean {
         const matchesType = !type || card.dataset.type === type
         const matchesArea = !area || card.dataset.area === area
         const matchesPriority = !priority || card.dataset.priority === priority
-        const show = matchesSearch && matchesTrip && matchesType && matchesArea && matchesPriority
+        const others = matchesSearch && matchesTrip && matchesType && matchesArea && matchesPriority
+        const isMissing = card.dataset.missing === '1'
+        if (others && isMissing) missing++
+        const show = others && (!missingOnly || isMissing)
         card.style.display = show ? '' : 'none'
         if (show) visible++
       })
 
       if (countEl) countEl.textContent = `${visible} place${visible === 1 ? '' : 's'}`
+      missingCount.textContent = String(missing)
       if (emptyMsg) emptyMsg.hidden = visible !== 0
     }
 
@@ -317,6 +333,10 @@ function isUrl(s: string): boolean {
     })
     if (tripFilter) tripFilter.addEventListener('change', update)
     typeFilter.addEventListener('change', update)
+    missingFilter.addEventListener('click', () => {
+      missingFilter.setAttribute('aria-pressed', missingFilter.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')
+      update()
+    })
     areaFilter.addEventListener('change', update)
     priorityFilter.addEventListener('change', update)
     update()

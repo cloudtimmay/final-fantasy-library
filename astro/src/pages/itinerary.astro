@@ -282,6 +282,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <button id="itl-ed-coord-fetch" type="button">🔄 From the shop</button>
       </div>
       <p id="itl-ed-coord-msg" class="itl-sheet-msg" hidden></p>
+      <!-- No coordinates (its own or its shop's): "📍 Find location" searches OpenStreetMap with the
+           name and area (lib/place-search-ui.ts findLocation); the chosen match is saved like a
+           pasted "lat, lng" — on the shop too, with its address when the shop has none. -->
+      <button id="itl-ed-find" type="button" hidden>📍 Find location</button>
+      <div id="itl-ed-find-results" hidden></div>
       <div class="itl-sheet-row itl-sheet-foot">
         <button id="itl-ed-delete" type="button" class="itl-sheet-delete">🗑️ Delete</button>
         <a id="itl-detail-edit" class="itl-detail-edit" href="/itinerary-list">Edit in list →</a>
@@ -315,7 +320,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
     import { googleMapsTimedUrl, yahooTransitUrl, transitWhenText } from '../lib/transit-links'
     import { cdnImage } from '../lib/image-url'
-    import { attachPlaceSearch } from '../lib/place-search-ui'
+    import { attachPlaceSearch, findLocation, findLocationQuery } from '../lib/place-search-ui'
     import type { PlaceResult } from '../lib/place-search'
     import { fromTimelineQuery } from '../lib/timeline-back'
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
@@ -1310,6 +1315,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       move.innerHTML = '<option value="">—</option>' + state.filter((d) => d !== day).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}</option>`).join('')
       ed('coord').value = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : ''
       ;(document.querySelector('#itl-ed-coord-fetch') as HTMLButtonElement).hidden = !s.shopId
+      const where = resolveStop(s, shopById)
+      ;(document.querySelector('#itl-ed-find') as HTMLButtonElement).hidden = where.lat != null && where.lng != null
       // The list (/itinerary-list) opens with this day and stop in view (?day=&stop=).
       const params = new URLSearchParams(wrap.dataset.tripQuery ? wrap.dataset.tripQuery.slice(1) : '')
       params.set('day', currentDay)
@@ -1321,6 +1328,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       sheetStop = sheetDay().stops[idx] || null
       if (!sheetStop) return
       ;(document.querySelector('#itl-ed-coord-msg') as HTMLElement).hidden = true
+      const findResults = document.querySelector('#itl-ed-find-results') as HTMLElement
+      findResults.hidden = true; findResults.innerHTML = ''
       fillSheet()
       detail.hidden = false
     }
@@ -1386,6 +1395,20 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     document.querySelector('#itl-ed-coord-save')!.addEventListener('click', withStop((s) => { saveStopCoords(s, ed('coord').value, coordCb()) }))
     document.querySelector('#itl-ed-coord-fetch')!.addEventListener('click', withStop((s) => { fetchStopCoordsFromShop(s, coordCb()) }))
+    document.querySelector('#itl-ed-find')!.addEventListener('click', () => {
+      const s = sheetStop
+      if (!s) return
+      const shop = s.shopId ? shopById.get(s.shopId) : undefined
+      const results = document.querySelector('#itl-ed-find-results') as HTMLElement
+      findLocation(results, findLocationQuery(shop?.shopName || s.name, shop?.area), (p) => {
+        results.hidden = true; results.innerHTML = ''
+        if (shop) {
+          shop.latitude = p.lat; shop.longitude = p.lng
+          if (!shop.address && p.address) shop.address = p.address
+        }
+        saveStopCoords(s, `${p.lat}, ${p.lng}`, coordCb(), p.address)
+      })
+    })
     ed('here').addEventListener('click', withStop((s, idx, day) => { markNow('here', day, idx); fillSheet() }))
     ed('leave').addEventListener('click', withStop((s, idx, day) => { markNow('leave', day, idx); fillSheet() }))
     // --- "✅ Bought" on a find in the strip ---------------------------------------------------

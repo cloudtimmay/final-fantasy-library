@@ -366,7 +366,7 @@ export function renderRouteApplied(el: HTMLElement, onUndo: () => void): void {
 // in Sanity (/api/shop-coords).
 type CoordCallbacks = { save: () => void; msg: (text: string, color: string) => void; done: () => void }
 
-export async function saveStopCoords(stop: PlanStop, text: string, cb: CoordCallbacks): Promise<void> {
+export async function saveStopCoords(stop: PlanStop, text: string, cb: CoordCallbacks, address?: string): Promise<void> {
   const parsed = parseLatLng(text)
   if (!parsed) { cb.msg('Skriv «lat, lng» — f.eks. 35.6990, 139.7710', '#e74c3c'); return }
   stop.lat = parsed.lat; stop.lng = parsed.lng
@@ -376,7 +376,7 @@ export async function saveStopCoords(stop: PlanStop, text: string, cb: CoordCall
     try {
       const res = await fetch('/api/shop-coords', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: stop.shopId, latitude: parsed.lat, longitude: parsed.lng }),
+        body: JSON.stringify({ id: stop.shopId, latitude: parsed.lat, longitude: parsed.lng, ...(address ? { address } : {}) }),
       })
       cb.msg(res.ok ? 'Lagret ✓ — også til butikken i Sanity' : 'Lagret lokalt, men Sanity-lagring feilet', res.ok ? '#2ecc71' : '#e74c3c')
     } catch (e) { cb.msg('Lagret lokalt (ingen nett til Sanity)', '#e74c3c') }

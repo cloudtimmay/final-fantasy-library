@@ -302,8 +302,56 @@ export type ReviewActionContext = {
   tripDays: string[] // the trip's other days a stop can move to
 }
 const MIN_DURATION = 5, MAX_DURATION = 600
-export function validateReviewAction(raw: any, stopIndex: number | null, ctx: ReviewActionContext): ReviewAction | null {
-  if (!raw || typeof raw !== 'object' || !REVIEW_ACTION_TYPES.includes(raw.type)) return null
+// The model's action in the forms it actually comes in, made canonical before the checks below: a
+// type by another name ("shorten", "reorder", "move_to_day" …) or as a plain string, snake_case or
+// other key names (leave_at, duration_min, new_index, date …), numbers as strings, and times like
+// "7:30 PM", "19.30" or "9:05". Anything else stays as it is (and fails the checks).
+const ACTION_ALIASES: Record<string, string> = {
+  set_leave_time: 'set_leave_time', leave_time: 'set_leave_time', set_leave_at: 'set_leave_time', leave_at: 'set_leave_time', leave_earlier: 'set_leave_time', leave: 'set_leave_time',
+  change_duration: 'change_duration', set_duration: 'change_duration', duration: 'change_duration', shorten: 'change_duration', shorten_visit: 'change_duration', reduce_duration: 'change_duration', extend: 'change_duration',
+  move_position: 'move_position', move: 'move_position', reorder: 'move_position', move_stop: 'move_position', change_position: 'move_position',
+  move_day: 'move_day', move_to_day: 'move_day', move_to_another_day: 'move_day', change_day: 'move_day',
+  remove_stop: 'remove_stop', remove: 'remove_stop', delete: 'remove_stop', delete_stop: 'remove_stop', drop: 'remove_stop', skip: 'remove_stop',
+}
+function toClock(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const m = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$/i.exec(v)
+  if (!m) return null
+  let h = +m[1]
+  const min = m[2] ? +m[2] : 0
+  const ap = m[3] ? m[3].toLowerCase()[0] : null
+  if (ap === 'p' && h < 12) h += 12
+  if (ap === 'a' && h === 12) h = 0
+  if (h > 23 || min > 59 || (!m[2] && !ap)) return null
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+const toInt = (v: unknown): number | null => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\s*\d+\s*(min(utes)?)?\s*$/i.test(v) ? parseInt(v, 10) : NaN
+  return Number.isInteger(n) ? n : null
+}
+export function normalizeReviewAction(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === 'string') raw = { type: raw }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as Record<string, unknown>
+  const typeRaw = String(r.type ?? r.action ?? r.kind ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  const type = ACTION_ALIASES[typeRaw]
+  if (!type) return null
+  const pick = (...keys: string[]) => keys.map((k) => r[k]).find((v) => v != null)
+  const stopIndex = toInt(pick('stopIndex', 'stop_index', 'stop'))
+  const out: Record<string, unknown> = { type, ...(stopIndex != null ? { stopIndex } : {}) }
+  if (type === 'set_leave_time') out.leaveAt = toClock(pick('leaveAt', 'leave_at', 'time', 'at', 'value'))
+  if (type === 'change_duration') out.durationMin = toInt(pick('durationMin', 'duration_min', 'duration', 'minutes', 'newDuration', 'new_duration', 'value'))
+  if (type === 'move_position') {
+    const to = toInt(pick('toIndex', 'to_index', 'newIndex', 'new_index', 'position', 'index'))
+    out.toIndex = to
+  }
+  if (type === 'move_day') out.toDate = pick('toDate', 'to_date', 'date', 'day', 'value')
+  return out
+}
+
+export function validateReviewAction(rawIn: any, stopIndex: number | null, ctx: ReviewActionContext): ReviewAction | null {
+  const raw = normalizeReviewAction(rawIn)
+  if (!raw || !REVIEW_ACTION_TYPES.includes(raw.type as any)) return null
   const idx = typeof raw.stopIndex === 'number' ? raw.stopIndex : stopIndex
   if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= ctx.stops.length) return null
   const stop = ctx.stops[idx]
@@ -476,7 +524,7 @@ export function reviewInputsFromBody(body: any): { error: string } | ReviewInput
 // `source: 'timetable'`: the day warning (late trains, closed stops), leave earlier / doesn't fit
 // (a missed arrive-early, too little time to walk), the first fixed stop the day's start can't
 // reach, waiting for an opening, opening hours, and the flight deadline.
-export type ServerReviewItem = { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null; source: 'timetable' }
+export type ServerReviewItem = { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null; source: 'timetable'; action?: ReviewAction }
 export function serverReviewItems(inp: ReviewInputs): ServerReviewItem[] {
   const names = inp.stops.map((s) => s.name)
   const out: { severity: 'warning' | 'tip'; stopIndex: number | null; message: string; suggestion: string | null }[] = []
@@ -504,7 +552,19 @@ export function serverReviewItems(inp: ReviewInputs): ServerReviewItem[] {
   out.push(...hoursReviewItems(names, inp.openingHoursByStop, inp.weekday, visits, inp.dayDate))
   const fw = inp.flight ? flightDeadlineWarning(inp.stops, inp.flight, sched ? sched.end : null, inp.airportTrain) : null
   if (fw) out.push(fw as any)
-  return out.map((x) => ({ ...x, source: 'timetable' as const }))
+  // The timetable's own "leave earlier" / "doesn't fit" items carry their fix: leave the stop at the
+  // latest time that still works (the schedule's latestLeave), checked like the AI's actions.
+  const actionCtx: ReviewActionContext = {
+    stops: inp.stops.map((s, i) => ({ name: s.name, plannedTime: sched ? sched.stops[i].start : s.plannedTime, durationMin: sched ? sched.stops[i].end - sched.stops[i].start : s.durationMin })),
+    dayDate: inp.dayDate, tripDays: [],
+  }
+  return out.map((x) => {
+    const i = x.stopIndex
+    const st = sched && typeof i === 'number' ? sched.stops[i] : null
+    const latest = st && (st.leaveEarlierMin || st.doesntFit) ? st.latestLeave ?? st.leaveBy : null
+    const action = latest != null && x.severity === 'warning' ? validateReviewAction({ type: 'set_leave_time', leaveAt: formatClock(latest) }, i, actionCtx) : null
+    return { ...x, ...(action ? { action } : {}), source: 'timetable' as const }
+  })
 }
 
 // For the AI: what the timetable already found and the owner sees first — not to be repeated or

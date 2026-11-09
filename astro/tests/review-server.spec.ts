@@ -30,6 +30,8 @@ test.describe('Check day: the server\'s own findings (lib/itinerary-review-helpe
     expect(walk, items.map((x) => x.message).join(' | ')).toBeTruthy()
     expect(walk!.severity).toBe('warning')
     expect(walk!.message).toMatch(/earlier to reach Final Fantasy Eorzea Cafe in time|before Final Fantasy Eorzea Cafe at 20:00 need \d+ min more than available/)
+    // Its fix comes with it: leave BOOKOFF at the latest time that still reaches the cafe by 19:45.
+    expect(walk!.action).toMatchObject({ type: 'set_leave_time', stopIndex: 0, stopName: 'BOOKOFF Akihabara Ekimae', leaveAt: expect.stringMatching(/^19:[0-3]\d$/) })
     expect(items.every((x) => x.source === 'timetable')).toBe(true)
     // The cafe first, but the day starts at 19:40: it can't be reached by 19:45.
     ;({ items } = server(dayOf('19:40', [CAFE])))
@@ -69,5 +71,31 @@ test.describe('/itinerary: the server\'s findings first in the Check day panel',
     await expect(items.nth(0)).toHaveClass(/ir-server/)
     await expect(items.nth(0).locator('.ir-source')).toHaveText('⏱ Timetable')
     await expect(items.nth(1).locator('.ir-source')).toHaveCount(0)
+  })
+})
+
+test.describe('/itinerary: Apply on the timetable\'s own finding', () => {
+  test('"Leave BOOKOFF … earlier" has "Apply: Leave at 19:xx"; applying it removes the problem', async ({ page, sanity, trackDoc }) => {
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Apply Server Trip ${Date.now()}`), firstTokyoDay: '2026-12-02', lastTokyoDay: '2026-12-03' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    // The endpoint's answer for this day, as it now comes (the server's item with its action).
+    const day = dayOf('18:50', [BOOKOFF, CAFE])
+    const items = server(day).items
+    await page.route('**/api/itinerary-review', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, items }) }))
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await page.evaluate((stops) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl; itl.state[0].startTime = '18:50'; itl.state[0].stops = stops; itl.render()
+    }, day.stops)
+    await page.locator('#itl-check-btn').click()
+    const apply = page.locator('#itl-check-results .ir-apply-btn')
+    await expect(apply.first()).toHaveText(/^Apply: Leave at 19:[0-3]\d$/)
+    await apply.first().click()
+    await expect(page.locator('#itl-check-results .ir-applied').first()).toHaveText('Applied ✓')
+    const leaveAt = await page.evaluate(() => (window as any).__itl.state[0].stops[0].leaveAt)
+    expect(leaveAt).toMatch(/^19:[0-3]\d$/)
+    await expect(page.locator('.itl-block').first()).not.toHaveClass(/itl-warn-(fit|leave)/)
   })
 })

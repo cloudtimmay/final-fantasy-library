@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, testName } from './fixtures'
-import { validateReviewAction, modelReviewItems, reviewActionLabel } from '../src/lib/itinerary-review-helpers'
+import { validateReviewAction, modelReviewItems, reviewActionLabel, normalizeReviewAction } from '../src/lib/itinerary-review-helpers'
 import { applyReviewAction } from '../src/lib/itinerary-plan'
 
 // Check day's suggestions as changes: checked on the server against the plan, applied only on
@@ -186,5 +186,32 @@ test.describe('/itinerary: Check day suggestions with "Apply" and Undo', () => {
     await page.locator('#itl-check-results .ir-apply-btn').first().click() // "Super Potato at place 2" no longer holds
     await expect(page.locator('#itl-check-results .ir-apply-row').nth(1)).toHaveText('No longer applies (the plan has changed).')
     expect(await names(page)).toEqual(['Super Potato', 'Lunch'])
+  })
+})
+
+test.describe('Check day actions: the forms the model sends them in', () => {
+  test('other type names, snake_case keys, numbers as strings, 12-hour times — made canonical, then checked as before', () => {
+    expect(validateReviewAction({ type: 'shorten', duration_min: '30' }, 1, CTX)).toMatchObject({ type: 'change_duration', durationMin: 30 })
+    expect(validateReviewAction({ action: 'leave_at', time: '10:40 AM' }, 0, CTX)).toMatchObject({ type: 'set_leave_time', leaveAt: '10:40' })
+    expect(validateReviewAction({ type: 'set_leave_time', leaveAt: '1:15 pm' }, 2, CTX)).toMatchObject({ leaveAt: '13:15' })
+    expect(validateReviewAction({ type: 'Set leave time', leave_at: '12.30' }, 1, CTX)).toMatchObject({ leaveAt: '12:30' })
+    expect(validateReviewAction('remove', 2, CTX)).toMatchObject({ type: 'remove_stop', stopName: 'Lunch' })
+    expect(validateReviewAction({ type: 'reorder', new_index: '0' }, 2, CTX)).toMatchObject({ type: 'move_position', toIndex: 0 })
+    expect(validateReviewAction({ type: 'move_to_day', date: '2026-12-07' }, 1, CTX)).toMatchObject({ type: 'move_day', toDate: '2026-12-07' })
+    expect(validateReviewAction({ type: 'change_duration', stop_index: 1, minutes: '45 min' }, null, CTX)).toBeNull() // 45 = no change
+    expect(validateReviewAction({ type: 'change_duration', stop_index: 1, minutes: '20 min' }, null, CTX)).toMatchObject({ stopIndex: 1, durationMin: 20 })
+    // Still refused: no time ("9"), an unknown type, a time before the visit.
+    expect(validateReviewAction({ type: 'set_leave_time', leaveAt: '9' }, 0, CTX)).toBeNull()
+    expect(validateReviewAction({ type: 'teleport' }, 0, CTX)).toBeNull()
+    expect(validateReviewAction({ type: 'leave', time: '9:30 am' }, 0, CTX)).toBeNull()
+    expect(normalizeReviewAction(['set_leave_time'])).toBeNull()
+  })
+
+  test('the model\'s items with those forms keep their action', () => {
+    const items = modelReviewItems([
+      { severity: 'warning', stopIndex: 1, message: 'Too long at Super Potato.', suggestion: 'Shorten it.', action: { type: 'shorten', duration_min: '30' } },
+      { severity: 'tip', stopIndex: 0, message: 'Leave Animate a bit earlier.', suggestion: null, action: { action: 'leave_at', time: '10:45 AM' } },
+    ], CTX, 8)
+    expect(items.map((i) => i.action && reviewActionLabel(i.action))).toEqual(['Make it 30 min', 'Leave at 10:45'])
   })
 })

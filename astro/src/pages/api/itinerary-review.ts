@@ -47,13 +47,17 @@ After your review, respond with ONLY a JSON array (no other text, no markdown co
 - stopIndex: the 0-based index of the specific stop this is about, or null if it concerns the whole day rather than one stop.
 - message: a short, concrete description of the problem.
 - suggestion: a short concrete suggestion, or null if there isn't one.
-- action: null, or ONE change to the plan that carries out the suggestion, for the item's stop, exactly one of:
-  {"type":"set_leave_time","leaveAt":"HH:MM"} (leave the stop then),
-  {"type":"change_duration","durationMin":45} (a new visit length in minutes),
-  {"type":"move_position","toIndex":2} (0-based new place in the day's order),
-  {"type":"move_day","toDate":"YYYY-MM-DD"} (only one of the other days listed under "Other days of the trip"),
-  {"type":"remove_stop"}.
-  Use null when the fix is not one of these, or the item has no stop. The owner decides whether to apply it.
+- action: an object, or null. Give one whenever the suggestion is a change to the item's stop (stopIndex must then be set): the owner gets an "Apply" button for it. Exactly one of these shapes, with exactly these key names and value types:
+  {"type":"set_leave_time","leaveAt":"19:30"} — leaveAt is a 24-hour "HH:MM" string; leave the stop then.
+  {"type":"change_duration","durationMin":45} — durationMin is a whole number of minutes; the new visit length.
+  {"type":"move_position","toIndex":2} — toIndex is the 0-based new place in the day's order.
+  {"type":"move_day","toDate":"2026-12-03"} — toDate is one of the dates under "Other days of the trip".
+  {"type":"remove_stop"}
+  null when the suggestion isn't one of these changes, or the item has no stop.
+
+Example of the whole answer:
+[{"severity":"warning","stopIndex":3,"message":"7 hours at BOOKOFF Akihabara Ekimae leaves no time for the cafe at 20:00.","suggestion":"Leave BOOKOFF by 19:30.","action":{"type":"set_leave_time","leaveAt":"19:30"}},
+ {"severity":"tip","stopIndex":null,"message":"No break between 10:00 and 13:00.","suggestion":null,"action":null}]
 
 If the day looks fine, respond with an empty JSON array: []`
 

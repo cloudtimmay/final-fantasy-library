@@ -444,8 +444,9 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     await expect(panel).toBeVisible()
     const walks = panel.locator('.routes-walk .itl-dayroute-link')
     const trains = panel.locator('.routes-train .itl-dayroute-link')
-    await expect(walks).toHaveText(['🗺️ Yellow Submarine Shinjuku (1 stop)', '🗺️ SURUGA-YA Marui City Yokohama (2 stops)', '🗺️ Tokyo Temple (1 stop)'])
-    await expect(trains).toHaveText(['🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama', '🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple', '🚆 Tokyo Temple → Base'])
+    // Numbered in day order across both columns.
+    await expect(walks).toHaveText(['1. 🗺️ Yellow Submarine Shinjuku (1 stop)', '3. 🗺️ SURUGA-YA Marui City Yokohama (2 stops)', '5. 🗺️ Tokyo Temple (1 stop)'])
+    await expect(trains).toHaveText(['2. 🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama', '4. 🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple', '6. 🚆 Tokyo Temple → Base'])
     // Side by side on the phone (walking left).
     const w = (await panel.locator('.routes-walk').boundingBox())!, tr = (await panel.locator('.routes-train').boundingBox())!
     expect(w.x).toBeLessThan(tr.x)
@@ -477,8 +478,8 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     ]
     await openTimeline(page, sanity, trackDoc, stops, {}, '10:00')
     await page.locator('#itl-routes-btn').click()
-    await expect(page.locator('.routes-walk .itl-dayroute-link')).toHaveText(['🗺️ Akihabara (3 stops)', '🗺️ Shinjuku (2 stops)'])
-    await expect(page.locator('.routes-train .itl-dayroute-link')).toHaveText(['🚆 Akihabara → Shinjuku', '🚆 Shinjuku → Base'])
+    await expect(page.locator('.routes-walk .itl-dayroute-link')).toHaveText(['1. 🗺️ Akihabara (3 stops)', '3. 🗺️ Shinjuku (2 stops)'])
+    await expect(page.locator('.routes-train .itl-dayroute-link')).toHaveText(['2. 🚆 Akihabara → Shinjuku', '4. 🚆 Shinjuku → Base'])
     // The walk starts at the base (a short walk to the first shop).
     const walk = new URL((await page.locator('.routes-walk .itl-dayroute-link').first().getAttribute('href'))!)
     expect(walk.searchParams.get('origin')).toBe('35.697999,139.77083')

@@ -109,8 +109,10 @@ type CheckOptions = { stopName: (i: number) => string; onStopClick: (i: number) 
 // The day's routes (itinerary-plan.ts dayRouteLinks) in two columns, each in day order: walking
 // routes per area, train moves between areas. `linkClass`: the page's own class for the links.
 export function routesColumnsHtml(links: { kind: 'walk' | 'train'; label: string; url: string }[], linkClass: string): string {
+  // Numbered in day order across both columns: "1. 🚆 Base → Ikebukuro", "2. 🗺️ Ikebukuro (8 stops)" …
+  const numbered = links.map((l, i) => ({ ...l, label: `${i + 1}. ${l.label}` }))
   const col = (kind: 'walk' | 'train', title: string) => {
-    const items = links.filter((l) => l.kind === kind)
+    const items = numbered.filter((l) => l.kind === kind)
     return `<div class="routes-col routes-${kind}"><p class="routes-col-title">${title}</p>${items.length
       ? items.map((l) => `<a class="${linkClass} route-${kind}" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join('')
       : `<span class="routes-none">${kind === 'walk' ? 'No walking routes' : 'No trains between areas'}</span>`}</div>`

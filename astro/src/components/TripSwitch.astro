@@ -1,7 +1,8 @@
 ---
 // The itinerary's trip switcher (/itinerary and /itinerary-list): every trip with days in Tokyo
-// (lib/trip-plans.ts planTrips). Picking one opens this page for it (?trip=<id>); the choice is
-// remembered in this browser, so the page comes back to it when opened without ?trip=.
+// (lib/trip-plans.ts planTrips), as buttons like the day tabs ("Japan 2026 · 1.–6. des"), scrolling
+// sideways on a phone. Picking one opens this page for it (?trip=<id>); the choice is remembered in
+// this browser, so the page comes back to it when opened without ?trip=.
 // The page's default (no ?trip=, nothing remembered) is the ongoing or next upcoming trip.
 interface Props {
   choices: { _id: string; label: string; range: string }[]
@@ -11,40 +12,53 @@ const { choices, current } = Astro.props
 const inChoices = !!current && choices.some((c) => c._id === current._id)
 ---
 {choices.length > 0 && (
-  <label class="trip-switch">🧳 Trip
-    <select id="trip-switch" aria-label="Trip">
-      {!inChoices && <option value={current?._id || ''} selected>{current ? `${current.label || 'Trip'} (no days in Tokyo)` : '—'}</option>}
-      {choices.map((c) => <option value={c._id} selected={c._id === current?._id}>{c.label} · {c.range}</option>)}
-    </select>
-  </label>
+  <div class="trip-tabs" id="trip-switch" role="tablist" aria-label="Trip" data-current={current?._id || ''}>
+    {!inChoices && current && <span class="trip-tab active" aria-selected="true">{current.label || 'Trip'} (no days in Tokyo)</span>}
+    {choices.map((c) => (
+      <button type="button" role="tab" class:list={['trip-tab', { active: c._id === current?._id }]} data-trip={c._id} aria-selected={c._id === current?._id ? 'true' : 'false'}>{c.label} · {c.range}</button>
+    ))}
+  </div>
 )}
 <script is:inline>
   (function () {
     var KEY = 'ff-itinerary-trip'
-    var sel = document.getElementById('trip-switch')
-    if (!sel) return
-    var ids = Array.prototype.map.call(sel.options, function (o) { return o.value }).filter(Boolean)
+    var box = document.getElementById('trip-switch')
+    if (!box) return
+    var buttons = Array.prototype.slice.call(box.querySelectorAll('button[data-trip]'))
+    var ids = buttons.map(function (b) { return b.getAttribute('data-trip') })
+    var current = box.getAttribute('data-current') || ''
     var url = new URL(window.location.href)
     var stored = null
     try { stored = localStorage.getItem(KEY) } catch (e) {}
     // Opened without ?trip=: back to the trip picked here last time, if it's still a choice.
-    if (!url.searchParams.get('trip') && stored && stored !== sel.value && ids.indexOf(stored) >= 0) {
+    if (!url.searchParams.get('trip') && stored && stored !== current && ids.indexOf(stored) >= 0) {
       url.searchParams.set('trip', stored)
       window.location.replace(url.toString())
       return
     }
-    try { if (sel.value) localStorage.setItem(KEY, sel.value) } catch (e) {}
-    sel.addEventListener('change', function () {
-      if (!sel.value) return
-      try { localStorage.setItem(KEY, sel.value) } catch (e) {}
-      var u = new URL(window.location.href)
-      u.searchParams.set('trip', sel.value)
-      u.searchParams.delete('day') // the other trip's days
-      window.location.href = u.toString()
+    try { if (current && ids.indexOf(current) >= 0) localStorage.setItem(KEY, current) } catch (e) {}
+    var active = box.querySelector('.trip-tab.active')
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-trip')
+        if (!id || id === current) return
+        try { localStorage.setItem(KEY, id) } catch (e) {}
+        var u = new URL(window.location.href)
+        u.searchParams.set('trip', id)
+        u.searchParams.delete('day') // the other trip's days
+        window.location.href = u.toString()
+      })
     })
   })()
 </script>
 <style>
-  .trip-switch { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; font-size: 0.85rem; font-weight: 600; }
-  .trip-switch select { flex: 1; min-width: 0; max-width: 100%; font-size: 0.85rem; padding: 0.3rem; }
+  /* Like the day tabs: dark pills, the active one in the accent colour; scrolls sideways. */
+  .trip-tabs { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.4rem; margin: 0 0 0.6rem; scrollbar-width: none; }
+  .trip-tabs::-webkit-scrollbar { display: none; }
+  .trip-tab {
+    flex-shrink: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.85rem; cursor: pointer; min-height: 36px; white-space: nowrap;
+  }
+  .trip-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; cursor: default; }
 </style>

@@ -2,7 +2,7 @@
 // trip (?trip=<id> or the default one), its days in Tokyo and their labels, the flight home,
 // the shops and the saved plan. One function, so both pages show the same days for the same trip.
 import { sanity } from './sanity'
-import { formatDayLabel, dateRange, isIsoDate } from './trip-dates'
+import { formatDayLabel, dateRange, isIsoDate, shortDateRange } from './trip-dates'
 import { fetchTripsForSpending, pickDefaultTrip } from './spending'
 import { parseFlightHome, latestEndForFlight, flightLine, formatClock } from './itinerary-review-helpers'
 import { foundItems, foundPricesQuery, foundPurchasesQuery, type FoundItem, type FoundPriceDoc, type FoundPurchaseDoc } from './shop-found'
@@ -192,7 +192,7 @@ function pageDataFrom(shopsIn: any[], savedState: string | null, trip: PageTrip 
   // the landing + immigration + the trip to the base (unless a start time was chosen).
   const arrival = arrivalFor(trip)
   const startDefaults: Record<string, string> = arrival ? { [arrival.date]: arrival.start } : {}
-  const tripChoices = trips.map((t) => ({ _id: t._id, label: t.label || 'Trip', range: `${formatDayLabel(t.firstTokyoDay!)} – ${formatDayLabel(t.lastTokyoDay!)}` }))
+  const tripChoices = trips.map((t) => ({ _id: t._id, label: t.label || 'Trip', range: shortDateRange(t.firstTokyoDay!, t.lastTokyoDay!) }))
   return { BASE, AREA_MIN_FROM_AKIB, shops, savedState, plan, trip, usingTripDays, days, rangeLabel, flight, labels, arrival, startDefaults, tripChoices }
 }
 

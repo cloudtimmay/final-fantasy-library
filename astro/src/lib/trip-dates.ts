@@ -109,3 +109,14 @@ export function formatDayShortEn(iso: string): string {
   if (!p) return iso
   return `${WEEKDAYS_EN_SHORT[weekdayIndex(iso)]} ${p.d} ${MONTHS_EN_SHORT[p.m - 1]}`
 }
+
+// A short range of days for a trip button: "1.–6. des" within a month, "21. feb–5. mar" across,
+// and the year on both ends across a new year ("28. des 2026–3. jan 2027").
+export function shortDateRange(first: string, last: string): string {
+  const [y1, m1, d1] = first.split('-').map(Number)
+  const [y2, m2, d2] = last.split('-').map(Number)
+  if (!y1 || !y2) return ''
+  if (y1 !== y2) return `${d1}. ${MONTHS_NO_SHORT[m1 - 1]} ${y1}–${d2}. ${MONTHS_NO_SHORT[m2 - 1]} ${y2}`
+  if (m1 === m2) return d1 === d2 ? `${d1}. ${MONTHS_NO_SHORT[m1 - 1]}` : `${d1}.–${d2}. ${MONTHS_NO_SHORT[m1 - 1]}`
+  return `${d1}. ${MONTHS_NO_SHORT[m1 - 1]}–${d2}. ${MONTHS_NO_SHORT[m2 - 1]}`
+}

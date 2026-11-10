@@ -4,10 +4,10 @@ import { test, expect } from './fixtures'
 test.describe('"Family items" entry in the add menu', () => {
   const cardTitles = (page: Page) => page.locator('.menu-card .menu-title')
 
-  test('add-menu: the card comes right after "All prices" and opens /family', async ({ page }) => {
+  test('add-menu: the card comes after "All prices" and "💚 Picks", and opens /family', async ({ page }) => {
     await page.goto('/add-menu')
     const titles = await cardTitles(page).allTextContents()
-    expect(titles[titles.indexOf('All prices') + 1]).toBe('Family items')
+    expect(titles.slice(titles.indexOf('All prices'), titles.indexOf('All prices') + 3)).toEqual(['All prices', 'Picks', 'Family items']) // 💚 Picks right after All prices
     await page.locator('.menu-card', { hasText: 'Family items' }).click()
     await expect(page).toHaveURL(/\/family/)
     await expect(page.getByRole('heading', { name: 'Family items' })).toBeVisible()
@@ -20,7 +20,7 @@ test.describe('"Family items" entry in the add menu', () => {
     await page.locator('.bottom-nav a', { hasText: 'Add' }).click()
     await expect(page).toHaveURL(/\/add-menu$/)
     const titles = await cardTitles(page).allTextContents()
-    expect(titles[titles.indexOf('All prices') + 1]).toBe('Family items')
+    expect(titles.slice(titles.indexOf('All prices'), titles.indexOf('All prices') + 3)).toEqual(['All prices', 'Picks', 'Family items']) // 💚 Picks right after All prices
   })
 
   test.describe('desktop', () => {
@@ -30,7 +30,7 @@ test.describe('"Family items" entry in the add menu', () => {
       await page.locator('nav a.nav-add').click()
       await expect(page).toHaveURL(/\/add-menu$/)
       const titles = await cardTitles(page).allTextContents()
-      expect(titles[titles.indexOf('All prices') + 1]).toBe('Family items')
+      expect(titles.slice(titles.indexOf('All prices'), titles.indexOf('All prices') + 3)).toEqual(['All prices', 'Picks', 'Family items']) // 💚 Picks right after All prices
     })
   })
 })

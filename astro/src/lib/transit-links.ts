@@ -8,8 +8,6 @@
 //   type: 1 = departure, 4 = arrival (3 = first train, 2 = last train, 5 = unspecified).
 //   Station names: Japanese when known (JA_STATIONS), else the English name as written.
 
-import { addDays } from './trip-dates'
-
 export type TransitWhen ={ date: string; minutes: number; type: 'depart' | 'arrive' } // date YYYY-MM-DD, minutes 0–1439, Tokyo time
 export type TransitPlace = { name: string; lat: number | null; lng: number | null }
 
@@ -29,9 +27,9 @@ export function japaneseStation(name: string): string {
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
-// Always a DEPARTURE time: Google ignores the legacy URL's arrival type (ttype=arr) and opens
-// "Depart at" the arrive-by time — so the time to search from is worked out first
-// (googleMapsDeparture).
+// Always a DEPARTURE time: the time you leave the stop before, from the schedule
+// (itinerary-plan.ts legLeaveTime). Google ignores the legacy URL's arrival type (ttype=arr) —
+// it opened "Depart at" the arrive-by time — so it's never sent.
 export function googleMapsTimedUrl(from: TransitPlace, to: TransitPlace, when: { date: string; minutes: number }): string {
   const place = (p: TransitPlace) => (p.lat != null && p.lng != null ? `${p.lat},${p.lng}` : p.name)
   const [y, m, d] = when.date.split('-')
@@ -44,38 +42,9 @@ export function googleMapsTimedUrl(from: TransitPlace, to: TransitPlace, when: {
   return `https://maps.google.com/maps?${q.toString()}`
 }
 
-// Time to spare before an arrive-by time when searching departures for it.
-export const GOOGLE_ARRIVE_BUFFER_MIN = 10
-
-// The departure Google Maps searches from, for the leg's search time `when` (legSearchTime):
-// - a planned train: its first departure less the walk to the station (`train.departure` in
-//   minutes on `train.date`, past midnight moving to the next date);
-// - arrive by: that time less the leg's estimated travel time less GOOGLE_ARRIVE_BUFFER_MIN;
-// - depart at: that time.
-export type GoogleDeparture = { date: string; minutes: number; reason: 'train' | 'arrive' | 'depart'; trainDeparture?: number; walkToStationMin?: number }
-export function googleMapsDeparture(
-  when: TransitWhen,
-  leg: { travelMin?: number | null; train?: { date: string; departure: number; walkToStationMin: number | null } | null },
-): GoogleDeparture {
-  const at = (date: string, minutes: number) => {
-    const shift = Math.floor(minutes / 1440)
-    return { date: shift ? addDays(date, shift) : date, minutes: ((minutes % 1440) + 1440) % 1440 }
-  }
-  if (leg.train) {
-    const walk = leg.train.walkToStationMin ?? 0
-    return { ...at(leg.train.date, leg.train.departure - walk), reason: 'train', trainDeparture: leg.train.departure % 1440, walkToStationMin: walk }
-  }
-  if (when.type === 'arrive') return { ...at(when.date, when.minutes - (leg.travelMin ?? 0) - GOOGLE_ARRIVE_BUFFER_MIN), reason: 'arrive' }
-  return { date: when.date, minutes: when.minutes, reason: 'depart' }
-}
-
-const clock = (m: number) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`
-// For the panel: "Google Maps opens with departures from 17:35 (to arrive by 18:30)".
-export function googleMapsDepartureText(dep: GoogleDeparture, when: TransitWhen): string {
-  const base = `Google Maps opens with departures from ${clock(dep.minutes)}`
-  if (dep.reason === 'train') return `${base} (for the ${clock(dep.trainDeparture!)} train${dep.walkToStationMin ? `, ${dep.walkToStationMin} min walk to the station` : ''})`
-  if (dep.reason === 'arrive') return `${base} (to arrive by ${clock(when.minutes)})`
-  return base
+// For the panel: "Google Maps opens with departures from 17:35, when you leave Square Enix Cafe".
+export function googleMapsLeaveText(minutes: number, fromName: string): string {
+  return `Google Maps opens with departures from ${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}, when you leave ${fromName}`
 }
 
 export function yahooTransitUrl(fromStation: string, toStation: string, when: TransitWhen): string {

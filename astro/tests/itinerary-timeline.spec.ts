@@ -455,20 +455,20 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     expect(walk.searchParams.get('travelmode')).toBe('walking')
     expect(walk.searchParams.get('origin')).toBe('35.464556,139.624649')
     expect(walk.searchParams.get('destination')).toBe('35.4658,139.6223')
-    // A move: transit with its time (the older maps URL, "Google Maps (with time)") — the fixed
-    // 19:00 temple with arrive-early 30: arriving by 18:30.
+    // A move: transit with its time (the older maps URL, "Google Maps (with time)") — departures
+    // from when the cafe before the Tokyo Temple is left by the schedule: 17:35.
     const move = Object.fromEntries(new URL((await trains.nth(1).getAttribute('href'))!).searchParams)
-    // Google ignores an arrive-by time, so it gets the departure before it: 18:30 − the leg's
-    // estimate (in its label, "~45 min") − 10 min to spare.
-    const est = Number(/· ~(\d+) min$/.exec((await trains.nth(1).textContent())!)![1])
-    const dep = t('18:30') - est - 10
-    const twelve = `${Math.floor(dep / 60) % 12 || 12}:${String(dep % 60).padStart(2, '0')}${dep < 720 ? 'am' : 'pm'}`
-    expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'dep', date: '12/05/26', time: twelve })
+    expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'dep', date: '12/05/26', time: '5:35pm' })
     // ✕ closes it; the toggle opens it again.
     await panel.locator('.panel-close').click()
     await expect(panel).toBeHidden()
     await page.locator('#itl-routes-btn').click()
     await expect(panel).toBeVisible()
+    // The same leg's "🚆 Plan train": the same departure, and where from.
+    await panel.locator('.panel-close').click()
+    await page.locator('.itl-travel[data-index="3"]').click()
+    await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 17:35, when you leave Square Enix Pop Up Cafe Yokohama')
+    expect(Object.fromEntries(new URL((await page.locator('#itl-train-maps-time').getAttribute('href'))!).searchParams)).toMatchObject({ ttype: 'dep', time: '5:35pm' })
   })
 
   test('the day\'s route by area: shops in the same area are one walk (the base with them when it\'s a walk away); a new area is a move', async ({ page, sanity, trackDoc }) => {
@@ -2520,12 +2520,12 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await expect(page.locator('#itl-train-when')).toHaveText('🕐 Arriving by 09:00 on 2026-12-05')
     const q = async (sel: string) => Object.fromEntries(new URL((await page.locator(sel).getAttribute('href'))!).searchParams)
     expect(await q('#itl-train-yahoo')).toMatchObject({ y: '2026', m: '12', d: '05', hh: '9', m1: '0', m2: '0', type: '4' })
-    // Google Maps: departures before 09:00 by the leg's estimate (its band, "🚆 N min") and 10 min.
-    const est = Number(/(\d+) min$/.exec((await page.locator('.itl-travel[data-index="1"]').textContent())!)![1])
-    const dep = t('09:00') - est - 10
-    const hhmm = `${String(Math.floor(dep / 60)).padStart(2, '0')}:${String(dep % 60).padStart(2, '0')}`
-    expect(await q('#itl-train-maps-time')).toMatchObject({ dirflg: 'r', ttype: 'dep', date: '12/05/26', time: `${Math.floor(dep / 60) % 12 || 12}:${String(dep % 60).padStart(2, '0')}am` })
-    await expect(page.locator('#itl-train-maps-when')).toHaveText(`Google Maps opens with departures from ${hhmm} (to arrive by 09:00)`)
+    // Google Maps: departures from when the hotel breakfast is left by the schedule (not 09:00 less
+    // an estimate) — the panel's line and the URL say the same time.
+    const mapsWhen = page.locator('#itl-train-maps-when')
+    await expect(mapsWhen).toHaveText(/^Google Maps opens with departures from \d\d:\d\d, when you leave Hotel Breakfast$/)
+    const [hh, mm] = /(\d\d):(\d\d)/.exec((await mapsWhen.textContent())!)!.slice(1).map(Number)
+    expect(await q('#itl-train-maps-time')).toMatchObject({ dirflg: 'r', ttype: 'dep', date: '12/05/26', time: `${hh % 12 || 12}:${String(mm).padStart(2, '0')}${hh < 12 ? 'am' : 'pm'}` })
     await expect(page.locator('#itl-train-maps')).toHaveAttribute('href', /travelmode=transit/) // today's link stays
     await expect(page.locator('#itl-train-maps-time')).toHaveText('🗺️ Google Maps (with time)')
     await expect(page.locator('#itl-train-yahoo')).toHaveText('🚃 Yahoo! 乗換案内 (works in Japan)')
@@ -2538,9 +2538,10 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await page.locator('.itl-travel[data-index="1"]').click()
     await expect(page.locator('#itl-train-when')).toHaveText(/^🕐 Departing \d\d:\d\d on 2026-12-05$/)
     expect(await q('#itl-train-yahoo')).toMatchObject({ from: '秋葉原', to: '東静岡', type: '1' })
-    // Google Maps: the planned 06:47 train less the 5 min walk.
-    expect(await q('#itl-train-maps-time')).toMatchObject({ ttype: 'dep', date: '12/05/26', time: '6:42am' })
-    await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 06:42 (for the 06:47 train, 5 min walk to the station)')
+    // Google Maps: still when the hotel is left — its leave-by for the 06:47 train (06:47 − 5 walk
+    // − 10 = 06:32), not the train's own departure.
+    expect(await q('#itl-train-maps-time')).toMatchObject({ ttype: 'dep', date: '12/05/26', time: '6:32am' })
+    await expect(mapsWhen).toHaveText('Google Maps opens with departures from 06:32, when you leave Hotel Breakfast')
   })
 
     test('arriving much earlier than a fixed time: the hint', async ({ page, sanity, trackDoc }) => {

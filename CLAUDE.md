@@ -24,10 +24,9 @@ Final Fantasy Library — a personal collection tracker (albums/games/books/merc
 
 ## Testing
 
-- During a task, run only the specs related to what you changed (`npx playwright test <spec>…`).
-- Commit each step locally once its related specs pass.
-- Run the full suite once at the end of the task, before the final report — not after every step.
-- Exception: a step that changes `Base.astro`, `sw.js`, a shared module in `src/lib/`, or a shared `public/*.js` script gets the full suite before that step's commit.
+- During a task, after each step run only the specs related to what you changed (`npx playwright test <spec>…`), and commit the step locally once they pass.
+- Run the full suite once at the end of the task, before the final report — not after every step. This holds for steps that change shared code too (`Base.astro`, `sw.js`, `src/lib/`, shared `public/*.js`): they get their related specs during the task, and the full suite only at the end.
+- If the final full run fails, fix it in a new commit (don't amend the step commits), rerun until it passes, and only then report.
 - No live requests to real stores or the real AI API unless Kim asks for it. Use mocks and saved HTML/JSON samples.
 - Report how long each test run took.
 - Restart the dev server (`npm run dev:test`) before a full-suite run or a long test session if it has been running for a long time: a long-running dev server makes the suite much slower (the itinerary specs took 5.9–6.6 min on one, 3.2 min on a fresh one), causes timeouts under parallel load, and has died mid-session. If tests suddenly slow down or time out, check and restart it before suspecting the code.

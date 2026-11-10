@@ -19,6 +19,7 @@ export type PriceDoc = {
   seenAt?: string
   note?: string
   buyer?: string
+  pick?: string | null
 }
 
 export type ProductPrice = {
@@ -31,6 +32,7 @@ export type ProductPrice = {
   seenAt?: string
   note?: string
   buyer?: string
+  pick?: 'buy' | 'skip' | null // "💚 Picks" (/picks)
 }
 
 export type Product = {
@@ -60,7 +62,7 @@ const PRICE_DOCS_QUERY = `
     "image": image{ "assetId": asset->_id, "url": asset->url },
     price, currency, sourceType,
     "shopName": shop->shopName,
-    sourceName, condition, status, seenAt, note, buyer
+    sourceName, condition, status, seenAt, note, buyer, pick
   }
 `
 
@@ -85,6 +87,7 @@ export function groupProducts(docs: PriceDoc[]): Product[] {
       seenAt: d.seenAt,
       note: d.note,
       buyer: d.buyer,
+      pick: d.pick === 'buy' || d.pick === 'skip' ? d.pick : null,
     }
 
     let product = productMap.get(key)

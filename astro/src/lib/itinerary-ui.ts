@@ -444,13 +444,13 @@ export function foundStripHtml(items: FoundItem[] | null | undefined, rate: numb
     const buy = priceQuery != null && i.kind === 'price' && i.status === 'considering'
       ? `<button type="button" class="found-buy" data-id="${esc(i.id)}">✅ Bought</button>`
       : ''
-    return `<figure class="found-item" data-id="${esc(i.id)}">${
+    return `<figure class="found-item${i.pick === 'buy' ? ' found-pick-buy' : ''}" data-id="${esc(i.id)}">${
       i.imageUrl
         ? `<img src="${esc(cdnImage(i.imageUrl, 160))}" data-lightbox="${esc(cdnImage(i.imageUrl, 2000))}" alt="${esc(i.name)}" loading="lazy" />`
         : '<span class="found-none" aria-hidden="true">📦</span>'
     }<figcaption>${name}${
       i.price != null ? `<span class="found-price">${esc(formatPriceNokFirst(i.price, i.currency, rate))}</span>` : ''
-    }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span>${buy}</figcaption></figure>`
+    }<span class="found-status found-${i.status}">${FOUND_STATUS_LABELS[i.status]}</span>${i.pick === 'buy' ? '<span class="found-pick">💚 Picked to buy</span>' : ''}${buy}</figcaption></figure>`
   }).join('')}</div>`
 }
 

@@ -238,6 +238,7 @@ if (shop) {
                       {item.price != null && <span class="fh-price">{formatPriceNokFirst(item.price, item.currency, rate)}</span>}
                       <span class="fh-meta">
                         <span class:list={['fh-status', `fh-${item.status}`]}>{FOUND_STATUS_LABELS[item.status]}</span>
+                        {item.pick === 'buy' && <span class="fh-pick">💚 Picked to buy</span>}
                         {item.kind === 'purchase' && <span class="fh-kind">Family purchase</span>}
                         {item.date && <span class="fh-date">{formatFoundDate(item.date)}</span>}
                       </span>
@@ -245,7 +246,7 @@ if (shop) {
                   </>
                 )
                 return (
-                  <li class="fh-item" data-kind={item.kind} data-id={item.id}>
+                  <li class:list={['fh-item', item.pick === 'buy' && 'fh-buy']} data-kind={item.kind} data-id={item.id}>
                     {item.href ? <a class="fh-row fh-link" href={item.href}>{inner}</a> : <div class="fh-row">{inner}</div>}
                   </li>
                 )
@@ -743,6 +744,8 @@ if (shop) {
       border-radius: 8px; padding: 0.55rem; color: var(--text); text-decoration: none;
     }
     .fh-link:hover { border-color: var(--accent); }
+    .fh-buy .fh-row { border: 2px solid #2ecc71; }
+    .fh-pick { color: #2ecc71; font-weight: 600; }
     .fh-img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--bg); cursor: zoom-in; }
     .fh-img-none { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; cursor: inherit; }
     .fh-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }

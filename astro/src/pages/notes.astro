@@ -30,6 +30,8 @@ const byShop = new Map<string, { prices: FoundPriceDoc[]; purchases: FoundPurcha
 const entry = (id: string) => byShop.get(id) || (byShop.set(id, { prices: [], purchases: [] }), byShop.get(id)!)
 for (const p of foundPrices || []) if (p.shopId) entry(p.shopId).prices.push(p)
 for (const p of foundPurchases || []) if (p.shopId) entry(p.shopId).purchases.push(p)
+// Shops with something picked to buy on /picks: "💚 Picks".
+const buyPickShops = new Set((foundPrices || []).filter((p) => p.pick === 'buy' && p.shopId).map((p) => p.shopId as string))
 const foundThumbsFor = (id: string) => {
   const e = byShop.get(id)
   return e ? foundThumbs(foundItems(e.prices, e.purchases)) : { thumbs: [], more: 0 }
@@ -126,6 +128,7 @@ function isUrl(s: string): boolean {
             {n.priority === 'must' && <span class="tag must">Must visit</span>}
             {n.priority === 'maybe' && <span class="tag maybe">Worth a look</span>}
             {n.priority === 'visited' && <span class="tag visited">Visited</span>}
+            {buyPickShops.has(n._id) && <a class="tag picks" href="/picks">💚 Picks</a>}
           </div>
           {n.area && <div class="note-area">📍 {n.area}</div>}
           {n.openingHours && <div class="note-hours">🕐 {n.openingHours}</div>}
@@ -215,6 +218,7 @@ function isUrl(s: string): boolean {
     .tag.must { background: #e74c3c; color: #fff; }
     .tag.maybe { background: #f39c12; color: #2a1a04; }
     .tag.visited { background: #2ecc71; color: #06281a; }
+    .tag.picks { background: transparent; color: #2ecc71; border: 1px solid #2ecc71; text-decoration: none; }
 
     .note-map {
       margin: 0.5rem 0 0.8rem;

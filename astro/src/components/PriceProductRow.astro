@@ -118,7 +118,7 @@ const searchHay = [p.productName, p.productNameJp, p.jan, ...prices.map((x) => x
     <ul class="history-list">
       {prices.map((price) => (
         <li
-          class="history-item"
+          class:list={['history-item', price.pick === 'buy' && 'history-buy']}
           data-buyer={price.buyer || ''}
           data-status={price.status || ''}
           data-currency={price.currency}
@@ -133,6 +133,7 @@ const searchHay = [p.productName, p.productNameJp, p.jan, ...prices.map((x) => x
               <span class="history-price">{formatPriceNokFirst(price.price, price.currency, rate)}</span>
               {price.condition && <span class="history-condition">{CONDITION_LABELS[price.condition] || price.condition}</span>}
               {price.status === 'bought' && <span class="history-bought">✅</span>}
+              {price.pick === 'buy' && <span class="history-pick" title="Picked to buy (💚 Picks)">💚</span>}
               <span class="history-date">{formatDate(price.seenAt)}</span>
             </div>
             {price.note && <div class="history-note">{price.note}</div>}
@@ -226,6 +227,8 @@ const searchHay = [p.productName, p.productNameJp, p.jan, ...prices.map((x) => x
   .history-price { font-weight: 600; color: var(--accent); white-space: nowrap; }
   .history-condition { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
   .history-bought { white-space: nowrap; }
+  .history-buy .history-row { border: 2px solid #2ecc71; }
+  .history-pick { white-space: nowrap; }
   .history-date { font-size: 0.78rem; color: var(--muted); white-space: nowrap; margin-left: auto; }
   .history-note { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
 

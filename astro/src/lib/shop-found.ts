@@ -8,7 +8,7 @@ import { productKey } from './product-key'
 // The price entries at a shop: `filter` picks the shop(s), e.g. `shop._ref == $id`.
 export const foundPricesQuery = (filter: string) => `
   *[_type == "priceEntry" && !(_id in path("drafts.**")) && ${filter}] {
-    _id, productName, jan, price, currency, status, seenAt, _createdAt,
+    _id, productName, jan, price, currency, status, seenAt, _createdAt, pick,
     "shopId": shop._ref,
     "imageUrl": image.asset->url,
     category, sourceType, sourceName, url, taxIncluded, extraCost, condition, note, buyer,
@@ -35,6 +35,7 @@ export type FoundPriceDoc = {
   _createdAt?: string | null
   shopId?: string | null
   imageUrl?: string | null
+  pick?: string | null // "💚 Picks" (/picks): 'buy' | 'skip'
   // The rest of the entry, for the timeline's "✅ Bought" (/api/price-entry-update replaces
   // every field, so it sends them all).
   category?: string | null
@@ -75,6 +76,7 @@ export type FoundItem = {
   date: string // ISO date or date-time ('' if none)
   href: string | null // a price opens /edit-price; a family purchase has no page of its own
   productKey: string // the same product grouping as /prices (price-products.ts productKey)
+  pick: 'buy' | 'skip' | null // a price's pick on /picks — 'buy' shows green with 💚
   entry?: FoundPriceEntry // a price entry's own fields (for "✅ Bought" on the timeline)
 }
 
@@ -113,6 +115,7 @@ export function foundItems(prices: FoundPriceDoc[], purchases: FoundPurchaseDoc[
       date: p.seenAt || p._createdAt || '',
       href: `/edit-price?id=${encodeURIComponent(p._id)}`,
       productKey: productKey(p.jan, name),
+      pick: p.pick === 'buy' || p.pick === 'skip' ? p.pick : null,
       entry: {
         price: typeof p.price === 'number' ? p.price : null,
         currency: p.currency ?? null,
@@ -147,10 +150,15 @@ export function foundItems(prices: FoundPriceDoc[], purchases: FoundPurchaseDoc[
       date: f.purchaseDate || f._createdAt || '',
       href: null,
       productKey: `purchase:${f._id}`,
+      pick: null,
     })
   }
   return items.sort((a, b) => sortKey(b.date).localeCompare(sortKey(a.date)))
 }
+
+// A shop with at least one price picked to buy on /picks ("💚 Picks" on /notes, 💚 on the
+// timeline's blocks).
+export const hasBuyPick = (items: Pick<FoundItem, 'pick'>[] | null | undefined): boolean => !!items?.some((i) => i.pick === 'buy')
 
 // A date-only "2026-12-03" sorts as the start of that day against full date-times.
 const sortKey = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00.000Z` : d)

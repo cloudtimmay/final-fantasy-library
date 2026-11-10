@@ -225,3 +225,87 @@ test.describe('/picks', () => {
     await expect(group(page, shop.shopName).locator('.pk-new:visible')).toHaveCount(0)
   })
 })
+
+test.describe('💚 picked to buy: green everywhere', () => {
+  // A shop with two photographed finds, one picked to buy; and a shop with only a skip.
+  async function setup(sanity: any, trackDoc: (id: string) => void, uploadedAssets: string[]) {
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'picks-green.png' })
+    uploadedAssets.push(asset._id)
+    const tag = Date.now()
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Green Shop ${tag}`), area: 'Akihabara', latitude: 35.7, longitude: 139.77 })
+    const other = await sanity.create({ _type: 'shopNote', shopName: testName(`Skip Shop ${tag}`), area: 'Akihabara' })
+    trackDoc(shop._id); trackDoc(other._id)
+    const image = { _type: 'image', asset: { _type: 'reference', _ref: asset._id } }
+    const mk = async (name: string, shopId: string, extra: Record<string, unknown> = {}) => {
+      const d = await sanity.create({
+        _type: 'priceEntry', productName: testName(`${name} ${tag}`), jan: uniqueJan(), category: 'figure', sourceType: 'japanStore',
+        shop: { _type: 'reference', _ref: shopId, _weak: true }, price: 5980, currency: 'JPY', condition: 'new', status: 'considering',
+        seenAt: new Date().toISOString(), image, ...extra,
+      })
+      trackDoc(d._id)
+      return d
+    }
+    const picked = await mk('Picked Figure', shop._id, { pick: 'buy', pickedBy: 'Tone', pickedAt: new Date().toISOString() })
+    const plain = await mk('Plain Figure', shop._id)
+    const skipped = await mk('Skipped Figure', other._id, { pick: 'skip', pickedBy: 'Tone', pickedAt: new Date().toISOString() })
+    return { shop, other, picked, plain, skipped }
+  }
+
+  test('/prices: the picked price framed green with 💚', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const { picked, plain } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto('/prices')
+    const row = (name: string) => page.locator('#product-group-view li.price-row').filter({ has: page.locator('.summary-name', { hasText: name }) })
+    await expect(row(picked.productName).locator('.history-item')).toHaveClass(/history-buy/)
+    await expect(row(picked.productName).locator('.history-pick')).toHaveText('💚')
+    await expect(row(plain.productName).locator('.history-item')).not.toHaveClass(/history-buy/)
+    await expect(row(plain.productName).locator('.history-pick')).toHaveCount(0)
+  })
+
+  test('the shop page\'s "Found here", and "💚 Picks" on /notes for a shop with a buy pick only', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const { shop, other, picked, plain } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto(`/edit-store?id=${shop._id}`)
+    const item = (id: string) => page.locator(`.fh-item[data-id="${id}"]`)
+    await expect(item(picked._id)).toHaveClass(/fh-buy/)
+    await expect(item(picked._id).locator('.fh-pick')).toHaveText('💚 Picked to buy')
+    expect(await item(picked._id).locator('.fh-row').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe('rgb(46, 204, 113)')
+    await expect(item(plain._id)).not.toHaveClass(/fh-buy/)
+    await page.goto('/notes')
+    const noteCard = (name: string) => page.locator('.note-card').filter({ has: page.locator('.note-name', { hasText: name }) })
+    await expect(noteCard(shop.shopName).locator('.tag.picks')).toHaveText('💚 Picks')
+    await expect(noteCard(shop.shopName).locator('.tag.picks')).toHaveAttribute('href', '/picks')
+    await expect(noteCard(other.shopName).locator('.tag.picks')).toHaveCount(0) // a skip isn't a pick to buy
+  })
+
+  test('the timeline: 💚 on the shop\'s block, its photo row and "Found here" strip framed green', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, other, picked, plain } = await setup(sanity, trackDoc, uploadedAssets)
+    const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Green Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
+    trackDoc(trip._id)
+    await page.route('**/api/itinerary-save', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
+    await page.goto(`/itinerary?trip=${trip._id}`)
+    await expect(page.locator('.itl-grid')).toBeVisible()
+    await page.evaluate(({ a, b }) => {
+      // @ts-ignore - the page's test hook
+      const itl = window.__itl
+      itl.state[0].startTime = '10:00'
+      itl.state[0].stops = [
+        { name: 'x', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 90, shopId: a },
+        { name: 'y', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 90, shopId: b },
+      ]
+      itl.render()
+    }, { a: shop._id, b: other._id })
+    const block = (name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+    await expect(block(shop.shopName).locator('.itl-pick')).toHaveText('💚')
+    await expect(block(other.shopName).locator('.itl-pick')).toHaveCount(0)
+    const row = block(shop.shopName).locator('.itl-photos')
+    await expect(row.locator(`img[alt="${picked.productName}"]`)).toHaveClass(/itl-photo-buy/)
+    await expect(row.locator(`img[alt="${plain.productName}"]`)).not.toHaveClass(/itl-photo-buy/)
+    // The sheet's "Found here" strip.
+    await block(shop.shopName).locator('.itl-name').click()
+    const fig = (id: string) => page.locator(`#itl-ed-found .found-item[data-id="${id}"]`)
+    await expect(fig(picked._id)).toHaveClass(/found-pick-buy/)
+    await expect(fig(picked._id).locator('.found-pick')).toHaveText('💚 Picked to buy')
+    expect(await fig(picked._id).locator('img').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe('rgb(46, 204, 113)')
+    await expect(fig(plain._id)).not.toHaveClass(/found-pick-buy/)
+  })
+})

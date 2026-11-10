@@ -319,7 +319,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       renderRouteSuggestion, renderRouteApplied, renderNoStopsToReorder, saveStopCoords, fetchStopCoordsFromShop,
       reminderLinkHtml, shopPhotoStripHtml, foundStripHtml, dayReminders, remindersHref, routesColumnsHtml, addPanelClose,
     } from '../lib/itinerary-ui'
-    import type { FoundItem } from '../lib/shop-found'
+    import { hasBuyPick, type FoundItem } from '../lib/shop-found'
     import { googleMapsPlaceUrl } from '../lib/shop-maps'
     import { googleMapsTimedUrl, yahooTransitUrl, transitWhenText, googleMapsLeaveText } from '../lib/transit-links'
     import { cdnImage } from '../lib/image-url'
@@ -346,11 +346,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // A block's photo row: the linked shop's photos, then its "Found here" photos newest first
     // (lib/shop-found.ts sorts them) — at most a row's worth; render() keeps the ones that fit.
     const ROW_PHOTOS_MAX = 10
-    function blockPhotos(s: PlanStop): { url: string; alt: string }[] {
+    function blockPhotos(s: PlanStop): { url: string; alt: string; buy?: boolean }[] {
       if (!s.shopId) return []
       const shop = shopById.get(s.shopId)
       const own = (shop?.photos || []).filter((p) => p && p.url).map((p) => ({ url: p.url, alt: p.caption || `${shop?.shopName || 'Shop'} photo` }))
-      const finds = (foundByShop[s.shopId] || []).filter((f) => f.imageUrl).map((f) => ({ url: f.imageUrl!, alt: f.name }))
+      const finds = (foundByShop[s.shopId] || []).filter((f) => f.imageUrl).map((f) => ({ url: f.imageUrl!, alt: f.name, buy: f.pick === 'buy' }))
       return [...own, ...finds].slice(0, ROW_PHOTOS_MAX)
     }
     const foundRate: number | null = DATA.foundRate ?? null
@@ -630,7 +630,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span>` : ''
         // The stop's place in the day (1, 2, 3 …) before its type; the area is on the second line.
         const num = `<span class="itl-num" aria-label="Stop ${item.index + 1}">${item.index + 1}</span>`
-        const firstLine = () => `<span class="itl-first">${num}${typeIcon}<span class="itl-name">${esc(r.name)}</span><span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span></span></span>`
+        // 💚: something at this shop is picked to buy on /picks.
+        const pickMark = s.shopId && hasBuyPick(foundByShop[s.shopId]) ? '<span class="itl-pick" role="img" aria-label="Picked to buy" title="Picked to buy (💚 Picks)">💚</span>' : ''
+        const firstLine = () => `<span class="itl-first">${num}${typeIcon}<span class="itl-name">${esc(r.name)}</span>${pickMark}<span class="itl-rest"><span class="itl-sep"> · </span><span class="itl-time">${esc(timeText)}</span></span></span>`
         // For a block too short for all its rows (see below): small icons on the first line —
         // ⚠️ (its title lists the warnings), 🚆 the train, ⏰ the reminder link.
         const problems = [
@@ -653,7 +655,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // block's own handler), anywhere else the sheet.
         const photos = blockPhotos(s)
         const photoRow = photos.length ? `<span class="itl-photos">${photos.map((p) =>
-          `<img src="${esc(cdnImage(p.url, 96))}" data-lightbox="${esc(cdnImage(p.url, 2000))}" alt="${esc(p.alt)}" loading="lazy" />`).join('')}</span>` : ''
+          `<img${p.buy ? ' class="itl-photo-buy"' : ''} src="${esc(cdnImage(p.url, 96))}" data-lightbox="${esc(cdnImage(p.url, 2000))}" alt="${esc(p.alt)}" loading="lazy" />`).join('')}</span>` : ''
         // Rows in order of importance: a short block drops them from the bottom (see below).
         el.innerHTML = `
           ${firstLine()}
@@ -2124,6 +2126,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }
     #itl-detail-num { margin-right: 0.4rem; vertical-align: middle; }
     .itl-times .itl-area { flex-shrink: 0; color: var(--text); font-weight: 600; }
+    .itl-photos img.itl-photo-buy { border: 2px solid #2ecc71; }
+    .itl-pick { flex-shrink: 0; margin-left: 0.15rem; font-size: 0.75rem; }
     .itl-photos { display: flex; flex-wrap: nowrap; gap: 0.25rem; overflow: hidden; margin-top: 0.15rem; flex-shrink: 0; }
     .itl-photos img {
       flex: 0 0 auto; width: 36px; height: 36px; object-fit: cover; border-radius: 4px;

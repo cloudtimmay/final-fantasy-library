@@ -11,14 +11,13 @@ import { formatPriceNokFirst } from '../lib/price-display'
 import { formatFoundDate } from '../lib/shop-found'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 import { cdnImage } from '../lib/image-url'
-import { accessUserFrom, LOCAL_DEV_USER } from '../lib/access-users'
 
 const docs: PickDoc[] = (await sanity.fetch(PICKS_QUERY)) || []
 const groups = groupPicksByShop(docs)
 const rateTrip = pickDefaultTrip(await fetchTripsForSpending())
 const rate = rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null
-// Who is looking (their own picks aren't "new" to them): the Access login, else local dev.
-const me = (accessUserFrom(Astro.request) || (import.meta.env.DEV ? LOCAL_DEV_USER : null))?.name || ''
+// Who is looking (their own picks aren't "new" to them): the verified Access login (src/middleware.ts).
+const me = Astro.locals.accessUser?.name || ''
 const total = groups.reduce((n, g) => n + g.items.length, 0)
 ---
 <Base title="Picks">

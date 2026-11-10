@@ -1,23 +1,13 @@
 import { test, expect, testName, uniqueJan } from './fixtures'
 import { uniquePng } from './helpers/unique-image'
-import { accessUserFrom, accessUserName, ACCESS_EMAIL_HEADER } from '../src/lib/access-users'
+import { ACCESS_EMAIL_HEADER } from '../src/lib/cf-access'
 import { groupPicksByShop, isNewSince, matchesPickFilter, pickedText } from '../src/lib/picks'
 
 // "💚 Picks": choosing at home which of the products photographed in shops to buy.
-// The Cloudflare Access login is simulated with its header (Cf-Access-Authenticated-User-Email).
+// The dev server runs without Cloudflare: there the plain Access email header stands in for the
+// login (lib/cf-access.ts resolveAccess — local only; production takes the verified token,
+// tests/cf-access.spec.ts).
 const HOME = 'picks-home-test@example.com'
-
-test.describe('who is logged in (lib/access-users.ts)', () => {
-  test('the Access email, shown as a listed name, else as itself; nothing without the header', () => {
-    const names = { 'tone@example.com': 'Tone' }
-    expect(accessUserName('Tone@Example.com ', names)).toBe('Tone')
-    expect(accessUserName('someone@example.com', names)).toBe('someone@example.com')
-    const req = (headers: Record<string, string>) => new Request('https://x.test/api/price-pick', { headers })
-    expect(accessUserFrom(req({ [ACCESS_EMAIL_HEADER]: 'tone@example.com' }), names)).toEqual({ email: 'tone@example.com', name: 'Tone' })
-    expect(accessUserFrom(req({}), names)).toBeNull()
-    expect(accessUserFrom(req({ [ACCESS_EMAIL_HEADER]: 'not-an-email' }), names)).toBeNull()
-  })
-})
 
 test.describe('api/price-pick', () => {
   const entry = async (sanity: any, trackDoc: (id: string) => void, extra: Record<string, unknown> = {}) => {

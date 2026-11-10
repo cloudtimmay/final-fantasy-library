@@ -9,6 +9,16 @@ Final Fantasy Library — a personal collection tracker (albums/games/books/merc
 - Repo root: `C:\dev\final-fantasy-library` (contains `astro/`, `sanity/`, `scripts/`)
 - Sanity dataset backups (outside the repo, never committed): `C:\Users\User\Documents\Final-Fantasy-Library\sanity-backups\`
 
+## Cloudflare Access (environment variables)
+
+`src/middleware.ts` checks every request (pages and `/api/`) with `lib/cf-access.ts`: on Vercel production (`VERCEL_ENV=production`) it requires a valid `Cf-Access-Jwt-Assertion` token — RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached 1 h), issuer `https://<team domain>`, audience = the AUD tag, not expired — and answers 403 otherwise. The logged-in user (`Astro.locals.accessUser`) comes from the verified token's email only. Set in Vercel (Production):
+
+- `CF_ACCESS_TEAM_DOMAIN` — the Zero Trust team domain, e.g. `myteam.cloudflareaccess.com` (with or without `https://`).
+- `CF_ACCESS_AUD` — the Access application's "Application Audience (AUD) Tag".
+- `ACCESS_USER_NAMES` — optional, JSON mapping login emails to names (from `PEOPLE_LIST`), e.g. `{"kim@example.com":"Kim","tone@example.com":"Tone"}`. Empty by default; an unlisted email is shown as itself (e.g. "picked by" on /picks).
+
+Without `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` on production nothing is verified (a warning is logged) and the plain `Cf-Access-Authenticated-User-Email` header is used, as before. Anywhere other than Vercel production (local dev, tests, Vercel previews) requests aren't blocked; locally the plain email header stands in for a login (the tests' simulated login), else "Local (no Cloudflare login)"; a preview has no user. Tests use a key pair made in the test, never real keys.
+
 ## Workflow
 
 - Windows + PowerShell. No `&&` command chaining — use `;` or separate lines.

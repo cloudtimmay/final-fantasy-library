@@ -1,30 +1,37 @@
-// Who is logged in: the email Cloudflare Access puts on every request it lets through
-// (Cf-Access-Authenticated-User-Email), shown as a name when it's a known login. The browser
-// never says who it is — a name in a request body is ignored.
+// Who is logged in: the email from the verified Cloudflare Access token (lib/cf-access.ts, put
+// on Astro.locals.accessUser by src/middleware.ts), shown as a name when it's a known login.
+// The browser never says who it is — a name in a request body is ignored.
 //
-// The one place logins map to names (lowercase email → a name from PEOPLE_LIST in
-// price-entry-fields.ts). An email not listed here is shown as itself.
-export const ACCESS_USER_NAMES: Record<string, string> = {
-  // 'someone@example.com': 'Kim',
-}
-
-export const ACCESS_EMAIL_HEADER = 'cf-access-authenticated-user-email'
-
-// Local development has no Cloudflare in front: picks made there are marked as such.
-export const LOCAL_DEV_USER = { email: '', name: 'Local (no Cloudflare login)' }
+// Logins → names: the ACCESS_USER_NAMES environment variable, JSON {"email": "Name"} (names
+// from PEOPLE_LIST in price-entry-fields.ts), empty by default — see CLAUDE.md. An email not
+// listed there is shown as itself.
 
 export type AccessUser = { email: string; name: string }
 
-// The name for an email: the listed one, else the email itself.
-export function accessUserName(email: string, names: Record<string, string> = ACCESS_USER_NAMES): string {
-  const key = email.trim().toLowerCase()
-  return names[key] || email.trim()
+// Local development has no Cloudflare in front: picks made there are marked as such.
+export const LOCAL_DEV_USER: AccessUser = { email: '', name: 'Local (no Cloudflare login)' }
+
+const env = (key: string): string | undefined => (typeof process !== 'undefined' ? process.env?.[key] : undefined)
+
+// The list from the variable (`raw`): lowercase emails → names; anything that isn't a JSON
+// object of strings is left out (a broken variable gives an empty list and a warning).
+let warned = false
+export function accessUserNames(raw: string | undefined = env('ACCESS_USER_NAMES')): Record<string, string> {
+  if (!raw || !raw.trim()) return {}
+  let data: unknown
+  try { data = JSON.parse(raw) } catch {
+    if (!warned) { warned = true; console.warn('ACCESS_USER_NAMES is not valid JSON ({"email":"Name"}) — emails are shown as they are.') }
+    return {}
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {}
+  const out: Record<string, string> = {}
+  for (const [email, name] of Object.entries(data as Record<string, unknown>)) {
+    if (typeof name === 'string' && name.trim() && email.includes('@')) out[email.trim().toLowerCase()] = name.trim()
+  }
+  return out
 }
 
-// The logged-in user from the request's Cloudflare Access header; null without one (in
-// production that means the request didn't come through Access).
-export function accessUserFrom(request: Request, names: Record<string, string> = ACCESS_USER_NAMES): AccessUser | null {
-  const email = (request.headers.get(ACCESS_EMAIL_HEADER) || '').trim()
-  if (!email || email.length > 200 || !email.includes('@')) return null
-  return { email, name: accessUserName(email, names) }
+// The name for an email: the listed one, else the email itself.
+export function accessUserName(email: string, names: Record<string, string> = accessUserNames()): string {
+  return names[email.trim().toLowerCase()] || email.trim()
 }

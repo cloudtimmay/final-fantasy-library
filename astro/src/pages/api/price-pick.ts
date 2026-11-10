@@ -1,17 +1,17 @@
 import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
-import { accessUserFrom, LOCAL_DEV_USER } from '../../lib/access-users'
 import { isPick, PICK_NOTE_MAX } from '../../lib/picks'
 
 export const prerender = false
 
 // "💚 Picks" (/picks): buy or skip a price entry, and/or its short comment. Only the pick
 // fields are ever written (pick, pickedBy, pickedAt, pickNote), only on a priceEntry. Who
-// picked comes from the Cloudflare Access login (lib/access-users.ts), never from the body.
+// picked comes from the verified Cloudflare Access token (src/middleware.ts → locals.accessUser,
+// lib/cf-access.ts), never from the body.
 //   { id, pick: 'buy' | 'skip' | null }  — null (or '') takes the pick back off
 //   { id, note: '…' }                     — '' clears it
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   const body = await parseJsonBody(request)
   if (!body || typeof body !== 'object') return json(400, { error: 'Bad request' })
 
@@ -23,8 +23,8 @@ export const POST: APIRoute = async ({ request }) => {
   if (hasPick && body.pick !== null && body.pick !== '' && !isPick(body.pick)) return json(400, { error: 'Invalid pick' })
   if (hasNote && body.note != null && typeof body.note !== 'string') return json(400, { error: 'Invalid note' })
 
-  // Behind Cloudflare Access there's always a login; without one only local development may save.
-  const user = accessUserFrom(request) || (import.meta.env.DEV ? LOCAL_DEV_USER : null)
+  // The logged-in user from the middleware; none (e.g. a Vercel preview): nothing is saved.
+  const user = locals.accessUser
   if (!user) return json(401, { error: 'Not logged in through Cloudflare Access' })
 
   try {

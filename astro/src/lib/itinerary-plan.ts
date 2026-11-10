@@ -15,7 +15,7 @@ import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_M
 import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
 import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
-import { googleMapsTimedUrl } from './transit-links'
+import { googleMapsTimedUrl, googleMapsDeparture } from './transit-links'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -646,6 +646,12 @@ export function legSearchTime(
   return at(before ? before.leaveBy ?? before.end : ctx.baseStart, 'depart')
 }
 
+// A planned train as googleMapsDeparture takes it (its first departure on the day); null without one.
+export function googleTrainOf(date: string, train: unknown): { date: string; departure: number; walkToStationMin: number | null } | null {
+  const t = trainTimes(train)
+  return t ? { date, departure: t.departure, walkToStationMin: t.walkToStationMin } : null
+}
+
 // --- Starting the day earlier -----------------------------------------------------------------
 // A stop placed before the day's start (tapped in earlier, moved above the first stop, or given a
 // fixed time the start can't reach): the start that reaches the first stop by `arriveBy` from the
@@ -734,13 +740,19 @@ export function dayRouteLinks(
     if (byTrain(i) || newArea) {
       closeRun(run)
       const from = run[run.length - 1]
-      // With its time on a dated day; a day without a date gets the plain transit link.
+      const legTrain = i === last ? lastLegTrain(day).train : day.stops[i - 1]?.train
+      const estimate = i === last ? sched.returnLeg?.minutes : sched.stops[i - 1]?.travelIn.minutes
+      // With its time on a dated day — always a departure (lib/transit-links.ts googleMapsDeparture:
+      // the planned train's, or before an arrive-by time); a day without a date gets the plain
+      // transit link.
       const url = isIsoDate(day.day)
-        ? googleMapsTimedUrl(from, p, legSearchTime(day, sched, i === last ? day.stops.length : i - 1, i === last ? 'return' : 'stop', { baseStart }))
+        ? googleMapsTimedUrl(from, p, googleMapsDeparture(
+          legSearchTime(day, sched, i === last ? day.stops.length : i - 1, i === last ? 'return' : 'stop', { baseStart }),
+          { travelMin: estimate ?? null, train: googleTrainOf(day.day, legTrain) },
+        ))
         : transitRouteUrl(from, p)
       // With its duration: a planned train's time on the train, else the estimate ("~45 min").
-      const planned = trainRideMinutes(i === last ? lastLegTrain(day).train : day.stops[i - 1]?.train)
-      const estimate = i === last ? sched.returnLeg?.minutes : sched.stops[i - 1]?.travelIn.minutes
+      const planned = trainRideMinutes(legTrain)
       const dur = planned != null ? ` · ${planned} min` : estimate != null ? ` · ~${estimate} min` : ''
       out.push({ kind: 'train', label: `🚆 ${label(from)} → ${label(p)}${dur}`, url })
       run = [p]

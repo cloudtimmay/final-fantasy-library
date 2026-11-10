@@ -11,6 +11,7 @@ export const priceEntry = defineType({
     { name: 'source', title: 'Where' },
     { name: 'pricing', title: 'Price' },
     { name: 'purchase', title: 'Purchase' },
+    { name: 'pick', title: 'Pick (from home)', options: { collapsible: true, collapsed: true } },
   ],
   fields: [
     // ── Product ─────────────────────────────────────────────
@@ -223,6 +224,26 @@ export const priceEntry = defineType({
       initialValue: () => new Date().toISOString(),
     }),
     defineField({ name: 'note', title: 'Note', type: 'text', rows: 3 }),
+
+    // ── Pick ────────────────────────────────────────────────
+    // Set on /picks by whoever is logged in through Cloudflare Access (the name comes from the
+    // Access login, never from the browser): buy it or skip it, with a short comment.
+    defineField({
+      name: 'pick',
+      title: 'Pick',
+      type: 'string',
+      fieldset: 'pick',
+      options: {
+        list: [
+          { title: '💚 Buy this', value: 'buy' },
+          { title: '👎 Skip', value: 'skip' },
+        ],
+        layout: 'radio',
+      },
+    }),
+    defineField({ name: 'pickedBy', title: 'Picked by', type: 'string', fieldset: 'pick', readOnly: true }),
+    defineField({ name: 'pickedAt', title: 'Picked at', type: 'datetime', fieldset: 'pick', readOnly: true }),
+    defineField({ name: 'pickNote', title: 'Pick comment', type: 'string', fieldset: 'pick' }),
   ],
   preview: {
     select: {

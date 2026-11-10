@@ -3,10 +3,11 @@
 // shop, newest first — for someone at home to choose "💚 Buy this" or "👎 Skip", with a short
 // comment. Saved straight away by /api/price-pick (only the pick fields; who picked comes from
 // the Cloudflare Access login, lib/access-users.ts). Prices NOK first with ≈ JPY at /prices'
-// rate (lib/price-display.ts, the default trip's).
+// rate (lib/price-display.ts, the default trip's). Each shop is a collapsible section (closed
+// by default, the open ones remembered per browser), with a search over item and shop names.
 import Base from '../layouts/Base.astro'
 import { sanity } from '../lib/sanity'
-import { PICKS_QUERY, PICK_NOTE_MAX, groupPicksByShop, type PickDoc } from '../lib/picks'
+import { PICKS_QUERY, PICK_NOTE_MAX, groupPicksByShop, pickGroupHeader, type PickDoc } from '../lib/picks'
 import { formatPriceNokFirst } from '../lib/price-display'
 import { formatFoundDate } from '../lib/shop-found'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
@@ -29,6 +30,8 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
     <p class="pk-hint">Products found in shops in Japan. Choose what should be bought — it's saved straight away.</p>
     <p id="pk-new-count" class="pk-new-count" hidden></p>
 
+    <input id="pk-search" class="pk-search" type="search" placeholder="Search items or shops…" autocomplete="off" aria-label="Search items or shops" />
+
     <div class="pk-filters" role="group" aria-label="Show">
       <button type="button" class="pk-filter active" data-filter="all" aria-pressed="true">All</button>
       <button type="button" class="pk-filter" data-filter="buy" aria-pressed="false">💚 Buy</button>
@@ -36,17 +39,27 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
       <button type="button" class="pk-filter" data-filter="none" aria-pressed="false">Not decided</button>
     </div>
 
+    {total > 0 && (
+      <div class="pk-toggles">
+        <button type="button" id="pk-open-all" class="pk-toggle">Open all</button>
+        <button type="button" id="pk-close-all" class="pk-toggle">Close all</button>
+      </div>
+    )}
+
     {total === 0 && <p class="pk-empty">Nothing to choose from yet — products photographed in shops show up here.</p>}
-    <p id="pk-none-match" class="pk-empty" hidden>No products match this filter.</p>
+    <p id="pk-none-match" class="pk-empty" hidden>No products match.</p>
 
     {groups.map((g) => (
-      <section class="pk-group" data-key={g.key}>
-        <h2 class="pk-shop">{g.shopName}{g.area && <span class="pk-area">📍 {g.area}</span>}</h2>
+      <details class="pk-group" data-key={g.key} data-shop={g.shopName} data-area={g.area}>
+        <summary class="pk-head">
+          <span class="pk-head-text">{pickGroupHeader({ shopName: g.shopName, area: g.area, items: g.items.length, buys: g.items.filter((i) => i.pick === 'buy').length, fresh: 0 })}</span>
+        </summary>
         <ul class="pk-list">
           {g.items.map((i) => (
             <li
               class:list={['pk-card', i.pick === 'buy' && 'pk-buy', i.pick === 'skip' && 'pk-skip']}
               data-id={i.id}
+              data-name={i.name}
               data-pick={i.pick || ''}
               data-seen={i.seen}
               data-picked-by={i.pickedBy}
@@ -70,12 +83,12 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
             </li>
           ))}
         </ul>
-      </section>
+      </details>
     ))}
   </div>
 
   <script>
-    import { pickedText, isNewSince, matchesPickFilter, type PickChoice, type PickFilter } from '../lib/picks'
+    import { pickedText, isNewSince, matchesPickFilter, matchesPickSearch, pickGroupHeader, type PickChoice, type PickFilter } from '../lib/picks'
 
     const wrap = document.querySelector('.pk-wrap') as HTMLElement
     const me = wrap.dataset.me || ''
@@ -102,6 +115,7 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
     for (const c of cards) {
       const isNew = isNewSince({ seen: c.dataset.seen || '', pick: pickOf(c), pickedAt: c.dataset.pickedAt || '', pickedBy: c.dataset.pickedBy || '' }, lastVisit, me)
       ;(c.querySelector('.pk-new') as HTMLElement).hidden = !isNew
+      c.dataset.new = isNew ? '1' : ''
       if (isNew) fresh++
     }
     const newCount = document.querySelector('#pk-new-count') as HTMLElement
@@ -111,18 +125,52 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
     }
     try { localStorage.setItem(VISIT_KEY, new Date().toISOString()) } catch (e) {}
 
-    // The filter: All / Buy / Skip / Not decided.
+    // The shops: closed by default; the ones opened stay open on the next visit (this browser).
+    // While searching, the shops with a match open — that isn't remembered.
+    const groups = [...document.querySelectorAll<HTMLDetailsElement>('.pk-group')]
+    const OPEN_KEY = 'ff-picks-open'
+    let remembered = new Set<string>()
+    try { remembered = new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || '[]')) } catch (e) {}
+    for (const g of groups) g.open = remembered.has(g.dataset.key || '')
+    const searchInput = document.querySelector('#pk-search') as HTMLInputElement
+    const searching = () => searchInput.value.trim() !== ''
+    function rememberOpen() {
+      if (searching()) return
+      remembered = new Set(groups.filter((g) => g.open).map((g) => g.dataset.key || ''))
+      try { localStorage.setItem(OPEN_KEY, JSON.stringify([...remembered])) } catch (e) {}
+    }
+    for (const g of groups) g.addEventListener('toggle', rememberOpen)
+    document.querySelector('#pk-open-all')?.addEventListener('click', () => { for (const g of groups) if (!g.hidden) g.open = true; rememberOpen() })
+    document.querySelector('#pk-close-all')?.addEventListener('click', () => { for (const g of groups) g.open = false; rememberOpen() })
+
+    // The filter (All / Buy / Skip / Not decided) and the search, in each shop and its header.
     let filter: PickFilter = 'all'
+    let wasSearching = false
     function applyFilter() {
+      const query = searchInput.value.trim()
       let shown = 0
-      for (const c of cards) {
-        const on = matchesPickFilter(pickOf(c), filter)
-        c.hidden = !on
-        if (on) shown++
+      for (const g of groups) {
+        let items = 0, buys = 0, news = 0
+        for (const c of g.querySelectorAll<HTMLElement>('.pk-card')) {
+          const on = matchesPickFilter(pickOf(c), filter) && matchesPickSearch(c.dataset.name || '', g.dataset.shop || '', query)
+          c.hidden = !on
+          if (!on) continue
+          items++
+          if (pickOf(c) === 'buy') buys++
+          if (c.dataset.new === '1') news++
+        }
+        shown += items
+        g.hidden = items === 0
+        ;(g.querySelector('.pk-head-text') as HTMLElement).textContent = pickGroupHeader({ shopName: g.dataset.shop || '', area: g.dataset.area || '', items, buys, fresh: news })
+        if (query && items) g.open = true
       }
-      document.querySelectorAll<HTMLElement>('.pk-group').forEach((g) => { g.hidden = !g.querySelector('.pk-card:not([hidden])') })
+      // The search cleared: back to the shops that were open.
+      if (!query && wasSearching) for (const g of groups) g.open = remembered.has(g.dataset.key || '')
+      wasSearching = !!query
       ;(document.querySelector('#pk-none-match') as HTMLElement).hidden = shown > 0 || cards.length === 0
     }
+    applyFilter()
+    searchInput.addEventListener('input', applyFilter)
     document.querySelectorAll<HTMLButtonElement>('.pk-filter').forEach((b) => b.addEventListener('click', () => {
       filter = b.dataset.filter as PickFilter
       document.querySelectorAll<HTMLButtonElement>('.pk-filter').forEach((x) => { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', String(x === b)) })
@@ -182,14 +230,30 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
     .pk-filter.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
     .pk-empty { color: var(--muted); font-size: 0.9rem; }
     .pk-empty[hidden] { display: none; }
-    .pk-group { margin-bottom: 1.5rem; }
+    .pk-search {
+      width: 100%; box-sizing: border-box; margin-bottom: 0.75rem; background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; font: inherit; font-size: 1rem;
+    }
+    .pk-toggles { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .pk-toggle {
+      background: none; color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.35rem 0.7rem; font: inherit; font-size: 0.8rem; cursor: pointer; min-height: 36px;
+    }
+    .pk-group { margin-bottom: 0.6rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
     .pk-group[hidden] { display: none; }
-    .pk-shop { font-size: 1.05rem; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; }
-    .pk-area { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+    .pk-head {
+      cursor: pointer; padding: 0.75rem 0.85rem; font-weight: 600; font-size: 0.95rem; min-height: 44px; box-sizing: border-box;
+      display: flex; align-items: center; gap: 0.5rem; list-style: none;
+    }
+    .pk-head::-webkit-details-marker { display: none; }
+    .pk-head::before { content: '▸'; color: var(--muted); flex-shrink: 0; transition: transform 0.15s; }
+    .pk-group[open] > .pk-head::before { transform: rotate(90deg); }
+    .pk-head-text { overflow-wrap: anywhere; }
+    .pk-group > .pk-list { padding: 0 0.6rem 0.6rem; }
     .pk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
     .pk-card {
       display: grid; grid-template-columns: 96px 1fr; gap: 0.5rem 0.75rem; padding: 0.6rem;
-      background: var(--surface); border: 2px solid var(--border); border-radius: 10px;
+      background: var(--bg); border: 2px solid var(--border); border-radius: 10px;
     }
     .pk-card[hidden] { display: none; }
     .pk-card.pk-buy { border-color: #2ecc71; }
@@ -206,14 +270,14 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
     .pk-picked[hidden] { display: none; }
     .pk-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
     .pk-btn {
-      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
       padding: 0.55rem 0.4rem; font: inherit; font-size: 0.9rem; cursor: pointer; min-height: 44px;
     }
     .pk-btn:disabled { opacity: 0.6; }
     .pk-btn-buy[aria-pressed="true"] { border-color: #2ecc71; background: rgba(46, 204, 113, 0.15); font-weight: 700; }
     .pk-btn-skip[aria-pressed="true"] { border-color: var(--muted); background: rgba(255, 255, 255, 0.08); font-weight: 700; }
     .pk-comment {
-      grid-column: 1 / -1; width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+      grid-column: 1 / -1; width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.65rem; font: inherit; font-size: 1rem;
     }
     .pk-msg { grid-column: 1 / -1; margin: 0; font-size: 0.8rem; color: var(--muted); }

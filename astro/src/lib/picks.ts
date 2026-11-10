@@ -109,3 +109,23 @@ export type PickFilter = (typeof PICK_FILTERS)[number]
 export function matchesPickFilter(pick: PickChoice | null, filter: PickFilter): boolean {
   return filter === 'all' || (filter === 'none' ? !pick : pick === filter)
 }
+
+// The search: an item whose own name or shop's name contains the words (any case, in any order).
+export function matchesPickSearch(itemName: string, shopName: string, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return true
+  const hay = `${itemName} ${shopName}`.toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
+// A shop's collapsed header: "Animate · Akihabara · 5 items · 💚 2 · 3 new" — the counts of
+// what the filter and search show; 💚 and "new" only when there are any.
+export function pickGroupHeader(g: { shopName: string; area: string; items: number; buys: number; fresh: number }): string {
+  return [
+    g.shopName,
+    g.area,
+    `${g.items} item${g.items === 1 ? '' : 's'}`,
+    g.buys ? `💚 ${g.buys}` : '',
+    g.fresh ? `${g.fresh} new` : '',
+  ].filter(Boolean).join(' · ')
+}

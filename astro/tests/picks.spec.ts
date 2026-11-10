@@ -1,7 +1,7 @@
 import { test, expect, testName, uniqueJan } from './fixtures'
 import { uniquePng } from './helpers/unique-image'
 import { ACCESS_EMAIL_HEADER } from '../src/lib/cf-access'
-import { groupPicksByShop, isNewSince, matchesPickFilter, pickedText } from '../src/lib/picks'
+import { groupPicksByShop, isNewSince, matchesPickFilter, matchesPickSearch, pickGroupHeader, pickedText } from '../src/lib/picks'
 
 // "💚 Picks": choosing at home which of the products photographed in shops to buy.
 // The dev server runs without Cloudflare: there the plain Access email header stands in for the
@@ -99,6 +99,15 @@ test.describe('picks (lib/picks.ts)', () => {
     expect([null, 'buy', 'skip'].map((p: any) => matchesPickFilter(p, 'buy'))).toEqual([false, true, false])
     expect([null, 'buy', 'skip'].map((p: any) => matchesPickFilter(p, 'all'))).toEqual([true, true, true])
   })
+
+  test('a shop\'s header and the search', () => {
+    expect(pickGroupHeader({ shopName: 'Animate', area: 'Akihabara', items: 5, buys: 2, fresh: 3 })).toBe('Animate · Akihabara · 5 items · 💚 2 · 3 new')
+    expect(pickGroupHeader({ shopName: 'Mercari', area: '', items: 1, buys: 0, fresh: 0 })).toBe('Mercari · 1 item')
+    expect(matchesPickSearch('Cloud Figure', 'Animate', 'animate')).toBe(true) // the shop's name
+    expect(matchesPickSearch('Cloud Figure', 'Animate', 'figure cloud')).toBe(true) // words in any order
+    expect(matchesPickSearch('Cloud Figure', 'Animate', 'tifa')).toBe(false)
+    expect(matchesPickSearch('Cloud Figure', 'Animate', '  ')).toBe(true)
+  })
 })
 
 test.describe('/picks', () => {
@@ -127,8 +136,16 @@ test.describe('/picks', () => {
     await mk('Bought Item', 10, { status: 'bought' })
     return { shop, tag, newest, middle, old }
   }
-  const group = (page: any, shopName: string) => page.locator('.pk-group').filter({ has: page.locator('.pk-shop', { hasText: shopName }) })
+  const group = (page: any, shopName: string) => page.locator('.pk-group').filter({ has: page.locator('.pk-head-text', { hasText: shopName }) })
   const card = (page: any, name: string) => page.locator('.pk-card').filter({ has: page.locator('.pk-name', { hasText: name }) })
+  // A shop's section: closed until its header is tapped.
+  const openShop = async (page: any, shopName: string) => {
+    const g = group(page, shopName)
+    await g.locator('.pk-head').click()
+    await expect(g).toHaveAttribute('open', '')
+    return g
+  }
+  const header = (page: any, shopName: string) => group(page, shopName).locator('.pk-head-text')
 
   test('by shop with its area, newest first; buy, tap again to take it off, skip (dimmed); the comment; who picked', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     test.setTimeout(60_000)
@@ -136,9 +153,14 @@ test.describe('/picks', () => {
     await page.setExtraHTTPHeaders({ [ACCESS_EMAIL_HEADER]: HOME }) // the Cloudflare Access login
     await page.goto('/picks')
     await expect(page.getByRole('heading', { name: '💚 Picks' })).toBeVisible()
+    // Closed by default: the header with the shop, its area and how many; no items showing.
     const g = group(page, shop.shopName)
-    await expect(g.locator('.pk-area')).toHaveText(`📍 Picks Area ${tag}`)
-    await expect(g.locator('.pk-name')).toHaveText([newest.productName, middle.productName, old.productName])
+    await expect(g).not.toHaveAttribute('open', '')
+    await expect(header(page, shop.shopName)).toHaveText(`${shop.shopName} · Picks Area ${tag} · 3 items`)
+    await expect(card(page, newest.productName)).toBeHidden()
+    // Tapping it shows them, newest first.
+    await openShop(page, shop.shopName)
+    await expect(g.locator('.pk-card:visible .pk-name')).toHaveText([newest.productName, middle.productName, old.productName])
     const c = card(page, newest.productName)
     await expect(c.locator('.pk-price')).toHaveText(/¥5\s980/)
     await expect(c.locator('.pk-seen')).toHaveText(/^Seen /)
@@ -149,6 +171,7 @@ test.describe('/picks', () => {
     await c.locator('.pk-btn-buy').click()
     await expect(c).toHaveClass(/pk-buy/)
     await expect(c.locator('.pk-picked')).toHaveText(new RegExp(`^💚 picked by ${HOME.replace(/[.]/g, '\\.')}, `))
+    await expect(header(page, shop.shopName)).toHaveText(`${shop.shopName} · Picks Area ${tag} · 3 items · 💚 1`)
     await expect.poll(async () => (await sanity.getDocument(newest._id)).pick).toBe('buy')
     expect((await sanity.getDocument(newest._id)).pickedBy).toBe(HOME)
     // Tapping it again takes it off.
@@ -168,24 +191,29 @@ test.describe('/picks', () => {
     expect(await sanity.getDocument(middle._id)).toMatchObject({ pick: 'skip', pickNote: 'We have this one', pickedBy: HOME })
   })
 
-  test('the filter: All / Buy / Skip / Not decided', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+  test('the filter: All / Buy / Skip / Not decided — inside the open shop and in its header', async ({ page, sanity, trackDoc, uploadedAssets }) => {
     test.setTimeout(60_000)
-    const { shop, newest, middle, old } = await setup(sanity, trackDoc, uploadedAssets)
+    const { shop, tag, newest, middle, old } = await setup(sanity, trackDoc, uploadedAssets)
     await sanity.patch(newest._id).set({ pick: 'buy', pickedBy: 'Tone', pickedAt: new Date().toISOString() }).commit()
     await sanity.patch(middle._id).set({ pick: 'skip', pickedBy: 'Tone', pickedAt: new Date().toISOString() }).commit()
     await page.goto('/picks')
-    const g = group(page, shop.shopName)
+    const g = await openShop(page, shop.shopName)
     const shown = () => g.locator('.pk-card:visible .pk-name')
+    const head = header(page, shop.shopName)
+    await expect(head).toHaveText(`${shop.shopName} · Picks Area ${tag} · 3 items · 💚 1`)
     await expect(card(page, newest.productName)).toHaveClass(/pk-buy/)
     await expect(card(page, newest.productName).locator('.pk-picked')).toHaveText(/^💚 picked by Tone, /)
     await page.locator('.pk-filter[data-filter="buy"]').click()
     await expect(shown()).toHaveText([newest.productName])
+    await expect(head).toHaveText(`${shop.shopName} · Picks Area ${tag} · 1 item · 💚 1`)
     await page.locator('.pk-filter[data-filter="skip"]').click()
     await expect(shown()).toHaveText([middle.productName])
+    await expect(head).toHaveText(`${shop.shopName} · Picks Area ${tag} · 1 item`)
     await page.locator('.pk-filter[data-filter="none"]').click()
     await expect(shown()).toHaveText([old.productName])
     await page.locator('.pk-filter[data-filter="all"]').click()
     await expect(shown()).toHaveCount(3)
+    await expect(head).toHaveText(`${shop.shopName} · Picks Area ${tag} · 3 items · 💚 1`)
   })
 
   test('new since the last visit: a count at the top and a mark on each, per browser', async ({ page, sanity, trackDoc, uploadedAssets }) => {
@@ -198,7 +226,8 @@ test.describe('/picks', () => {
     await page.evaluate((v: string) => localStorage.setItem('ff-picks-last-visit', v), lastVisit)
     await page.goto('/picks')
     await expect(page.locator('#pk-new-count')).toHaveText(/^🆕 \d+ new since your last visit$/)
-    const g = group(page, shop.shopName)
+    await expect(header(page, shop.shopName)).toHaveText(/ · 3 items · 💚 1 · 3 new$/)
+    const g = await openShop(page, shop.shopName)
     for (const d of [newest, middle, old]) await expect(card(page, d.productName).locator('.pk-new')).toBeVisible()
     // The visit is remembered: on the next one, none of these is new any more.
     const stored = await page.evaluate(() => localStorage.getItem('ff-picks-last-visit'))
@@ -212,7 +241,53 @@ test.describe('/picks', () => {
     const { shop } = await setup(sanity, trackDoc, uploadedAssets)
     await page.goto('/picks')
     await expect(page.locator('#pk-new-count')).toBeHidden()
+    await expect(header(page, shop.shopName)).not.toHaveText(/ new$/)
+    await openShop(page, shop.shopName)
     await expect(group(page, shop.shopName).locator('.pk-new:visible')).toHaveCount(0)
+  })
+
+  test('the open shops are remembered after a reload; Open all / Close all', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto('/picks')
+    await openShop(page, shop.shopName)
+    await page.reload()
+    await expect(group(page, shop.shopName)).toHaveAttribute('open', '')
+    await page.locator('#pk-close-all').click()
+    await expect(page.locator('.pk-group[open]')).toHaveCount(0)
+    await page.reload()
+    await expect(group(page, shop.shopName)).not.toHaveAttribute('open', '')
+    await page.locator('#pk-open-all').click()
+    await expect(page.locator('.pk-group:not([open]):not([hidden])')).toHaveCount(0)
+    await page.reload()
+    await expect(group(page, shop.shopName)).toHaveAttribute('open', '')
+  })
+
+  test('the search: by item or shop name, the matching shops open; cleared, back as they were (not remembered)', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, tag, middle } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto('/picks')
+    const g = group(page, shop.shopName)
+    await expect(g).not.toHaveAttribute('open', '')
+    // An item's name: its shop opens with only it, and the header counts it.
+    await page.locator('#pk-search').fill(`tifa figure ${tag}`)
+    await expect(g).toHaveAttribute('open', '')
+    await expect(g.locator('.pk-card:visible .pk-name')).toHaveText([middle.productName])
+    await expect(header(page, shop.shopName)).toHaveText(`${shop.shopName} · Picks Area ${tag} · 1 item`)
+    // Only the shops with a match are shown.
+    await expect(page.locator('.pk-group:visible')).toHaveCount(1)
+    // The shop's name: all its items.
+    await page.locator('#pk-search').fill(`picks shop ${tag}`)
+    await expect(g.locator('.pk-card:visible')).toHaveCount(3)
+    // Nothing matches: the message.
+    await page.locator('#pk-search').fill(`no such thing ${tag}`)
+    await expect(page.locator('#pk-none-match')).toBeVisible()
+    // Cleared: the shop is closed again, as before the search — and a reload agrees.
+    await page.locator('#pk-search').fill('')
+    await expect(g).not.toHaveAttribute('open', '')
+    await expect(header(page, shop.shopName)).toHaveText(`${shop.shopName} · Picks Area ${tag} · 3 items`)
+    await page.reload()
+    await expect(g).not.toHaveAttribute('open', '')
   })
 })
 

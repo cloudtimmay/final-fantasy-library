@@ -138,6 +138,26 @@ export function trainTravelMinutes(t: unknown): number | null {
   return x ? (x.walkToStationMin ?? 0) + (x.arrival - x.departure) + x.walkFromStationMin : null
 }
 
+// The time on the train: the first departure to the last arrival (changes included). The real
+// route: Shinjuku-sanchome 11:32 → Minatomirai 12:11 = 39 min.
+export function trainRideMinutes(t: unknown): number | null {
+  const x = trainTimes(t)
+  return x ? x.arrival - x.departure : null
+}
+// One leg's time on the train (past midnight when it runs over).
+export function trainLegMinutes(l: TrainLeg): number {
+  return (minutesOf(l.arrival) - minutesOf(l.departure) + 1440) % 1440
+}
+// "⏱ 39 min on the train · 58 min door to door" (door to door: trainTravelMinutes — 15 min walk +
+// 39 + 4). Without a known walk to the first station, the time on the train only: door to door
+// would leave that walk out. '' when it isn't a valid train.
+export function trainDurationText(t: unknown): string {
+  const x = trainTimes(t)
+  if (!x) return ''
+  const ride = `⏱ ${x.arrival - x.departure} min on the train`
+  return x.walkToStationMin == null ? ride : `${ride} · ${trainTravelMinutes(t)} min door to door`
+}
+
 // "¥6,670"; with a rate "¥6,670 (≈ 427 kr)".
 export function formatYen(yen: number): string {
   return `¥${Math.round(yen).toLocaleString('en-US')}`
@@ -185,10 +205,12 @@ export function trainSummary(t: unknown): string {
 }
 
 // One leg in full, as the editor's card and the sheet show it:
-// "1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51".
-export function trainLegText(l: TrainLeg, i: number): string {
+// "1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51". `withMinutes` (the sheet,
+// for a trip with several legs): its time on the train after it, " · 4 min". Only a real true: a
+// .map(trainLegText) passes the array third.
+export function trainLegText(l: TrainLeg, i: number, withMinutes = false): string {
   const name = [l.line, l.train].filter(Boolean).join(' ')
-  return `${i + 1}. ${name ? `${name} · ` : ''}${l.fromStation ? `${l.fromStation} ` : ''}${l.departure}${l.platform ? ` (platform ${l.platform})` : ''} → ${l.toStation ? `${l.toStation} ` : ''}${l.arrival}`
+  return `${i + 1}. ${name ? `${name} · ` : ''}${l.fromStation ? `${l.fromStation} ` : ''}${l.departure}${l.platform ? ` (platform ${l.platform})` : ''} → ${l.toStation ? `${l.toStation} ` : ''}${l.arrival}${withMinutes === true ? ` · ${trainLegMinutes(l)} min` : ''}`
 }
 
 // --- Reading a train from a screenshot (/api/train-from-screenshot) ---------------------------

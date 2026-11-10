@@ -10,7 +10,7 @@ import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type Schedu
 import { extractNoteTravelMinutes, MEAL_WINDOW_MIN, type RoutePoint } from './route-optimizer'
 import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
 import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
-import { trainTimes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
+import { trainTimes, trainRideMinutes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN, isMealStop } from './itinerary-review-helpers'
 import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
@@ -738,7 +738,11 @@ export function dayRouteLinks(
       const url = isIsoDate(day.day)
         ? googleMapsTimedUrl(from, p, legSearchTime(day, sched, i === last ? day.stops.length : i - 1, i === last ? 'return' : 'stop', { baseStart }))
         : transitRouteUrl(from, p)
-      out.push({ kind: 'train', label: `🚆 ${label(from)} → ${label(p)}`, url })
+      // With its duration: a planned train's time on the train, else the estimate ("~45 min").
+      const planned = trainRideMinutes(i === last ? lastLegTrain(day).train : day.stops[i - 1]?.train)
+      const estimate = i === last ? sched.returnLeg?.minutes : sched.stops[i - 1]?.travelIn.minutes
+      const dur = planned != null ? ` · ${planned} min` : estimate != null ? ` · ~${estimate} min` : ''
+      out.push({ kind: 'train', label: `🚆 ${label(from)} → ${label(p)}${dur}`, url })
       run = [p]
       runArea = p.area
     } else {

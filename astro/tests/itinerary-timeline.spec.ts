@@ -446,7 +446,7 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     const trains = panel.locator('.routes-train .itl-dayroute-link')
     // Numbered in day order across both columns.
     await expect(walks).toHaveText(['1. 🗺️ Yellow Submarine Shinjuku (1 stop)', '3. 🗺️ SURUGA-YA Marui City Yokohama (2 stops)', '5. 🗺️ Tokyo Temple (1 stop)'])
-    await expect(trains).toHaveText(['2. 🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama', '4. 🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple', '6. 🚆 Tokyo Temple → Base'])
+    await expect(trains).toHaveText([/^2\. 🚆 Yellow Submarine Shinjuku → SURUGA-YA Marui City Yokohama · ~\d+ min$/, /^4\. 🚆 Square Enix Pop Up Cafe Yokohama → Tokyo Temple · ~\d+ min$/, /^6\. 🚆 Tokyo Temple → Base · ~\d+ min$/]) // each with its estimate
     // Side by side on the phone (walking left).
     const w = (await panel.locator('.routes-walk').boundingBox())!, tr = (await panel.locator('.routes-train').boundingBox())!
     expect(w.x).toBeLessThan(tr.x)
@@ -479,7 +479,7 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     await openTimeline(page, sanity, trackDoc, stops, {}, '10:00')
     await page.locator('#itl-routes-btn').click()
     await expect(page.locator('.routes-walk .itl-dayroute-link')).toHaveText(['1. 🗺️ Akihabara (3 stops)', '3. 🗺️ Shinjuku (2 stops)'])
-    await expect(page.locator('.routes-train .itl-dayroute-link')).toHaveText(['2. 🚆 Akihabara → Shinjuku', '4. 🚆 Shinjuku → Base'])
+    await expect(page.locator('.routes-train .itl-dayroute-link')).toHaveText([/^2\. 🚆 Akihabara → Shinjuku · ~\d+ min$/, /^4\. 🚆 Shinjuku → Base · ~\d+ min$/])
     // The walk starts at the base (a short walk to the first shop).
     const walk = new URL((await page.locator('.routes-walk .itl-dayroute-link').first().getAttribute('href'))!)
     expect(walk.searchParams.get('origin')).toBe('35.697999,139.77083')
@@ -2343,14 +2343,14 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
 
     // The schedule: leave the hotel by 06:47 − 10 − 5; the shop from 08:10 + 5.
     await expect(block(page, 'Shizuoka Hobby Square')).toHaveAttribute('data-start', String(t('08:15')))
-    await expect(block(page, 'Shizuoka Hobby Square').locator('.itl-train-line')).toHaveText(SUMMARY)
-    await expect(page.locator('.itl-travel[data-index="1"]')).toHaveText('🚆 06:47')
+    await expect(block(page, 'Shizuoka Hobby Square').locator('.itl-train-line')).toHaveText(`${SUMMARY} · ⏱ 83 min on the train · 93 min door to door`)
+    await expect(page.locator('.itl-travel[data-index="1"]')).toHaveText('🚆 06:47 · 83 min')
     const ics = icsOf((await block(page, 'Hotel Breakfast').locator('.itn-reminder').getAttribute('href'))!)
     expect(ics).toContain('SUMMARY:Leave Hotel Breakfast 06:32 JST for the 06:47 train → Shizuoka Hobby Square')
     // The sheet: everything in full.
     await block(page, 'Shizuoka Hobby Square').locator('.itl-name').click()
     const lines = await page.locator('#itl-detail-lines li').allTextContents()
-    expect(lines).toEqual(expect.arrayContaining([SUMMARY, '🚶 5 min to the first station', '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02']))
+    expect(lines).toEqual(expect.arrayContaining([SUMMARY, '⏱ 83 min on the train · 93 min door to door', '🚶 5 min to the first station', '1. Yamanote Line local · Akihabara 06:47 (platform 3) → Tokyo 06:51 · 4 min', '2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02 · 59 min']))
   })
 
   test('fare, walk from the last station and travel time "from train"; the day\'s train fares', async ({ page, sanity, trackDoc }) => {
@@ -2432,7 +2432,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await page.locator('#itl-tr-fare').fill('6670')
     await fillLeg(page, 0, { line: 'Tokaido Shinkansen', train: 'Hikari 662', fromStation: 'Shizuoka', departure: '17:10', platform: '1', toStation: 'Tokyo', arrival: '18:10' })
     await page.locator('#itl-tr-save').click()
-    await expect(back).toHaveText('🚆 17:10')
+    await expect(back).toHaveText('🚆 17:10 · 60 min')
     await expect(page.locator('.itl-base-end')).toHaveText('🏠 Back at base ~18:15') // 18:10 + 5
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].returnTrain?.fareYen, { timeout: 10000 }).toBe(6670)
     await expect(page.locator('#itl-day-fares')).toHaveText('🚆 Trains today: ¥6,670 per person · ¥33,350 for 5 · estimate') // the trip there is an estimated train
@@ -2471,7 +2471,7 @@ test.describe('/itinerary on a phone: "🚆 Plan train"', () => {
     await page.locator('#itl-tr-save').click()
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-06'].airportTrain?.legs?.[0]?.train, { timeout: 10000 }).toBe('NEX 37')
     expect(saves[saves.length - 1].days['2026-12-06'].returnTrain).toBeUndefined()
-    await expect(page.locator('.itl-travel-back')).toHaveText('🚆 18:15')
+    await expect(page.locator('.itl-travel-back')).toHaveText('🚆 18:15 · 85 min')
     await expect(page.locator('.itl-base-end')).toHaveText('✈️ At Narita Airport ~19:45')
     await expect(page.locator('.itl-flight-label')).toHaveText('✈️ Leave for Narita by 17:55 — 🚆 18:15 train, at the airport 19:45 (Flight 23:00 from Narita (T1))')
     const b = block(page, 'Shinjuku Last Shop')
@@ -2899,5 +2899,58 @@ test.describe('/itinerary: the axis on the arrival day', () => {
       if (!(await el.isVisible())) continue
       expect((await el.boundingBox())!.y).toBeGreaterThanOrEqual(gridTop - 25) // the start label sits just above its line
     }
+  })
+})
+
+test.describe('a planned train\'s duration on the timeline', () => {
+  // The real case: Fukutoshin Line F Liner Express, Shinjuku-sanchome 11:32 → Minatomirai 12:11,
+  // 15 min walk to the first station, 4 min from the last: 39 min on the train, 58 door to door.
+  const F_LINER = { walkToStationMin: 15, walkFromStationMin: 4, legs: [{ line: 'Fukutoshin Line', train: 'F Liner Express', fromStation: 'Shinjuku-sanchome', departure: '11:32', platform: '', toStation: 'Minatomirai', arrival: '12:11' }] }
+  const DAY = [
+    { name: 'Shinjuku Shop', hours: '', tag: '', slot: '', lat: 35.6905, lng: 139.7065, dur: 45 },
+    { name: 'Minatomirai Shop', hours: '', tag: '', slot: '', lat: 35.4577, lng: 139.6326, dur: 120, train: F_LINER },
+    // A train of 2 minutes and no walks: a band too short for both — the duration only.
+    { name: 'Next Door Shop', hours: '', tag: '', slot: '', lat: 35.4590, lng: 139.6300, dur: 60, train: { walkToStationMin: 0, walkFromStationMin: 0, legs: [{ line: 'Minatomirai Line', train: '', fromStation: 'Minatomirai', departure: '14:20', platform: '', toStation: 'Bashamichi', arrival: '14:22' }] } },
+  ]
+
+  test('the band, the train line, the sheet and the day\'s route list', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000)
+    await openTimeline(page, sanity, trackDoc, DAY, {}, '10:30')
+    // The band: "🚆 11:32 · 39 min" — both kept (on one line or two).
+    const band = page.locator('.itl-travel[data-index="1"]')
+    await expect(band).toHaveText('🚆 11:32 · 39 min')
+    await expect(band.locator('.itl-tr-dep')).toBeVisible()
+    await expect(band.locator('.itl-tr-dur')).toBeVisible()
+    await expect(band).not.toHaveClass(/itl-travel-duronly/)
+    // The 2-minute train (12 min with the 10 to leave) at the default zoom: 27 px, room for both on
+    // two lines.
+    const short = page.locator('.itl-travel[data-index="2"]')
+    await expect(short).toHaveClass(/itl-travel-stack/)
+    expect(await short.innerText()).toBe('🚆 14:20\n2 min')
+    // At the smallest zoom it's a chip, too short for two lines: the duration only, "🚆 2 min".
+    await page.locator('#itl-zoom-out').click()
+    await expect(short).toHaveClass(/itl-travel-chip/)
+    await expect(short).toHaveClass(/itl-travel-duronly/)
+    await expect(short.locator('.itl-tr-dep')).toBeHidden()
+    // "🚆 2 min": the icon drawn before the duration (CSS ::before, not in innerText).
+    expect(await short.innerText()).toBe('2 min')
+    expect(await short.locator('.itl-tr-dur').evaluate((el) => getComputedStyle(el, '::before').content)).toBe('"🚆 "')
+
+    // The train line on the stop after the leg.
+    const block = (p: Page, name: string) => p.locator('.itl-block').filter({ has: p.locator('.itl-name', { hasText: name }) })
+    await expect(block(page, 'Minatomirai Shop').locator('.itl-train-line')).toHaveText('🚆 11:32 Fukutoshin F Liner Express → Minatomirai 12:11 · ⏱ 39 min on the train · 58 min door to door')
+    // The sheet.
+    await block(page, 'Minatomirai Shop').locator('.itl-name').click()
+    const lines = await page.locator('#itl-detail-lines li').allTextContents()
+    expect(lines).toEqual(expect.arrayContaining([
+      '⏱ 39 min on the train · 58 min door to door',
+      '1. Fukutoshin Line F Liner Express · Shinjuku-sanchome 11:32 → Minatomirai 12:11', // one leg: no per-leg time
+    ]))
+    await page.locator('#itl-detail-close').click()
+
+    // The day's route list: the planned train's time on the train.
+    await page.locator('#itl-routes-btn').click()
+    // (Before it, the estimated leg from the base: "1. 🚆 Base → Shinjuku Shop · ~26 min".)
+    await expect(page.locator('.routes-train .itl-dayroute-link').nth(1)).toHaveText('3. 🚆 Shinjuku Shop → Minatomirai Shop · 39 min')
   })
 })

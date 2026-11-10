@@ -326,7 +326,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
-    import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainFareText, yenWithNok, type TrainLeg } from '../lib/train-plan'
+    import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainDurationText, trainFareText, yenWithNok, type TrainLeg } from '../lib/train-plan'
     import { trainEarlyHint } from '../lib/itinerary-schedule'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
@@ -522,6 +522,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // Travel in its own lane on the right (lib/itinerary-timeline.ts layoutTimeline): a striped
       // band with the label inside, or a small chip when the leg is too short for it.
       const layout = layoutTimeline(sched, range, px)
+      // Train bands: "🚆 11:32 · 39 min" — measured once in the page (below).
+      const trainBands: HTMLElement[] = []
       layout.travel.forEach((tr) => {
         const el = document.createElement('div')
         el.className = 'itl-travel' + (tr.chip ? ' itl-travel-chip' : '') + (tr.back ? ' itl-travel-back' : '')
@@ -534,7 +536,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const legTrain = !tr.back ? day.stops[tr.index]?.train : lastLegTrain(day).train
         if (legTrain) {
           el.classList.add('itl-travel-train')
-          el.textContent = `🚆 ${trainDeparture(legTrain)}`
+          // The departure and the time on the train: on one line, on two when the band is too
+          // narrow, the duration alone when it's too short for two (measured below).
+          const ride = trainRideMinutes(legTrain)
+          el.innerHTML = `<span class="itl-tr-text"><span class="itl-tr-dep">🚆 ${esc(trainDeparture(legTrain))}</span><span class="itl-tr-sep"> · </span><span class="itl-tr-dur">${ride} min</span></span>`
+          trainBands.push(el)
         } else {
           el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
           // A long leg offers "🚆 Plan train" (a label under the time, drawn by CSS).
@@ -614,7 +620,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // The first line: "<n> <type> <name> · HH:MM–HH:MM" — the name is never hidden; the time is
         // cut off with "…" instead. The linked shop's area is on the second line (whole), or back
         // on this one on a block too short for that line.
-        const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train))}</span>` : ''
+        const trainDur = s.train ? trainDurationText(s.train) : ''
+        const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train) + (trainDur ? ` · ${trainDur}` : ''))}</span>` : ''
         // The linked shop's place type (🛍️ 🍜 🗼 📌) before the name; none for a stop without a shop.
         const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
         const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span>` : ''
@@ -728,6 +735,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // row cut in half. What went shows as an icon on the first line; a 10-minute visit is then
       // just "name · time · area" with its icons. The edit sheet has everything in full.
       const fits = (el: HTMLElement) => el.scrollHeight <= el.clientHeight + 1
+      // The text's own size against the band's (one inline box, so it never wraps by itself).
+      const textFits = (band: HTMLElement) => {
+        const text = band.querySelector('.itl-tr-text') as HTMLElement
+        return text.offsetWidth <= band.clientWidth + 1 && text.offsetHeight <= band.clientHeight + 1
+      }
+      for (const band of trainBands) {
+        if (textFits(band)) continue
+        band.classList.add('itl-travel-stack')
+        if (textFits(band)) continue
+        band.classList.remove('itl-travel-stack')
+        band.classList.add('itl-travel-duronly')
+      }
       // The photo row goes first, and only it: a block without room for it is simply without it
       // (the sheet has the photos). Where it stays, only the photos that fit whole in its width.
       for (const c of compactCandidates) {
@@ -1227,8 +1246,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const trainV = s.train ? validateTrain(s.train) : null
       if (trainV && 'train' in trainV) {
         lines.push(trainSummary(trainV.train))
+        lines.push(trainDurationText(trainV.train))
         if (trainV.train.walkToStationMin != null) lines.push(`🚶 ${trainV.train.walkToStationMin} min to the first station`)
-        trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i)))
+        trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i, trainV.train.legs.length > 1)))
         if (trainV.train.walkFromStationMin != null) lines.push(`🚶 ${trainV.train.walkFromStationMin} min from the last station`)
         const fare = trainFareText(trainV.train, tripRate, tripTravelers)
         if (fare) lines.push(`💴 ${fare}`)
@@ -1237,6 +1257,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const after = idx === day.stops.length - 1 ? lastLegTrain(day) : null
       if (after && after.train) {
         lines.push(`${after.toAirport ? '✈️ To the airport' : '🏠 Back to the base'}: ${trainSummary(after.train)}`)
+        const afterDur = trainDurationText(after.train)
+        if (afterDur) lines.push(afterDur)
         const backFare = trainFareText(after.train, tripRate, tripTravelers)
         if (backFare) lines.push(`💴 ${backFare}`)
       }
@@ -2035,6 +2057,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-travel.itl-travel-plan::after { content: '🚆 Plan train'; display: block; font-size: 0.62rem; color: var(--accent); font-weight: 600; }
     .itl-travel { flex-direction: column; }
     .itl-travel.itl-travel-train { color: var(--text); font-weight: 600; }
+    /* A train band too narrow for "🚆 11:32 · 39 min": on two lines, or the duration alone. */
+    .itl-tr-text { display: inline-block; flex: none; white-space: nowrap; text-align: center; }
+    .itl-travel.itl-travel-stack .itl-tr-text { line-height: 1.15; }
+    .itl-travel.itl-travel-stack .itl-tr-dep, .itl-travel.itl-travel-stack .itl-tr-dur { display: block; }
+    .itl-travel.itl-travel-stack .itl-tr-sep { display: none; }
+    .itl-travel.itl-travel-duronly .itl-tr-dep, .itl-travel.itl-travel-duronly .itl-tr-sep { display: none; }
+    .itl-travel.itl-travel-duronly .itl-tr-dur::before { content: '🚆 '; }
     .itl-train-line { font-size: 0.7rem; font-weight: 600; color: #6b9fd4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .itl-train { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
     .itl-train-head { margin: 0 0 0.3rem; font-weight: 600; font-size: 0.9rem; }

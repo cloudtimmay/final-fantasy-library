@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
+import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainLegMinutes, trainDurationText, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
 import { scheduleDay, reminderTitle, trainEarlyHint, TRAIN_PLATFORM_MIN, TRAIN_EXIT_WALK_MIN } from '../src/lib/itinerary-schedule'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
@@ -310,5 +310,26 @@ test.describe('the train to the airport from the last stop, and Check day', () =
       render()
     }, NEX)
     await expect(page.locator('#itn-next')).toHaveText('Next: leave Shinjuku Shop by 17:55 for Narita Airport (in 55 min)')
+  })
+})
+
+// The real case: Fukutoshin Line F Liner Express, Shinjuku-sanchome 11:32 → Minatomirai 12:11, a
+// 15 min walk to the first station, 4 min from the last.
+const F_LINER = { walkToStationMin: 15, walkFromStationMin: 4, legs: [{ line: 'Fukutoshin Line', train: 'F Liner Express', fromStation: 'Shinjuku-sanchome', departure: '11:32', platform: '', toStation: 'Minatomirai', arrival: '12:11' }] }
+
+test.describe('a train trip\'s duration (lib/train-plan.ts)', () => {
+  test('39 min on the train, 58 min door to door; per leg; without a known walk to the station, the time on the train only', () => {
+    expect(trainRideMinutes(F_LINER)).toBe(39)
+    expect(trainTravelMinutes(F_LINER)).toBe(58)
+    expect(trainDurationText(F_LINER)).toBe('⏱ 39 min on the train · 58 min door to door')
+    // Several legs: first departure to last arrival (changes included), and each leg's own time.
+    expect(trainRideMinutes(ROUTE)).toBe(83)
+    expect(ROUTE.legs.map((l) => trainLegMinutes(l))).toEqual([4, 59, 3])
+    expect(trainLegText(ROUTE.legs[1], 1, true)).toBe('2. Tokaido Shinkansen Hikari 701 · Tokyo 07:03 (platform 15) → Shizuoka 08:02 · 59 min')
+    // Past midnight.
+    expect(trainLegMinutes({ ...F_LINER.legs[0], departure: '23:50', arrival: '00:20' })).toBe(30)
+    const { walkToStationMin, ...noWalk } = F_LINER
+    expect(trainDurationText(noWalk)).toBe('⏱ 39 min on the train')
+    expect(trainDurationText({ legs: [] })).toBe('')
   })
 })

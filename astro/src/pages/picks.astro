@@ -1,0 +1,223 @@
+---
+// "💚 Picks": the products photographed in shops that are still Considering (with a photo), by
+// shop, newest first — for someone at home to choose "💚 Buy this" or "👎 Skip", with a short
+// comment. Saved straight away by /api/price-pick (only the pick fields; who picked comes from
+// the Cloudflare Access login, lib/access-users.ts). Prices NOK first with ≈ JPY at /prices'
+// rate (lib/price-display.ts, the default trip's).
+import Base from '../layouts/Base.astro'
+import { sanity } from '../lib/sanity'
+import { PICKS_QUERY, PICK_NOTE_MAX, groupPicksByShop, type PickDoc } from '../lib/picks'
+import { formatPriceNokFirst } from '../lib/price-display'
+import { formatFoundDate } from '../lib/shop-found'
+import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
+import { cdnImage } from '../lib/image-url'
+import { accessUserFrom, LOCAL_DEV_USER } from '../lib/access-users'
+
+const docs: PickDoc[] = (await sanity.fetch(PICKS_QUERY)) || []
+const groups = groupPicksByShop(docs)
+const rateTrip = pickDefaultTrip(await fetchTripsForSpending())
+const rate = rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null
+// Who is looking (their own picks aren't "new" to them): the Access login, else local dev.
+const me = (accessUserFrom(Astro.request) || (import.meta.env.DEV ? LOCAL_DEV_USER : null))?.name || ''
+const total = groups.reduce((n, g) => n + g.items.length, 0)
+---
+<Base title="Picks">
+  <div class="pk-wrap" data-me={me}>
+    <div class="pk-nav">
+      <a href="/add-menu" class="pk-back">← Back</a>
+    </div>
+    <h1>💚 Picks</h1>
+    <p class="pk-hint">Products found in shops in Japan. Choose what should be bought — it's saved straight away.</p>
+    <p id="pk-new-count" class="pk-new-count" hidden></p>
+
+    <div class="pk-filters" role="group" aria-label="Show">
+      <button type="button" class="pk-filter active" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="pk-filter" data-filter="buy" aria-pressed="false">💚 Buy</button>
+      <button type="button" class="pk-filter" data-filter="skip" aria-pressed="false">👎 Skip</button>
+      <button type="button" class="pk-filter" data-filter="none" aria-pressed="false">Not decided</button>
+    </div>
+
+    {total === 0 && <p class="pk-empty">Nothing to choose from yet — products photographed in shops show up here.</p>}
+    <p id="pk-none-match" class="pk-empty" hidden>No products match this filter.</p>
+
+    {groups.map((g) => (
+      <section class="pk-group" data-key={g.key}>
+        <h2 class="pk-shop">{g.shopName}{g.area && <span class="pk-area">📍 {g.area}</span>}</h2>
+        <ul class="pk-list">
+          {g.items.map((i) => (
+            <li
+              class:list={['pk-card', i.pick === 'buy' && 'pk-buy', i.pick === 'skip' && 'pk-skip']}
+              data-id={i.id}
+              data-pick={i.pick || ''}
+              data-seen={i.seen}
+              data-picked-by={i.pickedBy}
+              data-picked-at={i.pickedAt}
+            >
+              <img class="pk-img" src={cdnImage(i.imageUrl, 240)} data-lightbox={cdnImage(i.imageUrl, 2000)} alt={i.name} loading="lazy" />
+              <div class="pk-body">
+                <span class="pk-new" hidden>🆕 New</span>
+                <span class="pk-name">{i.name}</span>
+                {i.price != null && <span class="pk-price">{formatPriceNokFirst(i.price, i.currency, rate)}</span>}
+                {i.seen && <span class="pk-seen">Seen {formatFoundDate(i.seen)}</span>}
+                {i.note && <span class="pk-note">{i.note}</span>}
+                <p class="pk-picked" hidden></p>
+              </div>
+              <div class="pk-actions">
+                <button type="button" class="pk-btn pk-btn-buy" data-pick="buy" aria-pressed={i.pick === 'buy' ? 'true' : 'false'}>💚 Buy this</button>
+                <button type="button" class="pk-btn pk-btn-skip" data-pick="skip" aria-pressed={i.pick === 'skip' ? 'true' : 'false'}>👎 Skip</button>
+                <input class="pk-comment" type="text" maxlength={PICK_NOTE_MAX} placeholder="Comment (optional)" aria-label="Comment" value={i.pickNote} />
+                <p class="pk-msg" hidden></p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+  </div>
+
+  <script>
+    import { pickedText, isNewSince, matchesPickFilter, type PickChoice, type PickFilter } from '../lib/picks'
+
+    const wrap = document.querySelector('.pk-wrap') as HTMLElement
+    const me = wrap.dataset.me || ''
+    const cards = [...document.querySelectorAll<HTMLElement>('.pk-card')]
+    const pickOf = (c: HTMLElement): PickChoice | null => (c.dataset.pick === 'buy' || c.dataset.pick === 'skip' ? c.dataset.pick : null)
+
+    // The card's look and its "picked by" line from its data.
+    function paint(c: HTMLElement) {
+      const pick = pickOf(c)
+      c.classList.toggle('pk-buy', pick === 'buy')
+      c.classList.toggle('pk-skip', pick === 'skip')
+      c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pick === pick)))
+      const line = c.querySelector('.pk-picked') as HTMLElement
+      line.textContent = pickedText(pick, c.dataset.pickedBy || '', c.dataset.pickedAt || '')
+      line.hidden = !line.textContent
+    }
+    cards.forEach(paint)
+
+    // "New since last visit" (this browser): seen, or picked by someone else, since then.
+    const VISIT_KEY = 'ff-picks-last-visit'
+    let lastVisit: string | null = null
+    try { lastVisit = localStorage.getItem(VISIT_KEY) } catch (e) {}
+    let fresh = 0
+    for (const c of cards) {
+      const isNew = isNewSince({ seen: c.dataset.seen || '', pick: pickOf(c), pickedAt: c.dataset.pickedAt || '', pickedBy: c.dataset.pickedBy || '' }, lastVisit, me)
+      ;(c.querySelector('.pk-new') as HTMLElement).hidden = !isNew
+      if (isNew) fresh++
+    }
+    const newCount = document.querySelector('#pk-new-count') as HTMLElement
+    if (lastVisit) {
+      newCount.textContent = fresh ? `🆕 ${fresh} new since your last visit` : 'Nothing new since your last visit'
+      newCount.hidden = false
+    }
+    try { localStorage.setItem(VISIT_KEY, new Date().toISOString()) } catch (e) {}
+
+    // The filter: All / Buy / Skip / Not decided.
+    let filter: PickFilter = 'all'
+    function applyFilter() {
+      let shown = 0
+      for (const c of cards) {
+        const on = matchesPickFilter(pickOf(c), filter)
+        c.hidden = !on
+        if (on) shown++
+      }
+      document.querySelectorAll<HTMLElement>('.pk-group').forEach((g) => { g.hidden = !g.querySelector('.pk-card:not([hidden])') })
+      ;(document.querySelector('#pk-none-match') as HTMLElement).hidden = shown > 0 || cards.length === 0
+    }
+    document.querySelectorAll<HTMLButtonElement>('.pk-filter').forEach((b) => b.addEventListener('click', () => {
+      filter = b.dataset.filter as PickFilter
+      document.querySelectorAll<HTMLButtonElement>('.pk-filter').forEach((x) => { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', String(x === b)) })
+      applyFilter()
+    }))
+
+    // Saving: the pick (tap again to take it off) and the comment, straight away.
+    async function save(c: HTMLElement, data: Record<string, unknown>): Promise<boolean> {
+      const msg = c.querySelector('.pk-msg') as HTMLElement
+      msg.hidden = true
+      try {
+        const res = await fetch('/api/price-pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.dataset.id, ...data }) })
+        const out = await res.json().catch(() => ({}))
+        if (!res.ok || !out.ok) throw new Error(out.error || 'Save failed')
+        c.dataset.pick = out.pick || ''
+        c.dataset.pickedBy = out.pickedBy || ''
+        c.dataset.pickedAt = out.pickedAt || ''
+        paint(c)
+        return true
+      } catch (e) {
+        msg.textContent = `⚠️ Not saved — ${e instanceof Error ? e.message : 'try again'}.`
+        msg.hidden = false
+        return false
+      }
+    }
+    for (const c of cards) {
+      c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((b) => b.addEventListener('click', async () => {
+        const next = pickOf(c) === b.dataset.pick ? null : b.dataset.pick
+        c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((x) => { x.disabled = true })
+        await save(c, { pick: next })
+        c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((x) => { x.disabled = false })
+        applyFilter()
+      }))
+      const comment = c.querySelector('.pk-comment') as HTMLInputElement
+      comment.addEventListener('change', async () => {
+        if (await save(c, { note: comment.value })) {
+          const msg = c.querySelector('.pk-msg') as HTMLElement
+          msg.textContent = comment.value.trim() ? 'Comment saved ✓' : 'Comment removed ✓'
+          msg.hidden = false
+        }
+      })
+    }
+  </script>
+
+  <style>
+    .pk-wrap { max-width: 640px; }
+    .pk-nav { margin-bottom: 0.75rem; }
+    .pk-back { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .pk-hint { font-size: 0.9rem; color: var(--muted); margin: 0.25rem 0 1rem; }
+    .pk-new-count { font-weight: 600; color: var(--accent); margin: 0 0 0.75rem; }
+    .pk-new-count[hidden] { display: none; }
+    .pk-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+    .pk-filter {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 999px;
+      padding: 0.45rem 0.85rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 36px;
+    }
+    .pk-filter.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    .pk-empty { color: var(--muted); font-size: 0.9rem; }
+    .pk-empty[hidden] { display: none; }
+    .pk-group { margin-bottom: 1.5rem; }
+    .pk-group[hidden] { display: none; }
+    .pk-shop { font-size: 1.05rem; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; }
+    .pk-area { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+    .pk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+    .pk-card {
+      display: grid; grid-template-columns: 96px 1fr; gap: 0.5rem 0.75rem; padding: 0.6rem;
+      background: var(--surface); border: 2px solid var(--border); border-radius: 10px;
+    }
+    .pk-card[hidden] { display: none; }
+    .pk-card.pk-buy { border-color: #2ecc71; }
+    .pk-card.pk-skip { opacity: 0.5; }
+    .pk-img { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; background: var(--bg); }
+    .pk-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+    .pk-new { align-self: flex-start; font-size: 0.7rem; font-weight: 700; color: var(--bg); background: var(--accent); border-radius: 4px; padding: 0.05rem 0.35rem; }
+    .pk-new[hidden] { display: none; }
+    .pk-name { font-weight: 600; overflow-wrap: anywhere; }
+    .pk-price { font-size: 0.9rem; }
+    .pk-seen { font-size: 0.75rem; color: var(--muted); }
+    .pk-note { font-size: 0.8rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+    .pk-picked { margin: 0.2rem 0 0; font-size: 0.8rem; font-weight: 600; }
+    .pk-picked[hidden] { display: none; }
+    .pk-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+    .pk-btn {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.55rem 0.4rem; font: inherit; font-size: 0.9rem; cursor: pointer; min-height: 44px;
+    }
+    .pk-btn:disabled { opacity: 0.6; }
+    .pk-btn-buy[aria-pressed="true"] { border-color: #2ecc71; background: rgba(46, 204, 113, 0.15); font-weight: 700; }
+    .pk-btn-skip[aria-pressed="true"] { border-color: var(--muted); background: rgba(255, 255, 255, 0.08); font-weight: 700; }
+    .pk-comment {
+      grid-column: 1 / -1; width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.65rem; font: inherit; font-size: 1rem;
+    }
+    .pk-msg { grid-column: 1 / -1; margin: 0; font-size: 0.8rem; color: var(--muted); }
+    .pk-msg[hidden] { display: none; }
+  </style>
+</Base>

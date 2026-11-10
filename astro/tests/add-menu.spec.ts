@@ -7,6 +7,7 @@ test.describe('add menu', () => {
     const links: [string, string][] = [
       ['Add price', '/add-price'],
       ['All prices', '/prices'],
+      ['Picks', '/picks'],
       ['Family purchase', '/add'],
       ['Place', '/add-store'],
       ['Airport checklist', '/checklist'],
@@ -21,6 +22,12 @@ test.describe('add menu', () => {
       const card = page.locator('a.menu-card').filter({ has: page.locator('.menu-title', { hasText: new RegExp(`^${label}$`) }) })
       await expect(card).toHaveAttribute('href', href)
     }
+  })
+
+  test('"💚 Picks" comes right after "All prices"', async ({ page }) => {
+    await page.goto('/add-menu')
+    const titles = await page.locator('a.menu-card .menu-title').allTextContents()
+    expect(titles.indexOf('Picks')).toBe(titles.indexOf('All prices') + 1)
   })
 
   test('"Add item" card is listed after "Airport checklist" and "Scan / search"', async ({ page }) => {

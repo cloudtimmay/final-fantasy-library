@@ -1,4 +1,5 @@
 import { test, expect, testName, uniqueJan } from './fixtures'
+import { uniquePng } from './helpers/unique-image'
 import { accessUserFrom, accessUserName, ACCESS_EMAIL_HEADER } from '../src/lib/access-users'
 import { groupPicksByShop, isNewSince, matchesPickFilter, pickedText } from '../src/lib/picks'
 
@@ -107,5 +108,120 @@ test.describe('picks (lib/picks.ts)', () => {
     expect([null, 'buy', 'skip'].map((p: any) => matchesPickFilter(p, 'none'))).toEqual([true, false, false])
     expect([null, 'buy', 'skip'].map((p: any) => matchesPickFilter(p, 'buy'))).toEqual([false, true, false])
     expect([null, 'buy', 'skip'].map((p: any) => matchesPickFilter(p, 'all'))).toEqual([true, true, true])
+  })
+})
+
+test.describe('/picks', () => {
+  // A shop with three photographed products still Considering (one seen two days ago), one
+  // without a photo and one bought (neither shown).
+  async function setup(sanity: any, trackDoc: (id: string) => void, uploadedAssets: string[]) {
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'picks-test.png' })
+    uploadedAssets.push(asset._id)
+    const tag = Date.now()
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Picks Shop ${tag}`), area: `Picks Area ${tag}` })
+    trackDoc(shop._id)
+    const image = { _type: 'image', asset: { _type: 'reference', _ref: asset._id } }
+    const mk = async (name: string, minutesAgo: number, extra: Record<string, unknown> = {}) => {
+      const d = await sanity.create({
+        _type: 'priceEntry', productName: testName(`${name} ${tag}`), jan: uniqueJan(), category: 'figure', sourceType: 'japanStore',
+        shop: { _type: 'reference', _ref: shop._id, _weak: true }, price: 5980, currency: 'JPY', condition: 'new', status: 'considering',
+        seenAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(), image, ...extra,
+      })
+      trackDoc(d._id)
+      return d
+    }
+    const newest = await mk('Cloud Figure', 5, { note: 'Last one on the shelf' })
+    const middle = await mk('Tifa Figure', 60)
+    const old = await mk('Moogle Plush', 2 * 24 * 60)
+    await mk('No Photo Item', 10, { image: undefined })
+    await mk('Bought Item', 10, { status: 'bought' })
+    return { shop, tag, newest, middle, old }
+  }
+  const group = (page: any, shopName: string) => page.locator('.pk-group').filter({ has: page.locator('.pk-shop', { hasText: shopName }) })
+  const card = (page: any, name: string) => page.locator('.pk-card').filter({ has: page.locator('.pk-name', { hasText: name }) })
+
+  test('by shop with its area, newest first; buy, tap again to take it off, skip (dimmed); the comment; who picked', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, tag, newest, middle, old } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.setExtraHTTPHeaders({ [ACCESS_EMAIL_HEADER]: HOME }) // the Cloudflare Access login
+    await page.goto('/picks')
+    await expect(page.getByRole('heading', { name: '💚 Picks' })).toBeVisible()
+    const g = group(page, shop.shopName)
+    await expect(g.locator('.pk-area')).toHaveText(`📍 Picks Area ${tag}`)
+    await expect(g.locator('.pk-name')).toHaveText([newest.productName, middle.productName, old.productName])
+    const c = card(page, newest.productName)
+    await expect(c.locator('.pk-price')).toHaveText(/¥5\s980/)
+    await expect(c.locator('.pk-seen')).toHaveText(/^Seen /)
+    await expect(c.locator('.pk-note')).toHaveText('Last one on the shelf')
+    await expect(c.locator('.pk-img')).toHaveAttribute('data-lightbox', /cdn\.sanity\.io/)
+
+    // 💚 Buy this: green, saved, "picked by" the login.
+    await c.locator('.pk-btn-buy').click()
+    await expect(c).toHaveClass(/pk-buy/)
+    await expect(c.locator('.pk-picked')).toHaveText(new RegExp(`^💚 picked by ${HOME.replace(/[.]/g, '\\.')}, `))
+    await expect.poll(async () => (await sanity.getDocument(newest._id)).pick).toBe('buy')
+    expect((await sanity.getDocument(newest._id)).pickedBy).toBe(HOME)
+    // Tapping it again takes it off.
+    await c.locator('.pk-btn-buy').click()
+    await expect(c).not.toHaveClass(/pk-buy/)
+    await expect(c.locator('.pk-picked')).toBeHidden()
+    await expect.poll(async () => (await sanity.getDocument(newest._id)).pick ?? null).toBeNull()
+
+    // 👎 Skip: dimmed; the comment saved on its own.
+    const m = card(page, middle.productName)
+    await m.locator('.pk-btn-skip').click()
+    await expect(m).toHaveClass(/pk-skip/)
+    expect(Number(await m.evaluate((el: HTMLElement) => getComputedStyle(el).opacity))).toBeLessThan(1)
+    await m.locator('.pk-comment').fill('We have this one')
+    await m.locator('.pk-comment').blur()
+    await expect(m.locator('.pk-msg')).toHaveText('Comment saved ✓')
+    expect(await sanity.getDocument(middle._id)).toMatchObject({ pick: 'skip', pickNote: 'We have this one', pickedBy: HOME })
+  })
+
+  test('the filter: All / Buy / Skip / Not decided', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, newest, middle, old } = await setup(sanity, trackDoc, uploadedAssets)
+    await sanity.patch(newest._id).set({ pick: 'buy', pickedBy: 'Tone', pickedAt: new Date().toISOString() }).commit()
+    await sanity.patch(middle._id).set({ pick: 'skip', pickedBy: 'Tone', pickedAt: new Date().toISOString() }).commit()
+    await page.goto('/picks')
+    const g = group(page, shop.shopName)
+    const shown = () => g.locator('.pk-card:visible .pk-name')
+    await expect(card(page, newest.productName)).toHaveClass(/pk-buy/)
+    await expect(card(page, newest.productName).locator('.pk-picked')).toHaveText(/^💚 picked by Tone, /)
+    await page.locator('.pk-filter[data-filter="buy"]').click()
+    await expect(shown()).toHaveText([newest.productName])
+    await page.locator('.pk-filter[data-filter="skip"]').click()
+    await expect(shown()).toHaveText([middle.productName])
+    await page.locator('.pk-filter[data-filter="none"]').click()
+    await expect(shown()).toHaveText([old.productName])
+    await page.locator('.pk-filter[data-filter="all"]').click()
+    await expect(shown()).toHaveCount(3)
+  })
+
+  test('new since the last visit: a count at the top and a mark on each, per browser', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, newest, middle, old } = await setup(sanity, trackDoc, uploadedAssets)
+    // Picked by someone else since the last visit (a day ago); the old one was seen before it.
+    await sanity.patch(old._id).set({ pick: 'buy', pickedBy: 'Kim', pickedAt: new Date().toISOString() }).commit()
+    const lastVisit = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+    await page.goto('/add-menu')
+    await page.evaluate((v: string) => localStorage.setItem('ff-picks-last-visit', v), lastVisit)
+    await page.goto('/picks')
+    await expect(page.locator('#pk-new-count')).toHaveText(/^🆕 \d+ new since your last visit$/)
+    const g = group(page, shop.shopName)
+    for (const d of [newest, middle, old]) await expect(card(page, d.productName).locator('.pk-new')).toBeVisible()
+    // The visit is remembered: on the next one, none of these is new any more.
+    const stored = await page.evaluate(() => localStorage.getItem('ff-picks-last-visit'))
+    expect(stored! > lastVisit).toBe(true)
+    await page.reload()
+    await expect(g.locator('.pk-new:visible')).toHaveCount(0)
+    await expect(page.locator('#pk-new-count')).toBeVisible()
+  })
+
+  test('a first visit marks nothing new', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    const { shop } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto('/picks')
+    await expect(page.locator('#pk-new-count')).toBeHidden()
+    await expect(group(page, shop.shopName).locator('.pk-new:visible')).toHaveCount(0)
   })
 })

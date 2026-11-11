@@ -14,7 +14,7 @@ export const PICKS_QUERY = `
     "imageUrl": image.asset->url,
     "shopId": shop._ref, "shopName": shop->shopName, "area": shop->area,
     sourceType, sourceName,
-    pick, pickedBy, pickedAt, pickNote
+    pick, pickedBy, pickedAt, pickNote, hiddenFromPicks
   }`
 
 export type PickDoc = {
@@ -35,6 +35,7 @@ export type PickDoc = {
   pickedBy?: string | null
   pickedAt?: string | null
   pickNote?: string | null
+  hiddenFromPicks?: boolean | null
 }
 
 export type PickItem = {
@@ -49,16 +50,19 @@ export type PickItem = {
   pickedBy: string
   pickedAt: string
   pickNote: string
+  hidden: boolean // "🎁 Hide from Picks" (a present): only the owner gets these at all
 }
 export type PickGroup = { key: string; shopName: string; area: string; items: PickItem[] }
 
 // By shop (a price without a shop under its store/site name, else "Other"), each newest
-// first; the shop seen most recently first.
-export function groupPicksByShop(docs: PickDoc[]): PickGroup[] {
+// first; the shop seen most recently first. Items hidden from Picks only with `includeHidden`
+// (the owner).
+export function groupPicksByShop(docs: PickDoc[], opts: { includeHidden?: boolean } = {}): PickGroup[] {
   const groups = new Map<string, PickGroup>()
   for (const d of docs) {
     const name = String(d.productName || '').trim()
     if (!name || !d.imageUrl) continue
+    if (d.hiddenFromPicks === true && !opts.includeHidden) continue
     const key = d.shopId ? `shop:${d.shopId}` : `source:${(d.sourceName || '').trim().toLowerCase() || 'other'}`
     let g = groups.get(key)
     if (!g) {
@@ -77,6 +81,7 @@ export function groupPicksByShop(docs: PickDoc[]): PickGroup[] {
       pickedBy: d.pickedBy || '',
       pickedAt: d.pickedAt || '',
       pickNote: d.pickNote || '',
+      hidden: d.hiddenFromPicks === true,
     })
   }
   const list = [...groups.values()]

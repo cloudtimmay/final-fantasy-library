@@ -94,6 +94,7 @@ export type PriceEntryUpdate = {
   extraCost?: string | number | null
   condition: string
   note?: string | null
+  hiddenFromPicks?: boolean // "🎁 Hide from Picks" — left out (unchanged) when not given
 }
 export function priceEntryUpdateBody(f: PriceEntryUpdate) {
   const japan = f.sourceType === 'japanStore'
@@ -114,5 +115,6 @@ export function priceEntryUpdateBody(f: PriceEntryUpdate) {
     extraCost: f.extraCost === '' || f.extraCost == null ? undefined : f.extraCost,
     condition: f.condition,
     note: (f.note || '').trim() || undefined,
+    hiddenFromPicks: typeof f.hiddenFromPicks === 'boolean' ? f.hiddenFromPicks : undefined,
   }
 }

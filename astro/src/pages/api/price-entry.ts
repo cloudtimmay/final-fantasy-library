@@ -47,6 +47,8 @@ export const POST: APIRoute = async ({ request }) => {
     taxIncluded: typeof body.taxIncluded === 'boolean' ? body.taxIncluded : true,
     seenAt: new Date().toISOString(),
   }
+  // "🎁 Hide from Picks" (a present): left out of /picks for everyone but the owner.
+  if (body.hiddenFromPicks === true) base.hiddenFromPicks = true
 
   const buyer = String(body.buyer || '').trim()
   if (buyer) {

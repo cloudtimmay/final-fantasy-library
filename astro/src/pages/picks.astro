@@ -12,9 +12,12 @@ import { formatPriceNokFirst } from '../lib/price-display'
 import { formatFoundDate } from '../lib/shop-found'
 import { fetchTripsForSpending, pickDefaultTrip } from '../lib/spending'
 import { cdnImage } from '../lib/image-url'
+import { isOwnerUser } from '../lib/access-users'
 
 const docs: PickDoc[] = (await sanity.fetch(PICKS_QUERY)) || []
-const groups = groupPicksByShop(docs)
+// Items hidden from Picks (presents) reach the owner only — never anyone else's browser.
+const owner = isOwnerUser(Astro.locals.accessUser)
+const groups = groupPicksByShop(docs, { includeHidden: owner })
 const rateTrip = pickDefaultTrip(await fetchTripsForSpending())
 const rate = rateTrip?.jpyToNokRate && rateTrip.jpyToNokRate > 0 ? rateTrip.jpyToNokRate : null
 // Who is looking (their own picks aren't "new" to them): the verified Access login (src/middleware.ts).
@@ -57,8 +60,9 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
         <ul class="pk-list">
           {g.items.map((i) => (
             <li
-              class:list={['pk-card', i.pick === 'buy' && 'pk-buy', i.pick === 'skip' && 'pk-skip']}
+              class:list={['pk-card', i.pick === 'buy' && 'pk-buy', i.pick === 'skip' && 'pk-skip', i.hidden && 'pk-hidden']}
               data-id={i.id}
+              data-hidden={i.hidden ? '1' : ''}
               data-name={i.name}
               data-pick={i.pick || ''}
               data-seen={i.seen}
@@ -68,6 +72,7 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
               <img class="pk-img" src={cdnImage(i.imageUrl, 240)} data-lightbox={cdnImage(i.imageUrl, 2000)} alt={i.name} loading="lazy" />
               <div class="pk-body">
                 <span class="pk-new" hidden>🆕 New</span>
+                {owner && <span class="pk-hidden-label" hidden={!i.hidden}>🎁 Hidden from Picks</span>}
                 <span class="pk-name">{i.name}</span>
                 {i.price != null && <span class="pk-price">{formatPriceNokFirst(i.price, i.currency, rate)}</span>}
                 {i.seen && <span class="pk-seen">Seen {formatFoundDate(i.seen)}</span>}
@@ -77,6 +82,7 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
               <div class="pk-actions">
                 <button type="button" class="pk-btn pk-btn-buy" data-pick="buy" aria-pressed={i.pick === 'buy' ? 'true' : 'false'}>💚 Buy this</button>
                 <button type="button" class="pk-btn pk-btn-skip" data-pick="skip" aria-pressed={i.pick === 'skip' ? 'true' : 'false'}>👎 Skip</button>
+                {owner && <button type="button" class="pk-hide" aria-pressed={i.hidden ? 'true' : 'false'}>🎁 Hide from Picks</button>}
                 <input class="pk-comment" type="text" maxlength={PICK_NOTE_MAX} placeholder="Comment (optional)" aria-label="Comment" value={i.pickNote} />
                 <p class="pk-msg" hidden></p>
               </div>
@@ -100,6 +106,12 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
       const pick = pickOf(c)
       c.classList.toggle('pk-buy', pick === 'buy')
       c.classList.toggle('pk-skip', pick === 'skip')
+      // The owner's "🎁 Hide from Picks": dimmed, with its label.
+      const hidden = c.dataset.hidden === '1'
+      c.classList.toggle('pk-hidden', hidden)
+      const label = c.querySelector('.pk-hidden-label') as HTMLElement | null
+      if (label) label.hidden = !hidden
+      c.querySelector('.pk-hide')?.setAttribute('aria-pressed', String(hidden))
       c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pick === pick)))
       const line = c.querySelector('.pk-picked') as HTMLElement
       line.textContent = pickedText(pick, c.dataset.pickedBy || '', c.dataset.pickedAt || '')
@@ -188,6 +200,7 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
         c.dataset.pick = out.pick || ''
         c.dataset.pickedBy = out.pickedBy || ''
         c.dataset.pickedAt = out.pickedAt || ''
+        c.dataset.hidden = out.hidden ? '1' : ''
         paint(c)
         return true
       } catch (e) {
@@ -204,6 +217,12 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
         c.querySelectorAll<HTMLButtonElement>('.pk-btn').forEach((x) => { x.disabled = false })
         applyFilter()
       }))
+      const hide = c.querySelector('.pk-hide') as HTMLButtonElement | null
+      hide?.addEventListener('click', async () => {
+        hide.disabled = true
+        await save(c, { hidden: c.dataset.hidden !== '1' })
+        hide.disabled = false
+      })
       const comment = c.querySelector('.pk-comment') as HTMLInputElement
       comment.addEventListener('change', async () => {
         if (await save(c, { note: comment.value })) {
@@ -280,6 +299,14 @@ const total = groups.reduce((n, g) => n + g.items.length, 0)
       grid-column: 1 / -1; width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
       border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.65rem; font: inherit; font-size: 1rem;
     }
+    .pk-card.pk-hidden { opacity: 0.5; }
+    .pk-hidden-label { align-self: flex-start; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
+    .pk-hidden-label[hidden] { display: none; }
+    .pk-hide {
+      grid-column: 1 / -1; background: var(--surface); color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;
+      padding: 0.45rem 0.4rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 40px;
+    }
+    .pk-hide[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); font-weight: 700; }
     .pk-msg { grid-column: 1 / -1; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .pk-msg[hidden] { display: none; }
   </style>

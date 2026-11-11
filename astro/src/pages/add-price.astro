@@ -232,6 +232,11 @@ const myCollection = (await fetchCollectionForMatching())
       <textarea id="p-note" rows="2" placeholder="Anything worth remembering…"></textarea>
     </div>
 
+    <!-- A present: "🎁 Hide from Picks" leaves it out of /picks for everyone but the owner. -->
+    <div class="field checkbox-field">
+      <label class="checkbox-label"><input id="p-hide-picks" type="checkbox" /> 🎁 Hide from Picks</label>
+    </div>
+
     <button id="p-save" type="button" class="save-btn">Save price</button>
     <p id="p-msg" class="save-msg" hidden></p>
 
@@ -326,6 +331,7 @@ const myCollection = (await fetchCollectionForMatching())
     const passportField = document.querySelector('#p-passport-field')
     const passportSel = document.querySelector('#p-passport')
     const noteInput = document.querySelector('#p-note')
+    const hidePicksCb = document.querySelector('#p-hide-picks')
     const saveBtn = document.querySelector('#p-save')
     const msg = document.querySelector('#p-msg')
 
@@ -1231,6 +1237,7 @@ const myCollection = (await fetchCollectionForMatching())
             buyer: buyerSel.value || undefined,
             tripId: tripSel.value || undefined,
             note: noteInput.value.trim() || undefined,
+            hiddenFromPicks: hidePicksCb.checked,
             imageAssetId: uploadedImage ? uploadedImage.assetId : undefined,
           }),
         })

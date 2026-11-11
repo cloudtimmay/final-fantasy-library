@@ -6,6 +6,8 @@
 // from PEOPLE_LIST in price-entry-fields.ts), empty by default — see CLAUDE.md. An email not
 // listed there is shown as itself.
 
+import { OWNER } from './price-entry-fields'
+
 export type AccessUser = { email: string; name: string }
 
 // Local development has no Cloudflare in front: picks made there are marked as such.
@@ -29,6 +31,14 @@ export function accessUserNames(raw: string | undefined = env('ACCESS_USER_NAMES
     if (typeof name === 'string' && name.trim() && email.includes('@')) out[email.trim().toLowerCase()] = name.trim()
   }
   return out
+}
+
+// The owner (OWNER): a login whose name is OWNER (their emails in ACCESS_USER_NAMES), or local
+// development (no Cloudflare: the one using it is the owner). E.g. "🎁 Hide from Picks".
+export function isOwnerUser(user: AccessUser | null | undefined): boolean {
+  if (!user) return false
+  if (user.email === LOCAL_DEV_USER.email && user.name === LOCAL_DEV_USER.name) return true
+  return user.name === OWNER
 }
 
 // The name for an email: the listed one, else the email itself.

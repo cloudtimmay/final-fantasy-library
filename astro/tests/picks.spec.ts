@@ -1,5 +1,6 @@
 import { test, expect, testName, uniqueJan } from './fixtures'
 import { uniquePng } from './helpers/unique-image'
+import { findIdByField } from './helpers/sanity-test-client'
 import { ACCESS_EMAIL_HEADER } from '../src/lib/cf-access'
 import { groupPicksByShop, isNewSince, matchesPickFilter, matchesPickSearch, pickGroupHeader, pickedText } from '../src/lib/picks'
 
@@ -372,5 +373,100 @@ test.describe('💚 picked to buy: green everywhere', () => {
     await expect(fig(picked._id).locator('.found-pick')).toHaveText('💚 Picked to buy')
     expect(await fig(picked._id).locator('img').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe('rgb(46, 204, 113)')
     await expect(fig(plain._id)).not.toHaveClass(/found-pick-buy/)
+  })
+})
+
+test.describe('🎁 Hide from Picks', () => {
+  // The dev server has no Cloudflare: no login header = the owner (local dev); the plain email
+  // header of an unlisted login = someone else (lib/cf-access.ts resolveAccess, local only).
+  test('the checkbox on /add-price and /edit-price is saved', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000)
+    const productName = testName(`Present ${Date.now()}`)
+    await page.goto('/add-price')
+    await page.locator('#p-name').fill(productName)
+    await page.locator('#p-category').selectOption('figure')
+    await page.locator('#p-price').fill('3980')
+    await expect(page.locator('#p-hide-picks')).not.toBeChecked()
+    await page.locator('#p-hide-picks').check()
+    await page.locator('#p-save').click()
+    await expect(page.locator('#p-msg')).toContainText('Saved')
+    const id = await findIdByField('priceEntry', 'productName', productName)
+    trackDoc(id)
+    expect((await sanity.getDocument(id!)).hiddenFromPicks).toBe(true)
+    // /edit-price: shown ticked; unticking it saves it as not hidden, and the rest stays.
+    await page.goto(`/edit-price?id=${id}`)
+    await expect(page.locator('#p-hide-picks')).toBeChecked()
+    await page.locator('#p-hide-picks').uncheck()
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+    const after = await sanity.getDocument(id!)
+    expect(after.hiddenFromPicks).toBeUndefined()
+    expect(after).toMatchObject({ price: 3980, productName })
+    await page.goto(`/edit-price?id=${id}`)
+    await page.locator('#p-hide-picks').check()
+    await page.locator('#p-save').click()
+    await expect(page).toHaveURL(/\/prices/)
+    expect((await sanity.getDocument(id!)).hiddenFromPicks).toBe(true)
+  })
+
+  async function setup(sanity: any, trackDoc: (id: string) => void, uploadedAssets: string[]) {
+    const asset = await sanity.assets.upload('image', uniquePng(), { filename: 'picks-hide.png' })
+    uploadedAssets.push(asset._id)
+    const tag = Date.now()
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Hide Shop ${tag}`), area: 'Akihabara' })
+    trackDoc(shop._id)
+    const mk = async (name: string, extra: Record<string, unknown> = {}) => {
+      const d = await sanity.create({
+        _type: 'priceEntry', productName: testName(`${name} ${tag}`), jan: uniqueJan(), category: 'figure', sourceType: 'japanStore',
+        shop: { _type: 'reference', _ref: shop._id, _weak: true }, price: 2000, currency: 'JPY', condition: 'new', status: 'considering',
+        seenAt: new Date().toISOString(), image: { _type: 'image', asset: { _type: 'reference', _ref: asset._id } }, ...extra,
+      })
+      trackDoc(d._id)
+      return d
+    }
+    const present = await mk('Present Plush', { hiddenFromPicks: true })
+    const plain = await mk('Plain Keychain')
+    return { shop, present, plain }
+  }
+  const group = (page: any, shopName: string) => page.locator('.pk-group').filter({ has: page.locator('.pk-head-text', { hasText: shopName }) })
+  const card = (page: any, name: string) => page.locator('.pk-card').filter({ has: page.locator('.pk-name', { hasText: name }) })
+
+  test('someone else: hidden items aren\'t on the page at all, and can\'t be hidden or shown', async ({ page, request, sanity, trackDoc, uploadedAssets }) => {
+    const { shop, present, plain } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.setExtraHTTPHeaders({ [ACCESS_EMAIL_HEADER]: HOME })
+    await page.goto('/picks')
+    await expect(group(page, shop.shopName).locator('.pk-head-text')).toHaveText(/ · 1 item$/)
+    expect(await page.content()).not.toContain(present.productName) // not even in the page source
+    await expect(card(page, plain.productName)).toHaveCount(1)
+    await expect(page.locator('.pk-hide')).toHaveCount(0)
+    const res = await request.post('/api/price-pick', { data: { id: plain._id, hidden: true }, headers: { [ACCESS_EMAIL_HEADER]: HOME } })
+    expect(res.status()).toBe(403)
+    expect((await sanity.getDocument(plain._id)).hiddenFromPicks).toBeUndefined()
+  })
+
+  test('the owner: hidden items shown dimmed with "🎁 Hidden from Picks"; the toggle hides and shows', async ({ page, sanity, trackDoc, uploadedAssets }) => {
+    test.setTimeout(60_000)
+    const { shop, present, plain } = await setup(sanity, trackDoc, uploadedAssets)
+    await page.goto('/picks') // local dev: the owner
+    const g = group(page, shop.shopName)
+    await expect(g.locator('.pk-head-text')).toHaveText(/ · 2 items$/)
+    await g.locator('.pk-head').click()
+    const p = card(page, present.productName)
+    await expect(p).toHaveClass(/pk-hidden/)
+    await expect(p.locator('.pk-hidden-label')).toHaveText('🎁 Hidden from Picks')
+    expect(Number(await p.evaluate((el: HTMLElement) => getComputedStyle(el).opacity))).toBeLessThan(1)
+    await expect(p.locator('.pk-hide')).toHaveAttribute('aria-pressed', 'true')
+    // Hide the other one.
+    const k = card(page, plain.productName)
+    await expect(k.locator('.pk-hidden-label')).toBeHidden()
+    await k.locator('.pk-hide').click()
+    await expect(k).toHaveClass(/pk-hidden/)
+    await expect(k.locator('.pk-hidden-label')).toBeVisible()
+    await expect.poll(async () => (await sanity.getDocument(plain._id)).hiddenFromPicks).toBe(true)
+    // And show the present again; nothing else about it changes.
+    await p.locator('.pk-hide').click()
+    await expect(p).not.toHaveClass(/pk-hidden/)
+    await expect.poll(async () => (await sanity.getDocument(present._id)).hiddenFromPicks ?? null).toBeNull()
+    expect(await sanity.getDocument(present._id)).toMatchObject({ status: 'considering', price: 2000 })
   })
 })

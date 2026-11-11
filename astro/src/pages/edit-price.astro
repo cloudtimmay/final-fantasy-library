@@ -28,6 +28,7 @@ type EntryDoc = {
   tripId?: string
   note?: string
   seenAt?: string
+  hiddenFromPicks?: boolean
   createdFamilyPurchaseInfo?: { name?: string; person?: string } | null
   createdItemInfo?: { _type?: string; title?: string } | null
 }
@@ -46,7 +47,7 @@ if (id) {
       "shop": shop->{ _id, shopName },
       sourceName, url, taxIncluded, extraCost, condition, status,
       buyer, "tripId": trip._ref,
-      note, seenAt,
+      note, seenAt, hiddenFromPicks,
       "createdFamilyPurchaseInfo": createdFamilyPurchase->{ name, person },
       "createdItemInfo": createdItem->{ _type, "title": coalesce(title, name) }
     }`,
@@ -243,6 +244,11 @@ const initialAddTo = entry?.createdItemInfo
           <textarea id="p-note" rows="2" placeholder="Anything worth remembering…">{entry.note || ''}</textarea>
         </div>
 
+        <!-- A present: "🎁 Hide from Picks" leaves it out of /picks for everyone but the owner. -->
+        <div class="field checkbox-field">
+          <label class="checkbox-label"><input id="p-hide-picks" type="checkbox" checked={entry.hiddenFromPicks === true} /> 🎁 Hide from Picks</label>
+        </div>
+
         <div class="field">
           <label>Seen at</label>
           <p class="readonly-value">{formatSeenAt(entry.seenAt)}</p>
@@ -317,6 +323,7 @@ const initialAddTo = entry?.createdItemInfo
       const extraInput = document.querySelector('#p-extra')
       const conditionSel = document.querySelector('#p-condition')
       const noteInput = document.querySelector('#p-note')
+      const hidePicksCb = document.querySelector('#p-hide-picks')
       const saveBtn = document.querySelector('#p-save')
       const deleteBtn = document.querySelector('#p-delete')
       const msg = document.querySelector('#p-msg')
@@ -475,6 +482,7 @@ const initialAddTo = entry?.createdItemInfo
               extraCost: extraInput.value,
               condition: conditionSel.value,
               note: noteInput.value,
+              hiddenFromPicks: hidePicksCb.checked,
             })),
           })
           const data = await res.json()

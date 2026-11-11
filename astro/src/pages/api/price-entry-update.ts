@@ -145,6 +145,10 @@ export const POST: APIRoute = async ({ request }) => {
   if (note) setFields.note = note
   else unsetFields.push('note')
 
+  // "🎁 Hide from Picks": only when the form sends it (the timeline's "✅ Bought" doesn't).
+  if (body.hiddenFromPicks === true) setFields.hiddenFromPicks = true
+  else if (body.hiddenFromPicks === false) unsetFields.push('hiddenFromPicks')
+
   // --- Bought side effects: familyPurchase (only with a trip) + collection item (owner only) ---
   // Both are created at most once per priceEntry — if createdFamilyPurchase/createdItem
   // is already set, re-saving while still Bought is a no-op for this part, so reverting

@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { sanityWrite } from '../../lib/sanity'
 import { json, parseJsonBody } from '../../lib/api'
 import { isPick, PICK_NOTE_MAX } from '../../lib/picks'
+import { isOwnerUser } from '../../lib/access-users'
 
 export const prerender = false
 
@@ -11,6 +12,7 @@ export const prerender = false
 // lib/cf-access.ts), never from the body.
 //   { id, pick: 'buy' | 'skip' | null }  — null (or '') takes the pick back off
 //   { id, note: '…' }                     — '' clears it
+//   { id, hidden: true | false }          — "🎁 Hide from Picks", the owner only (403 otherwise)
 export const POST: APIRoute = async ({ request, locals }) => {
   const body = await parseJsonBody(request)
   if (!body || typeof body !== 'object') return json(400, { error: 'Bad request' })
@@ -19,13 +21,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!id) return json(400, { error: 'Missing id' })
   const hasPick = 'pick' in body
   const hasNote = 'note' in body
-  if (!hasPick && !hasNote) return json(400, { error: 'Nothing to save' })
+  const hasHidden = 'hidden' in body
+  if (!hasPick && !hasNote && !hasHidden) return json(400, { error: 'Nothing to save' })
+  if (hasHidden && typeof body.hidden !== 'boolean') return json(400, { error: 'Invalid hidden' })
   if (hasPick && body.pick !== null && body.pick !== '' && !isPick(body.pick)) return json(400, { error: 'Invalid pick' })
   if (hasNote && body.note != null && typeof body.note !== 'string') return json(400, { error: 'Invalid note' })
 
   // The logged-in user from the middleware; none (e.g. a Vercel preview): nothing is saved.
   const user = locals.accessUser
   if (!user) return json(401, { error: 'Not logged in through Cloudflare Access' })
+  if (hasHidden && !isOwnerUser(user)) return json(403, { error: 'Only the owner can hide items from Picks' })
 
   try {
     const existing = await sanityWrite.fetch(`*[_id == $id][0]{ _type }`, { id })
@@ -43,11 +48,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
       if (note) set.pickNote = note
       else unset.push('pickNote')
     }
+    if (hasHidden) {
+      if (body.hidden) set.hiddenFromPicks = true
+      else unset.push('hiddenFromPicks')
+    }
     let patch = sanityWrite.patch(id)
     if (Object.keys(set).length) patch = patch.set(set)
     if (unset.length) patch = patch.unset(unset)
     const doc = await patch.commit()
-    return json(200, { ok: true, pick: doc.pick ?? null, pickedBy: doc.pickedBy ?? '', pickedAt: doc.pickedAt ?? '', pickNote: doc.pickNote ?? '' })
+    return json(200, { ok: true, pick: doc.pick ?? null, pickedBy: doc.pickedBy ?? '', pickedAt: doc.pickedAt ?? '', pickNote: doc.pickNote ?? '', hidden: doc.hiddenFromPicks === true })
   } catch {
     return json(500, { error: 'Save failed' })
   }

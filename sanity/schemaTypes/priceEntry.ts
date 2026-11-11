@@ -244,6 +244,13 @@ export const priceEntry = defineType({
     defineField({ name: 'pickedBy', title: 'Picked by', type: 'string', fieldset: 'pick', readOnly: true }),
     defineField({ name: 'pickedAt', title: 'Picked at', type: 'datetime', fieldset: 'pick', readOnly: true }),
     defineField({ name: 'pickNote', title: 'Pick comment', type: 'string', fieldset: 'pick' }),
+    defineField({
+      name: 'hiddenFromPicks',
+      title: '🎁 Hide from Picks',
+      description: 'A present: left out of /picks for everyone but the owner (who sees it dimmed).',
+      type: 'boolean',
+      fieldset: 'pick',
+    }),
   ],
   preview: {
     select: {

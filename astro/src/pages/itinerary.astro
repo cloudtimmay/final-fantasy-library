@@ -331,7 +331,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
     import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainDurationText, trainFareText, yenWithNok, type TrainLeg } from '../lib/train-plan'
     import { trainEarlyHint } from '../lib/itinerary-schedule'
-    import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX } from '../lib/itinerary-timeline'
+    import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX, freeTimeText } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { transitRouteUrl } from '../lib/itinerary-schedule'
     // "🚆 Plan train" is offered on legs longer than this.
@@ -552,6 +552,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         grid.appendChild(el)
       })
 
+      // Time to spare before an anchor reached early (itinerary-schedule.ts freeBefore): a quiet zone
+      // in the stops' area, "⏳ 1 h 1 min free before Sura Choco Kitchen".
+      layout.free.forEach((f) => {
+        const el = document.createElement('div')
+        el.className = 'itl-free'
+        el.style.top = `${f.top}px`
+        el.style.height = `${f.height}px`
+        el.dataset.index = String(f.index)
+        el.textContent = freeTimeText(f.minutes, resolveStop(day.stops[f.index], shopById).name)
+        grid.appendChild(el)
+      })
+
       // Blocks that turn out too short for their rows switch to the compact form (after the grid
       // is in the page, where their height can be measured).
       // Per block, the icons standing in for its rows: ⚠️ for the warnings, 🚆 the train line, ⏰ the
@@ -607,7 +619,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const actions = here || leave ? `<span class="itl-actions">${here}${leave}</span>` : ''
         // "Leave by HH:MM" with the list's "⏰ Reminder" (.ics) link (itinerary-ui.ts reminderLinkHtml),
         // just "⏰" where blocks share the width — so a tap on the block mostly misses it.
-        const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.leaveBy, shopById, narrow)}</span>` : ''
+        const leaveBy = x.leaveBy != null ? `<span class="itl-leaveby">Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, item.index, x.departAt ?? x.leaveBy, shopById, narrow)}</span>` : ''
         // The second line: "Arrive HH:MM" (green) and "Leave by HH:MM" (orange) — always there,
         // whatever the name's length does to the first line's time.
         const areaName = s.shopId ? shopById.get(s.shopId)?.area : null
@@ -644,7 +656,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           area: (s.shopId ? shopById.get(s.shopId)?.area : '') || '',
           warn: problems.length ? `<span class="itl-icon" title="${esc(problems.join(' · '))}">⚠️</span>` : '',
           train: s.train ? `<span class="itl-icon itl-icon-train" title="${esc(trainSummary(s.train))}">🚆</span>` : '',
-          reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.leaveBy, shopById, true) : '',
+          reminder: x.leaveBy != null ? reminderLinkHtml(day, item.index, x.departAt ?? x.leaveBy, shopById, true) : '',
           // Today: 📍 "I'm here now" until you're there, then ✅ "Leaving now" — tapped right on the block.
           now: now.here
             ? '<button type="button" class="itl-here itl-icon-btn" aria-label="I\'m here now" title="I\'m here now">📍</button>'
@@ -1243,7 +1255,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       lines.push(x.fixed ? `📌 ${formatClock(x.start)}–${formatClock(x.end)}${x.arrival !== x.start ? ` · arrive by ${formatClock(x.arrival)}` : ''}` : `${formatClock(x.start)}–${formatClock(x.end)} (${inputs[idx].durationMin} min)`)
       if (s.hours) lines.push(`Opening hours: ${s.hours}`)
       // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
-      if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.leaveBy, shopById)}` })
+      if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.departAt ?? x.leaveBy, shopById)}` })
       if (x.waitMin) lines.push(`⏳ Waits ${x.waitMin} min for opening (there ${formatClock(x.arrival)}, opens ${formatClock(x.start)})`)
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       // The warning with its one-tap fix (leaveFixFor), when leaving earlier can fix it.
@@ -2066,6 +2078,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-travel.itl-travel-plan::after { content: '🚆 Plan train'; display: block; font-size: 0.62rem; color: var(--accent); font-weight: 600; }
     .itl-travel { flex-direction: column; }
     .itl-travel.itl-travel-train { color: var(--text); font-weight: 600; }
+    /* Free time before an anchor: under the blocks, dashed, quiet. */
+    .itl-free {
+      position: absolute; left: var(--itl-gap); right: calc(var(--itl-lane) + var(--itl-gap)); box-sizing: border-box; z-index: 0;
+      border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-size: 0.7rem; font-style: italic;
+      display: flex; align-items: center; justify-content: center; text-align: center; overflow: hidden; pointer-events: none; padding: 0 0.3rem;
+    }
     /* A train band too narrow for "🚆 11:32 · 39 min": on two lines, or the duration alone. */
     .itl-tr-text { display: inline-block; flex: none; white-space: nowrap; text-align: center; }
     .itl-travel.itl-travel-stack .itl-tr-text { line-height: 1.15; }

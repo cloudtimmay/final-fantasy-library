@@ -226,7 +226,9 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
     const sc = schedule?.[i]
     if (sc) {
       const leg = sc.sched.travelIn
-      lines.push(`    Travel here: ${leg.minutes} min (${LEG_SOURCE[leg.source]}${leg.mode ? `, ${leg.mode === 'train' ? 'by train' : 'on foot'}` : ''})`)
+      lines.push(`    Travel here: ${leg.minutes} min (${LEG_SOURCE[leg.source]}${leg.mode ? `, ${leg.mode === 'train' ? 'by train' : 'on foot'}` : ''}), setting off ${formatClock(sc.sched.travelStart ?? sc.sched.arrival - leg.minutes)}`)
+      // Reached early (the trip starts when the visit before ends): the spare time before it.
+      if (sc.sched.freeBefore) lines.push(`    Free time before this stop: ${sc.sched.freeBefore.minutes} min (${formatClock(sc.sched.freeBefore.from)}–${formatClock(sc.sched.freeBefore.to)}) — could be used for something nearby`)
       if (sc.fixedTime != null) {
         lines.push(`    FIXED TIME ${formatClock(sc.fixedTime)} (anchor)${sc.arriveEarlyMin ? `; must arrive ${sc.arriveEarlyMin} min early, by ${formatClock(sc.sched.arrival)}` : ''}`)
       }

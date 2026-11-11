@@ -644,7 +644,8 @@ export function legSearchTime(
   return { ...legLeaveTime(day, sched, idx, kind, ctx), type: 'depart' }
 }
 
-// When you leave for the leg, by the schedule: the stop before's leave-by (else its planned end);
+// When you leave for the leg, by the schedule: when you set off from the stop before (its departAt —
+// its planned end; before a train, the train's leave-by);
 // the day's start for the first leg; the last stop's end for the trip back or to the airport (the
 // day's start on a day without stops). Minutes past midnight move to the next date. "Google Maps
 // (with time)" always searches from this (lib/transit-links.ts googleMapsTimedUrl).
@@ -657,7 +658,7 @@ export function legLeaveTime(
 ): { date: string; minutes: number } {
   const last = sched.stops[sched.stops.length - 1]
   const before = kind !== 'stop' ? null : idx > 0 ? sched.stops[idx - 1] : null
-  const minutes = kind !== 'stop' ? (last ? last.end : ctx.baseStart) : before ? before.leaveBy ?? before.end : ctx.baseStart
+  const minutes = kind !== 'stop' ? (last ? last.end : ctx.baseStart) : before ? before.departAt ?? before.end : ctx.baseStart
   const shift = Math.floor(minutes / 1440)
   return { date: shift ? addDays(day.day, shift) : day.day, minutes: ((minutes % 1440) + 1440) % 1440 }
 }

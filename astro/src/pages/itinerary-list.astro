@@ -324,7 +324,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       }
       if (x.arrivesAfterLeave != null) lines.push(`<span class="itn-warn">⚠️ Arrives after your leave time (${fmt(x.arrivesAfterLeave)})</span>`)
       if (x.stayUntil != null) lines.push(`<span class="itn-stay">You can stay until ${fmt(x.stayUntil)}</span>`)
-      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}${reminderLinkHtml(day, si, x.leaveBy)}</span>`)
+      if (x.leaveBy != null) lines.push(`<span class="itn-leave">Leave by ${fmt(x.leaveBy)}${reminderLinkHtml(day, si, x.departAt ?? x.leaveBy)}</span>`)
       return lines.length ? `<span class="itn-lines">${lines.join('')}</span>` : ''
     }
 

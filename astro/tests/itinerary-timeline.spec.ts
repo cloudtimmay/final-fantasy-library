@@ -456,9 +456,9 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     expect(walk.searchParams.get('origin')).toBe('35.464556,139.624649')
     expect(walk.searchParams.get('destination')).toBe('35.4658,139.6223')
     // A move: transit with its time (the older maps URL, "Google Maps (with time)") — departures
-    // from when the cafe before the Tokyo Temple is left by the schedule: 17:35.
+    // from when the cafe before the Tokyo Temple is left by the schedule: its planned end, 17:30.
     const move = Object.fromEntries(new URL((await trains.nth(1).getAttribute('href'))!).searchParams)
-    expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'dep', date: '12/05/26', time: '5:35pm' })
+    expect(move).toMatchObject({ saddr: '35.4658,139.6223', daddr: '35.6526,139.7279', dirflg: 'r', ttype: 'dep', date: '12/05/26', time: '5:30pm' }) // the cafe's planned end (its leave-by is 17:35)
     // ✕ closes it; the toggle opens it again.
     await panel.locator('.panel-close').click()
     await expect(panel).toBeHidden()
@@ -467,8 +467,8 @@ test.describe('/itinerary: the day toolbar, map, travel editor, Check day and Su
     // The same leg's "🚆 Plan train": the same departure, and where from.
     await panel.locator('.panel-close').click()
     await page.locator('.itl-travel[data-index="3"]').click()
-    await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 17:35, when you leave Square Enix Pop Up Cafe Yokohama')
-    expect(Object.fromEntries(new URL((await page.locator('#itl-train-maps-time').getAttribute('href'))!).searchParams)).toMatchObject({ ttype: 'dep', time: '5:35pm' })
+    await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 17:30, when you leave Square Enix Pop Up Cafe Yokohama')
+    expect(Object.fromEntries(new URL((await page.locator('#itl-train-maps-time').getAttribute('href'))!).searchParams)).toMatchObject({ ttype: 'dep', time: '5:30pm' })
   })
 
   test('the day\'s route by area: shops in the same area are one walk (the base with them when it\'s a walk away); a new area is a move', async ({ page, sanity, trackDoc }) => {
@@ -2966,5 +2966,40 @@ test.describe('a planned train\'s duration on the timeline', () => {
     await page.locator('#itl-routes-btn').click()
     // (Before it, the estimated leg from the base: "1. 🚆 Base → Shinjuku Shop · ~26 min".)
     await expect(page.locator('.routes-train .itl-dayroute-link').nth(1)).toHaveText('3. 🚆 Shinjuku Shop → Minatomirai Shop · 39 min')
+  })
+})
+
+test.describe('/itinerary: the trip starts when the visit ends', () => {
+  // The real case: Yodobashi Camera Shinjuku 09:30–10:15, then Sura Choco Kitchen at 12:30 (arrive
+  // 12:15), 49 min away.
+  const DAY = [
+    { name: 'Yodobashi Camera Shinjuku', hours: '', tag: '', slot: '', lat: 35.6905, lng: 139.6995, dur: 45, travelMin: 0, travelFrom: '__base__' },
+    { name: 'Sura Choco Kitchen', hours: '', tag: '', slot: '', lat: 35.6938, lng: 139.7034, dur: 60, fixedTime: '12:30', arriveEarly: 15, travelMin: 49, travelFrom: 'Yodobashi Camera Shinjuku' },
+  ]
+  const block = (page: Page, name: string) => page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: name }) })
+  test('the travel band from 10:15, "⏳ 1 h 1 min free" before the 12:15 arrival, Leave by 11:16; Google Maps from 10:15', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(60_000)
+    await openTimeline(page, sanity, trackDoc, DAY, {}, '09:30')
+    const grid = page.locator('.itl-grid')
+    const start = Number(await grid.getAttribute('data-start'))
+    const px = Number(await grid.getAttribute('data-px'))
+    const topOf = async (sel: string) => {
+      const el = page.locator(sel)
+      return (await el.boundingBox())!.y - (await grid.boundingBox())!.y
+    }
+    // The band starts at 10:15 (it used to be drawn ending at 12:15, from 11:26).
+    const band = '.itl-travel[data-index="1"]'
+    await expect(page.locator(band)).toHaveText('🚆 49 min')
+    expect(Math.abs((await topOf(band)) - (t('10:15') - start) * px)).toBeLessThan(2)
+    // The free time after the trip, until 10 min before the arrival.
+    const free = page.locator('.itl-free[data-index="1"]')
+    await expect(free).toHaveText('⏳ 1 h 1 min free before Sura Choco Kitchen')
+    expect(Math.abs((await topOf('.itl-free[data-index="1"]')) - (t('11:04') - start) * px)).toBeLessThan(2)
+    expect(Math.abs((await free.boundingBox())!.height - 61 * px)).toBeLessThan(2)
+    // "Leave by" is still the latest departure.
+    await expect(block(page, 'Yodobashi').locator('.itl-leaveby')).toContainText('Leave by 11:16')
+    // Plan train: Google Maps from the actual departure.
+    await page.locator(band).click()
+    await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 10:15, when you leave Yodobashi Camera Shinjuku')
   })
 })

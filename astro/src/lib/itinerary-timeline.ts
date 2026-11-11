@@ -50,15 +50,30 @@ export type TimelineItem =
   // `back`: the trip from the last stop back to the base (index = the number of stops).
   | { kind: 'travel'; index: number; top: number; height: number; minutes: number; mode: 'walk' | 'train' | null; back?: boolean }
   | { kind: 'stop'; index: number; top: number; height: number; start: number; end: number; arrival: number }
+  // Time to spare before stop `index` (an anchor reached early — itinerary-schedule.ts freeBefore).
+  | { kind: 'free'; index: number; top: number; height: number; minutes: number }
 
-// One "stop" item per visit (top at its start, height ∝ its duration) and one "travel" item for
-// each trip that takes time, ending when you arrive (for a fixed-time stop, at its arrive-by).
+// "⏳ 1 h 1 min free before Sura Choco Kitchen".
+export function freeTimeText(minutes: number, before: string): string {
+  const h = Math.floor(minutes / 60), m = minutes % 60
+  return `⏳ ${h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`} free before ${before}`
+}
+
+// One "stop" item per visit (top at its start, height ∝ its duration), one "travel" item for
+// each trip that takes time, starting when you set off (the visit before's end — a train leg at
+// its leave-by; a late arrival at an anchor still ends at its arrive-by), and a "free" item for
+// time to spare before an anchor.
 export function timelineItems(sched: DaySchedule, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): TimelineItem[] {
   const items: TimelineItem[] = []
   sched.stops.forEach((x, i) => {
     if (x.travelIn.minutes > 0) {
-      const top = offsetFor(x.arrival - x.travelIn.minutes, range, px)
-      items.push({ kind: 'travel', index: i, top, height: Math.max(4, offsetFor(x.arrival, range, px) - top), minutes: x.travelIn.minutes, mode: x.travelIn.mode })
+      const from = x.travelStart ?? x.arrival - x.travelIn.minutes
+      const top = offsetFor(from, range, px)
+      items.push({ kind: 'travel', index: i, top, height: Math.max(4, offsetFor(from + x.travelIn.minutes, range, px) - top), minutes: x.travelIn.minutes, mode: x.travelIn.mode })
+    }
+    if (x.freeBefore && x.freeBefore.minutes > 0) {
+      const top = offsetFor(x.freeBefore.from, range, px)
+      items.push({ kind: 'free', index: i, top, height: Math.max(4, offsetFor(x.freeBefore.to, range, px) - top), minutes: x.freeBefore.minutes })
     }
     const top = offsetFor(x.start, range, px)
     items.push({ kind: 'stop', index: i, top, height: Math.max(MIN_BLOCK_PX, offsetFor(x.end, range, px) - top), start: x.start, end: x.end, arrival: x.arrival })
@@ -98,7 +113,8 @@ export type PlacedStop = Extract<TimelineItem, { kind: 'stop' }> & { col: number
 export type PlacedTravel = Extract<TimelineItem, { kind: 'travel' }> & { chip: boolean; chipTop: number }
 export const CHIP_PX = 18
 
-export function layoutTimeline(sched: DaySchedule, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): { stops: PlacedStop[]; travel: PlacedTravel[] } {
+export type PlacedFree = Extract<TimelineItem, { kind: 'free' }>
+export function layoutTimeline(sched: DaySchedule, range: TimelineRange, px: number = DEFAULT_PX_PER_MIN): { stops: PlacedStop[]; travel: PlacedTravel[]; free: PlacedFree[] } {
   const items = timelineItems(sched, range, px)
 
   // Columns: sweep the stops by top; a cluster is a run of transitively overlapping blocks.
@@ -132,5 +148,6 @@ export function layoutTimeline(sched: DaySchedule, range: TimelineRange, px: num
       if (chip) { chipTop = Math.max(chipTop, lastChipBottom + 2); lastChipBottom = chipTop + CHIP_PX }
       return { ...t, chip, chipTop }
     })
-  return { stops: stops.sort((a, b) => a.index - b.index), travel }
+  const free = items.filter((i): i is PlacedFree => i.kind === 'free')
+  return { stops: stops.sort((a, b) => a.index - b.index), travel, free }
 }

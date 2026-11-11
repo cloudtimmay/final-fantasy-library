@@ -33,9 +33,9 @@ test.describe('train search links (lib/transit-links.ts)', () => {
     const leave = (idx: number, kind: 'stop' | 'return' | 'airport' = 'stop') => legLeaveTime(day, sched, idx, kind, { baseStart })
     expect(leave(0)).toEqual({ date: '2026-12-05', minutes: t('06:00') }) // the day's start
     // Into the Shop with its planned 07:52 train: when the breakfast is left (its leave-by), not 07:47.
-    expect(leave(1)).toEqual({ date: '2026-12-05', minutes: sched.stops[0].leaveBy ?? sched.stops[0].end })
+    expect(leave(1)).toEqual({ date: '2026-12-05', minutes: sched.stops[0].departAt! }) // the train's leave-by
     // Into the Temple (arrive by 18:30): when the Shop is left — not 18:30 less an estimate.
-    expect(leave(2)).toEqual({ date: '2026-12-05', minutes: sched.stops[1].leaveBy ?? sched.stops[1].end })
+    expect(leave(2)).toEqual({ date: '2026-12-05', minutes: sched.stops[1].end }) // when the Shop's visit ends, not its leave-by
     expect(leave(2).minutes).not.toBe(t('18:30'))
     // The trip back and to the airport: the last stop's end.
     expect(leave(3, 'return')).toEqual({ date: '2026-12-05', minutes: sched.stops[2].end })

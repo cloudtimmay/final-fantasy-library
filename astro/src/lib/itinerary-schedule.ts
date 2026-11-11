@@ -15,6 +15,12 @@
 //   Akihabara), otherwise the estimate (route-optimizer.ts estimateLeg).
 // - Leaving for an anchor: leaveBy = anchor arrival − travel − LEAVE_BUFFER_MIN. Leaving for
 //   any other stop: leaveBy = this stop's end (that stop is scheduled from it, so no buffer).
+//   leaveBy is the LATEST departure; the travel itself starts when the visit before ends
+//   (`travelStart`; the day's start for the first stop). Reaching an anchor early leaves the
+//   gap as free time after the trip (`freeBefore`, up to the anchor's arrival less the buffer —
+//   as long as leaveBy − the visit's end). A train leg starts at its own leave-by instead: the
+//   free time is then before it. Arriving too late keeps the trip ending at the anchor's arrival
+//   (and the warnings below), as before. `departAt`: when you actually set off for the next stop.
 // - The non-fixed stops before an anchor (back to the previous anchor or the day's start) are a
 //   segment. If together they run past the anchor (the last one's end + travel + buffer is
 //   later than the anchor's arrival), the segment gets ONE overrun figure (`segments`), with the
@@ -92,7 +98,12 @@ export type ScheduledStop = {
   waitMin: number | null // minutes waited for the opening (arrival → start), else null
   fixed: boolean
   travelIn: TravelLeg // from the previous stop, or from the base for the first
-  leaveBy: number | null // for the leg to the next stop; null for the day's last stop
+  travelStart: number // when the trip here starts: the visit before's end (a train leg: its leave-by)
+  // Time to spare before this stop (an anchor reached early): from the end of the trip (or, before
+  // a train, from the visit's end) to when you must set off/arrive. null when there's none.
+  freeBefore: { from: number; to: number; minutes: number } | null
+  leaveBy: number | null // the latest departure for the leg to the next stop; null for the day's last stop
+  departAt: number | null // when you actually set off for the next stop (its travelStart); null for the last
   nextIsAnchor: boolean
   leaveEarlierMin: number | null // the stop ends this much later than leaveBy (only before an anchor)
   stayUntil: number | null // fixed stops followed by an anchor
@@ -148,6 +159,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   const trains: (TrainTimes | null)[] = stops.map(() => null)
   let clock = startTime
   stops.forEach((s, i) => {
+    const prevEnd = clock // the visit before ends (or the day starts)
     let trainArrival: number | null = null
     if (s.train) {
       const shift = s.train.departure + 720 < clock ? 1440 : 0
@@ -172,9 +184,19 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     const end = s.actualEnd != null ? Math.max(s.actualEnd, start)
       : leaveAt != null ? (late ? start : Math.max(leaveAt, start))
       : start + s.durationMin
+    // When the trip starts, and any time to spare: see the rules at the top.
+    let travelStart = arrival - legs[i].minutes
+    let freeBefore: ScheduledStop['freeBefore'] = null
+    if (trainArrival != null) {
+      if (travelStart > prevEnd) freeBefore = { from: prevEnd, to: travelStart, minutes: travelStart - prevEnd }
+    } else if (anchor != null && prevEnd + legs[i].minutes <= anchor) {
+      travelStart = prevEnd
+      const reach = prevEnd + legs[i].minutes, by = anchor - LEAVE_BUFFER_MIN
+      if (by > reach) freeBefore = { from: reach, to: by, minutes: by - reach }
+    }
     out.push({
-      arrival, start, end, waitMin, fixed: s.fixedTime != null, travelIn: legs[i],
-      leaveBy: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, latestLeave: null, doesntFit: null,
+      arrival, start, end, waitMin, fixed: s.fixedTime != null, travelIn: legs[i], travelStart, freeBefore,
+      leaveBy: null, departAt: null, nextIsAnchor: false, leaveEarlierMin: null, stayUntil: null, latestLeave: null, doesntFit: null,
       actual: actualStart != null || s.actualEnd != null, visited: s.actualEnd != null,
       arrivesAfterLeave: late ? leaveAt : null,
       trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
@@ -231,6 +253,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       return
     }
     const next = stops[i + 1]
+    o.departAt = out[i + 1].travelStart
     o.nextIsAnchor = next.fixedTime != null || !!trains[i + 1]
     o.leaveBy = trains[i + 1] ? trainLeaveBy(trains[i + 1]!) : o.nextIsAnchor ? anchorArrival(next)! - legs[i + 1].minutes - LEAVE_BUFFER_MIN : o.end
     if (o.nextIsAnchor && o.end > o.leaveBy && !o.visited) o.leaveEarlierMin = o.end - o.leaveBy

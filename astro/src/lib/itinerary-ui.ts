@@ -471,7 +471,8 @@ export function dayReminders(day: PlanDay, sched: DaySchedule, shopById: Map<str
   if (!day.day) return []
   return sched.stops.flatMap((x, si) => {
     if (x.leaveBy == null || !day.stops[si + 1]) return []
-    const reminder = reminderFor(day, si, x.leaveBy, shopById)
+    // At the actual departure (the visit's end), not the latest one.
+    const reminder = reminderFor(day, si, x.departAt ?? x.leaveBy, shopById)
     return [{ si, title: reminderTitle(reminder.from, reminder.leaveBy, reminder.to, reminder.trainDeparture), reminder }]
   })
 }

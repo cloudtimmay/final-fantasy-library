@@ -1,7 +1,10 @@
 import { test, expect, testName } from './fixtures'
 import { scheduleDay, LEAVE_BUFFER_MIN, transitRouteUrl, leaveReminderIcs, nextLeave, type ScheduleStopInput } from '../src/lib/itinerary-schedule'
 import { tokyoInstant, tokyoNow } from '../src/lib/trip-dates'
-import { estimateLeg } from '../src/lib/route-optimizer'
+import { estimateLeg, optimizeRoute } from '../src/lib/route-optimizer'
+import { timelineItems, freeTimeText } from '../src/lib/itinerary-timeline'
+import { dayReminders } from '../src/lib/itinerary-ui'
+import { legLeaveTime } from '../src/lib/itinerary-plan'
 import { buildUserPrompt, scheduleReviewItems, TIGHT_CONNECTION_MIN } from '../src/lib/itinerary-review-helpers'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
@@ -206,7 +209,7 @@ test.describe('itinerary: "⏰ Reminder" (.ics) in Japan time', () => {
 test.describe('itinerary page: reminder link on a phone set to Norwegian time', () => {
   test.use({ timezoneId: 'Europe/Oslo' })
 
-  test('the cafe\'s reminder is at its leave-by time in Asia/Tokyo', async ({ page }) => {
+  test('the cafe\'s reminder is at its actual departure (its planned end, 17:30) in Asia/Tokyo', async ({ page }) => {
     await page.route('**/api/itinerary-save', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
     await page.goto('/itinerary-list')
     await expect(page.locator('.day-card').first()).toBeVisible({ timeout: 20000 })
@@ -221,9 +224,12 @@ test.describe('itinerary page: reminder link on a phone set to Norwegian time', 
       // @ts-ignore
       return state[0].day
     })
+    // The trip starts when the visit ends (16:30 + 60), not at the latest departure (leave by
+    // 18:30 − travel − 10, still shown as "Leave by").
     const cafeToTemple = estimateLeg({ lat: 35.4658, lng: 139.6223 }, { lat: 35.6526, lng: 139.7279 })!.minutes
-    const leaveBy = 18 * 60 + 30 - cafeToTemple - 10
-    const hhmm = String(Math.floor(leaveBy / 60)).padStart(2, '0') + String(leaveBy % 60).padStart(2, '0')
+    expect(17 * 60 + 30 + cafeToTemple).toBeLessThanOrEqual(18 * 60 + 30) // reached in time from its end
+    const hhmm = '1730'
+    await expect(page.locator('.day-card').first().locator('.itn-leave').first()).toContainText(`Leave by 17:${String(18 * 60 + 30 - cafeToTemple - 10 - 17 * 60).padStart(2, '0')}`)
 
     const link = page.locator('.day-card').first().locator('.itn-reminder')
     await expect(link).toHaveText('⏰ Reminder')
@@ -459,5 +465,70 @@ test.describe('itinerary schedule: actual times', () => {
     const cafeLate = scheduleDay([{ ...CAFE, actualStart: t('16:45'), actualEnd: t('18:10') }, TEMPLE], t('16:00'), BASE)
     expect(cafeLate.stops[0]).toMatchObject({ start: t('16:30'), end: t('18:10'), visited: true, leaveEarlierMin: null })
     expect(cafeLate.stops[1]).toMatchObject({ arrival: t('18:30'), start: t('19:00') }) // the Temple stays too
+  })
+})
+
+// Travel starts when the visit ends (lib/itinerary-schedule.ts travelStart / freeBefore / departAt).
+// The real case: Yodobashi Camera Shinjuku 09:30–10:15, then Sura Choco Kitchen at 12:30 (arrive by
+// 12:15) with 49 min of travel: off at 10:15, there at 11:04, 61 min free — leave by 11:16.
+test.describe('itinerary schedule: the trip starts when the visit ends', () => {
+  const YODO = stop('Yodobashi Camera Shinjuku', 35.6905, 139.6995, { manualTravelMin: 0 })
+  const SURA = stop('Sura Choco Kitchen', 35.6938, 139.7034, { fixedTime: t('12:30'), arriveEarlyMin: 15, durationMin: 60, manualTravelMin: 49 })
+
+  test('the real case: off at 10:15, 1 h 1 min free before the 12:15 arrival; leave by stays 11:16', () => {
+    const day = scheduleDay([YODO, SURA], t('09:30'), BASE)
+    const [yodo, sura] = day.stops
+    expect([yodo.start, yodo.end]).toEqual([t('09:30'), t('10:15')])
+    expect(yodo.leaveBy).toBe(t('11:16')) // the latest departure: 12:15 − 49 − 10
+    expect(yodo.departAt).toBe(t('10:15')) // the actual one
+    expect(yodo.leaveEarlierMin).toBeNull()
+    expect(sura.travelStart).toBe(t('10:15'))
+    expect(sura.arrival).toBe(t('12:15'))
+    expect(sura.freeBefore).toEqual({ from: t('11:04'), to: t('12:05'), minutes: 61 })
+    expect(freeTimeText(61, 'Sura Choco Kitchen')).toBe('⏳ 1 h 1 min free before Sura Choco Kitchen')
+    expect(freeTimeText(45, 'X')).toBe('⏳ 45 min free before X')
+    expect(freeTimeText(120, 'X')).toBe('⏳ 2 h free before X')
+    // The timeline: the travel band from 10:15, then the free time.
+    const range = { start: t('09:00'), end: t('23:00') }
+    const items = timelineItems(day, range, 1)
+    expect(items.find((i) => i.kind === 'travel' && i.index === 1)).toMatchObject({ top: t('10:15') - t('09:00'), height: 49 })
+    expect(items.find((i) => i.kind === 'free')).toMatchObject({ index: 1, top: t('11:04') - t('09:00'), height: 61, minutes: 61 })
+    // The reminder and Google Maps: the actual departure, 10:15.
+    const plan: any = { day: '2026-12-05', startTime: '09:30', stops: [{ name: YODO.name, lat: YODO.lat, lng: YODO.lng, dur: 45, travelMin: 0, travelFrom: '__base__' }, { name: SURA.name, lat: SURA.lat, lng: SURA.lng, dur: 60, fixedTime: '12:30', arriveEarly: 15, travelMin: 49 }] }
+    const r = dayReminders(plan, day, new Map())
+    expect(r[0].title).toBe('Leave Yodobashi Camera Shinjuku 10:15 JST → Sura Choco Kitchen')
+    expect(legLeaveTime(plan, day, 1, 'stop', { baseStart: t('09:30') })).toEqual({ date: '2026-12-05', minutes: t('10:15') })
+    // Check day: told when you set off and the free time.
+    const prompt = buildUserPrompt('Sat 5 Dec', null, '09:30', [{ name: YODO.name, plannedTime: t('09:30'), durationMin: 45 } as any, { name: SURA.name, plannedTime: t('12:30'), durationMin: 60 } as any], [null, null], [null, null], null,
+      day.stops.map((sched, i) => ({ sched, fixedTime: i === 1 ? t('12:30') : null, arriveEarlyMin: i === 1 ? 15 : null })) as any)
+    expect(prompt).toContain('Travel here: 49 min (entered by the trip owner), setting off 10:15')
+    expect(prompt).toContain('Free time before this stop: 61 min (11:04–12:05)')
+    expect(prompt).toContain('Leave by: 11:16')
+  })
+
+  test('arriving late: the trip still ends at the anchor\'s arrival, with the warning as before; no free time', () => {
+    const day = scheduleDay([{ ...YODO, durationMin: 130 }, SURA], t('09:30'), BASE) // ends 11:40
+    const [yodo, sura] = day.stops
+    expect(yodo.leaveEarlierMin).toBe(24) // 11:40 − 11:16
+    expect(sura.travelStart).toBe(t('12:15') - 49)
+    expect(sura.freeBefore).toBeNull()
+  })
+
+  test('a planned train: the trip at the train\'s leave-by, the free time before it', () => {
+    const train = { departure: t('11:00'), arrival: t('11:40'), walkToStationMin: 5, walkFromStationMin: 4 }
+    const day = scheduleDay([YODO, { ...SURA, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, train }], t('09:30'), BASE)
+    const [yodo, next] = day.stops
+    expect(next.travelStart).toBe(yodo.leaveBy) // 11:00 − 5 walk − the platform minutes
+    expect(next.freeBefore).toEqual({ from: t('10:15'), to: yodo.leaveBy, minutes: yodo.leaveBy! - t('10:15') })
+    expect(yodo.departAt).toBe(yodo.leaveBy)
+  })
+
+  test('Suggest route: the same rule — the stop before the anchor fits, nothing reordered', () => {
+    const r = optimizeRoute([
+      { name: YODO.name, lat: YODO.lat, lng: YODO.lng, durationMin: 45, fixedTime: null, arriveEarlyMin: null, manualTravelMin: 0, noteTravelMin: null },
+      { name: SURA.name, lat: SURA.lat, lng: SURA.lng, durationMin: 60, fixedTime: t('12:30'), arriveEarlyMin: 15, manualTravelMin: 49, noteTravelMin: null },
+    ] as any, t('09:30'), BASE)
+    expect(r.current.closedCount).toBe(0) // the anchor is reached in time (travel from 10:15)
+    expect(r.improved).toBe(false)
   })
 })

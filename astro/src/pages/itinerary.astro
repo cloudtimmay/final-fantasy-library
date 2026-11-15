@@ -1466,7 +1466,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!s) return
       const shop = s.shopId ? shopById.get(s.shopId) : undefined
       const results = document.querySelector('#itl-ed-find-results') as HTMLElement
-      findLocation(results, findLocationQuery(shop?.shopName || s.name, shop?.area), (p) => {
+      findLocation(results, { query: findLocationQuery(shop?.shopName || s.name, shop?.area), area: shop?.area }, (p) => {
         results.hidden = true; results.innerHTML = ''
         if (shop) {
           shop.latitude = p.lat; shop.longitude = p.lng

@@ -115,3 +115,30 @@ export async function searchPlaces(query: string, deps: Deps): Promise<PlaceResu
   queue = p.catch(() => undefined)
   return p
 }
+
+// A simpler search to retry once when the full name finds nothing on OpenStreetMap, which knows a
+// shop by its short name: words like "Main Store", "Store", "Shop", "Bldg", "Building", a floor
+// ("4F", "Floor 2") and repeats left out, the area added when known and not already in it.
+// "SURUGA-YA Main Store SURUGA-YA Bldg" (Akihabara) → "SURUGA-YA Akihabara". null when that's
+// the same search (nothing to retry).
+const NOISE = /\b(main\s+store|flagship\s+store|main\s+shop|store|shop|bldg\.?|building|floor\s*\d+|\d+\s*f|f\d+|b\d+f?|f)\b/gi
+export function simplifyPlaceQuery(query: string, area?: string | null): string | null {
+  const words = query.replace(NOISE, ' ').replace(/[()（）【】「」,、]/g, ' ').split(/\s+/).filter(Boolean)
+  const seen = new Set<string>()
+  const kept = words.filter((w) => { const k = w.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true })
+  const a = (area || '').trim()
+  if (a && !kept.some((w) => w.toLowerCase() === a.toLowerCase()) && !query.toLowerCase().includes(a.toLowerCase())) kept.push(a)
+  const out = kept.join(' ').trim()
+  return out.length >= 2 && out.toLowerCase() !== query.trim().replace(/\s+/g, ' ').toLowerCase() ? out : null
+}
+
+// The full search, then (nothing found) the simplified one once — `search` is searchPlaces on the
+// server, a fake in the tests. `simplified`: the search that found the results, when it wasn't q.
+export async function searchWithRetry(q: string, area: string | null | undefined, search: (query: string) => Promise<PlaceResult[]>): Promise<{ results: PlaceResult[]; simplified: string | null }> {
+  const first = await search(q)
+  if (first.length) return { results: first, simplified: null }
+  const retry = simplifyPlaceQuery(q, area)
+  if (!retry) return { results: [], simplified: null }
+  const second = await search(retry)
+  return { results: second, simplified: second.length ? retry : null }
+}

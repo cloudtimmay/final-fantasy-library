@@ -669,7 +669,7 @@ if (shop) {
       const area = areaVal === '__new__' ? val('#s-area-new') : areaVal
       const results = document.querySelector('#s-find-results') as HTMLElement
       const msg = document.querySelector('#s-locate-msg') as HTMLElement
-      findLocation(results, findLocationQuery(val('#s-name'), area), async (p) => {
+      findLocation(results, { query: findLocationQuery(val('#s-name'), area), area }, async (p) => {
         results.hidden = true; results.innerHTML = ''
         const addressInput = document.querySelector('#s-address') as HTMLInputElement
         const fillAddress = !addressInput.value.trim() && !!p.address

@@ -165,6 +165,8 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
       input: document.querySelector('#s-search'),
       button: document.querySelector('#s-search-btn'),
       results: document.querySelector('#s-search-results'),
+      // The area picked so far: for the simplified retry and the AI search.
+      area: () => (areaSel.value === '__new__' ? areaNewInput.value.trim() : areaSel.value) || null,
       onChoose: (p) => {
         nameInput.value = p.name
         if (p.address) addressInput.value = p.address

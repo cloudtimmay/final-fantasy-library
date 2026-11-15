@@ -16,6 +16,9 @@ import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
 import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
 import { googleMapsTimedUrl } from './transit-links'
+import { plannedPickerName, type PlannedDays } from './plan-usage'
+// Which places are already in the plan (the pickers, Shop Notes): one shared helper.
+export { plannedDaysByShop, plannedDaysText, plannedPickerName, matchingShop, PLANNED_MARK, type PlannedDays } from './plan-usage'
 
 export const DEFAULT_START = '08:00'
 // The leg into a day's first stop starts at the base (travelFrom on that stop).
@@ -227,15 +230,18 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
 // --- Adding a stop (the list's "+ Legg til stopp" and the timeline's tap-to-add) -----------------
 // The shop pickers' list (add a stop, link to a shop, the day's base): shops grouped by area, the
 // areas A–Z and the shops A–Z in each, each with its index in `shops`. The selected trip's shops
-// (shopNote.trips) are marked "🧳 " in their area — no group of their own.
+// (shopNote.trips) are marked "🧳 " in their area — no group of their own. Places already in the
+// trip's plan (`planned`, plan-usage.ts plannedDaysByShop): "✓ Animate · 2. des" — still in their
+// place, and still pickable.
 export const TRIP_SHOP_MARK = '🧳 '
-export function shopOptionGroups(shops: { shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null): { area: string; items: { i: number; name: string; hasCoord: boolean; onTrip: boolean }[] }[] {
-  const byArea: Record<string, { i: number; name: string; hasCoord: boolean; onTrip: boolean; sortName: string }[]> = {}
+export function shopOptionGroups(shops: { _id?: string; shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null, planned: PlannedDays = {}): { area: string; items: { i: number; name: string; hasCoord: boolean; onTrip: boolean; plannedDays: string[] }[] }[] {
+  const byArea: Record<string, { i: number; name: string; hasCoord: boolean; onTrip: boolean; plannedDays: string[]; sortName: string }[]> = {}
   shops.forEach((s, i) => {
     const onTrip = !!tripId && Array.isArray(s.tripIds) && s.tripIds.includes(tripId)
     const area = s.area || 'Andre'
+    const plannedDays = (s._id && planned[s._id]) || []
     if (!byArea[area]) byArea[area] = []
-    byArea[area].push({ i, name: (onTrip ? TRIP_SHOP_MARK : '') + (s.shopName || ''), sortName: s.shopName || '', onTrip, hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
+    byArea[area].push({ i, name: (onTrip ? TRIP_SHOP_MARK : '') + plannedPickerName(s.shopName || '', plannedDays), sortName: s.shopName || '', onTrip, plannedDays, hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
   })
   const byName = (a: { sortName: string }, b: { sortName: string }) => a.sortName.localeCompare(b.sortName, 'en', { sensitivity: 'base' })
   return Object.keys(byArea).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))

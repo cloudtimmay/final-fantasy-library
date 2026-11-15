@@ -4,6 +4,8 @@ import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
 import { foundItems, foundThumbs, foundPricesQuery, foundPurchasesQuery, type FoundPriceDoc, type FoundPurchaseDoc } from '../lib/shop-found'
 import { pickDefaultTrip } from '../lib/spending'
+import { planDocIdFor, withFlightDays } from '../lib/trip-plans'
+import { savedPlanDays, plannedDaysByShop, type PlannedDays } from '../lib/plan-usage'
 
 const notes = await sanity.fetch(`
   *[_type == "shopNote" && !(_id in path("drafts.**"))] | order(area asc, shopName asc) {
@@ -13,8 +15,18 @@ const notes = await sanity.fetch(`
 `)
 
 const trips = await sanity.fetch(
-  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label, startDate, endDate }`
+  `*[_type == "tripSettings"] | order(_createdAt asc) { _id, label, startDate, endDate, firstTokyoDay, lastTokyoDay, arrivalDate, flightHomeDate }`
 )
+// "📅 Planned: 2 Dec, 5 Dec": the places each trip's saved plan has on its days (lib/plan-usage.ts —
+// the same helper as the itinerary's pickers), shown for the selected trip by the script below.
+const planDocs: { _id: string; data?: string }[] = await sanity.fetch(`*[_id in $ids]{ _id, data }`, { ids: [...new Set(trips.map((t: any) => planDocIdFor(withFlightDays(t))))] })
+const plannedByTrip: Record<string, PlannedDays> = Object.fromEntries(trips.map((t: any) => {
+  const trip = withFlightDays(t)
+  const data = planDocs.find((d) => d._id === planDocIdFor(trip))?.data
+  return [t._id, plannedDaysByShop(savedPlanDays(data, { first: trip.firstTokyoDay, last: trip.lastTokyoDay }))]
+}))
+// A place's days per trip, for its card ({} when it's in no plan).
+const plannedFor = (shopId: string) => Object.fromEntries(Object.entries(plannedByTrip).filter(([, p]) => p[shopId]).map(([tripId, p]) => [tripId, p[shopId]]))
 // The trip whose shops come first: the one picked in the itinerary (remembered in this browser,
 // read by the script below), else ?trip=, else the ongoing or next upcoming trip (as /itinerary).
 const defaultTripId = pickDefaultTrip(trips.map((t: any) => ({ _id: t._id, label: t.label, startDate: t.startDate || undefined, endDate: t.endDate || undefined, childBudgets: [] })))?._id || ''
@@ -86,6 +98,11 @@ function isUrl(s: string): boolean {
     <!-- Places without coordinates (fix them with "📍 Find location" on the shop page): a toggle,
          with how many there are among the places the other filters show. -->
     <button id="missing-filter" type="button" class="missing-filter" aria-pressed="false">📍 Missing location (<span id="missing-count">{notes.filter((n: any) => !(typeof n.latitude === 'number' && typeof n.longitude === 'number')).length}</span>)</button>
+    <select id="planned-filter" aria-label="In the plan">
+      <option value="">Planned or not</option>
+      <option value="planned">📅 Planned</option>
+      <option value="unplanned">Not planned</option>
+    </select>
     <select id="priority-filter">
       <option value="">All</option>
       <option value="must">Must visit</option>
@@ -121,7 +138,7 @@ function isUrl(s: string): boolean {
         .filter(Boolean).join(' ').toLowerCase()
 
       return (
-        <div class="note-card" data-missing={hasCoords ? '' : '1'} data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr} data-search={haystack}>
+        <div class="note-card" data-planned={JSON.stringify(plannedFor(n._id))} data-missing={hasCoords ? '' : '1'} data-area={n.area || ''} data-priority={n.priority || ''} data-type={n.placeType || ''} data-trips={tripAttr} data-search={haystack}>
           <div class="note-head">
             {n.placeType && <span class="type-icon" title={TYPE_LABEL[n.placeType] || n.placeType}>{TYPE_ICON[n.placeType] || '📌'}</span>}
             <span class="note-name">{n.shopName}</span>
@@ -129,6 +146,7 @@ function isUrl(s: string): boolean {
             {n.priority === 'maybe' && <span class="tag maybe">Worth a look</span>}
             {n.priority === 'visited' && <span class="tag visited">Visited</span>}
             {buyPickShops.has(n._id) && <a class="tag picks" href="/picks">💚 Picks</a>}
+            <span class="tag planned-badge" hidden></span>
           </div>
           {n.area && <div class="note-area">📍 {n.area}</div>}
           {n.openingHours && <div class="note-hours">🕐 {n.openingHours}</div>}
@@ -218,6 +236,8 @@ function isUrl(s: string): boolean {
     .tag.must { background: #e74c3c; color: #fff; }
     .tag.maybe { background: #f39c12; color: #2a1a04; }
     .tag.visited { background: #2ecc71; color: #06281a; }
+    .tag.planned-badge { background: transparent; color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
+    .tag.planned-badge[hidden] { display: none; }
     .tag.picks { background: transparent; color: #2ecc71; border: 1px solid #2ecc71; text-decoration: none; }
 
     .note-map {
@@ -262,7 +282,9 @@ function isUrl(s: string): boolean {
   </style>
 
   <script>
+    import { plannedDaysText } from '../lib/plan-usage'
     const searchInput = document.querySelector('#search-input')
+    const plannedFilter = document.querySelector('#planned-filter') as HTMLSelectElement
     const searchClear = document.querySelector('#search-clear')
     const tripFilter = document.querySelector('#trip-filter')
     const typeFilter = document.querySelector('#type-filter')
@@ -297,8 +319,24 @@ function isUrl(s: string): boolean {
       }
     }
 
+    // The trip "📅 Planned" is about: the one chosen in the trip filter, else the one whose shops
+    // come first (?trip=, the itinerary's remembered trip, else the default trip).
+    let planTripId = ''
+    if (list) {
+      let labels: Record<string, string> = {}
+      try { labels = JSON.parse(list.dataset.tripLabels || '{}') } catch (e) {}
+      let remembered: string | null = null
+      try { remembered = localStorage.getItem('ff-itinerary-trip') } catch (e) {}
+      planTripId = [new URL(window.location.href).searchParams.get('trip'), remembered, list.dataset.firstTrip].find((id) => !!id && id in labels) || ''
+    }
+    const plannedDays = (card: HTMLElement): string[] => {
+      const trip = (tripFilter && tripFilter.value) || planTripId
+      try { return trip ? JSON.parse(card.dataset.planned || '{}')[trip] || [] : [] } catch (e) { return [] }
+    }
+
     function update() {
       const q = searchInput.value.trim().toLowerCase()
+      const plannedWanted = plannedFilter.value
       const trip = tripFilter ? tripFilter.value : ''
       const type = typeFilter.value
       const area = areaFilter.value
@@ -309,14 +347,20 @@ function isUrl(s: string): boolean {
 
       searchClear.hidden = q === ''
 
-      document.querySelectorAll('.note-card').forEach((card) => {
+      document.querySelectorAll<HTMLElement>('.note-card').forEach((card) => {
         const cardTrips = (card.dataset.trips || '').split(' ').filter(Boolean)
         const matchesSearch = !q || (card.dataset.search || '').includes(q)
         const matchesTrip = !trip || cardTrips.includes(trip)
         const matchesType = !type || card.dataset.type === type
         const matchesArea = !area || card.dataset.area === area
         const matchesPriority = !priority || card.dataset.priority === priority
-        const others = matchesSearch && matchesTrip && matchesType && matchesArea && matchesPriority
+        // "📅 Planned: 2 Dec, 5 Dec" for the trip, and the Planned / Not planned filter.
+        const days = plannedDays(card)
+        const badge = card.querySelector('.planned-badge') as HTMLElement
+        badge.textContent = days.length ? `📅 Planned: ${plannedDaysText(days, 'en')}` : ''
+        badge.hidden = !days.length
+        const matchesPlanned = !plannedWanted || (plannedWanted === 'planned') === days.length > 0
+        const others = matchesSearch && matchesTrip && matchesType && matchesArea && matchesPriority && matchesPlanned
         const isMissing = card.dataset.missing === '1'
         if (others && isMissing) missing++
         const show = others && (!missingOnly || isMissing)
@@ -343,6 +387,7 @@ function isUrl(s: string): boolean {
     })
     areaFilter.addEventListener('change', update)
     priorityFilter.addEventListener('change', update)
+    plannedFilter.addEventListener('change', update)
     update()
   </script>
 </Base>

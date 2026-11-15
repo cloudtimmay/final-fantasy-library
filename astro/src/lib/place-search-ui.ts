@@ -17,6 +17,7 @@ function ensureStyle(): void {
     .ps-addr { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.15rem; overflow-wrap: anywhere; }
     .ps-msg { margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--muted); }
     .ps-attr { margin: 0.35rem 0 0; font-size: 0.7rem; color: var(--muted); }
+    .ps-note { display: block; color: #2ecc71; font-size: 0.75rem; font-weight: 600; margin-top: 0.15rem; }
   `
   document.head.appendChild(style)
 }
@@ -30,11 +31,15 @@ export async function fetchPlaces(q: string): Promise<PlaceResult[]> {
 }
 
 // Renders `places` into `results` as buttons; `onChoose` with the one picked.
-export function renderPlaces(results: HTMLElement, places: PlaceResult[], onChoose: (p: PlaceResult) => void, empty = 'No matches.'): void {
+// `note`: an extra line for a result, e.g. "✓ Animate · 2. des" (a saved place already in the plan).
+export function renderPlaces(results: HTMLElement, places: PlaceResult[], onChoose: (p: PlaceResult) => void, empty = 'No matches.', note?: (p: PlaceResult) => string): void {
   ensureStyle()
   results.hidden = false
   results.innerHTML = (places.length
-    ? `<ul class="ps-list">${places.map((p, i) => `<li><button type="button" class="ps-result" data-i="${i}"><span class="ps-name">${esc(p.name)}</span><span class="ps-kind">${esc(p.kind)}</span><span class="ps-addr">${esc(p.address)}</span></button></li>`).join('')}</ul>`
+    ? `<ul class="ps-list">${places.map((p, i) => {
+      const extra = note ? note(p) : ''
+      return `<li><button type="button" class="ps-result" data-i="${i}"><span class="ps-name">${esc(p.name)}</span><span class="ps-kind">${esc(p.kind)}</span><span class="ps-addr">${esc(p.address)}</span>${extra ? `<span class="ps-note">${esc(extra)}</span>` : ''}</button></li>`
+    }).join('')}</ul>`
     : `<p class="ps-msg">${esc(empty)}</p>`)
     + '<p class="ps-attr">Search: © OpenStreetMap contributors</p>'
   results.querySelectorAll<HTMLButtonElement>('.ps-result').forEach((b) => b.addEventListener('click', () => onChoose(places[Number(b.dataset.i)])))
@@ -59,7 +64,7 @@ export async function findLocation(results: HTMLElement, query: string, onChoose
   }
 }
 
-export function attachPlaceSearch(o: { input: HTMLInputElement; button?: HTMLElement | null; results: HTMLElement; onChoose: (p: PlaceResult) => void; debounceMs?: number }): { search: (q?: string) => Promise<void> } {
+export function attachPlaceSearch(o: { input: HTMLInputElement; button?: HTMLElement | null; results: HTMLElement; onChoose: (p: PlaceResult) => void; debounceMs?: number; note?: (p: PlaceResult) => string }): { search: (q?: string) => Promise<void> } {
   ensureStyle()
   let timer: ReturnType<typeof setTimeout> | undefined
   let seq = 0
@@ -72,7 +77,7 @@ export function attachPlaceSearch(o: { input: HTMLInputElement; button?: HTMLEle
     try {
       const places = await fetchPlaces(query)
       if (mine !== seq) return // a newer search is on its way
-      renderPlaces(o.results, places, o.onChoose)
+      renderPlaces(o.results, places, o.onChoose, undefined, o.note)
     } catch (e) {
       if (mine === seq) o.results.innerHTML = '<p class="ps-msg">⚠️ The search failed — try again.</p>'
     }

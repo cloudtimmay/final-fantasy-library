@@ -84,7 +84,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
     function buildShopOptions() {
       if (!shops || !shops.length) return ''
       let html = ''
-      window.__routeOptimizer.shopOptionGroups(shops, tripId || null).forEach(({ area, items }) => {
+      window.__routeOptimizer.shopOptionGroups(shops, tripId || null, window.__routeOptimizer.plannedDaysByShop(state || [])).forEach(({ area, items }) => {
         html += `<optgroup label="${esc(area)}">`
         items.forEach(({ i, name, hasCoord }) => { html += `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>` })
         html += `</optgroup>`
@@ -379,6 +379,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         // One "🗺️ Routes" fold-out: walking routes left, trains right (lib/itinerary-ui.ts routesColumnsHtml).
         const routeBtns = links.length ? `<details class="route-toggle"><summary>🗺️ Routes</summary>${LIB().routesColumnsHtml(links, 'route-btn')}</details>` : ''
 
+        // Rebuilt from the plan as it is, for "✓ … · 2. des" (plan-usage.ts).
+        SHOP_OPTIONS = buildShopOptions()
         const shopSelectHtml = SHOP_OPTIONS
           ? `<select class="af-shop"><option value="">Velg sted fra butikklista…</option>${SHOP_OPTIONS}<option value="__custom__">✏️ Annet (skriv selv)</option></select>`
           : `<select class="af-shop"><option value="__custom__" selected>✏️ Skriv selv</option></select>`

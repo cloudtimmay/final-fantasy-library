@@ -309,7 +309,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
-      shopOptionGroups, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
+      shopOptionGroups, plannedDaysByShop, plannedPickerName, matchingShop, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, legLeaveTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
@@ -1546,7 +1546,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // --- Linking stops to shops (lib/stop-linking.ts) ----------------------------------------------
     // The shop picker: every shop by area (the add-stop picker's grouping), value = its _id.
     function shopPickerOptions(selected: string | null): string {
-      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) =>
+      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state)).map(({ area, items }) =>
         `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
           const id = (shops || [])[i]._id
           return `<option value="${esc(id)}"${id === selected ? ' selected' : ''}>${esc(name)}</option>`
@@ -1636,11 +1636,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const addHours = document.querySelector('#itl-add-hours') as HTMLInputElement
     const addDur = document.querySelector('#itl-add-dur') as HTMLInputElement
     let addMinutes = 0
-    // The same grouped list as the list's add-stop (shopOptionGroups), then "write it yourself".
-    addShop.innerHTML = '<option value="">Choose a place…</option>' +
-      shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) =>
-        `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
-      ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
+    // The same grouped list as the list's add-stop (shopOptionGroups), then "write it yourself" —
+    // rebuilt each time the form opens, so "✓ … · 2. des" follows the plan as it is now.
+    function fillAddShop() {
+      addShop.innerHTML = '<option value="">Choose a place…</option>' +
+        shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state)).map(({ area, items }) =>
+          `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
+        ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
+    }
+    fillAddShop()
     addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__'; if (addShop.value) clearAddPlace() })
     // "🔍 Search place": a place from OpenStreetMap instead of the list.
     const addSearch = document.querySelector('#itl-add-search') as HTMLElement
@@ -1655,6 +1659,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     attachPlaceSearch({
       input: document.querySelector('#itl-add-search-q') as HTMLInputElement,
       results: document.querySelector('#itl-add-search-results') as HTMLElement,
+      // A result that is a saved place already in the plan: "✓ Animate · 2. des".
+      note: (p) => {
+        const shop = matchingShop(p, (shops || []) as PlanShop[])
+        const days = shop ? plannedDaysByShop(state)[shop._id] : undefined
+        return shop && days ? plannedPickerName(shop.shopName || p.name, days) : ''
+      },
       onChoose: (p) => {
         addPlace = p
         addShop.value = ''; addCustom.hidden = true
@@ -1671,6 +1681,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const range = { start: Number(grid.dataset.start), end: Number(grid.dataset.end) }
       addMinutes = minutesAtOffset(e.clientY - grid.getBoundingClientRect().top, range, Number(grid.dataset.px))
       addTime.textContent = formatClock(addMinutes)
+      fillAddShop()
       addShop.value = ''; addCustom.hidden = true; addName.value = ''; addHours.value = ''; addDur.value = '45'
       addSearch.hidden = true; clearAddPlace(); addSavePlace.checked = true
       addForm.hidden = false
@@ -1748,7 +1759,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // The same area groups as the other pickers (shopOptionGroups), hotels marked 🏨.
       return opt('', defaultLabel) + opt(TRIP_BASE_KEY, '🏠 The trip base')
         + `<optgroup label="✈️ Airports">${opt('__airport:Haneda', '✈️ Haneda Airport')}${opt('__airport:Narita', '✈️ Narita International Airport')}</optgroup>`
-        + shopOptionGroups(shops || [], DATA.pageTripId || null).map(({ area, items }) => `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
+        + shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state)).map(({ area, items }) => `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
           const shop = (shops || [])[i] as PlanShop
           return opt(shop._id, `${shop.placeType === 'hotel' ? '🏨 ' : ''}${name}`)
         }).join('')}</optgroup>`).join('')

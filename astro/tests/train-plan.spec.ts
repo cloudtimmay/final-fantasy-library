@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
-import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainLegMinutes, trainDurationText, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
+import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainLegMinutes, trainDurationText, trainIcon, TRAIN_SCREENSHOT_PROMPT, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
+import { planScreenshotParts, MAX_PART_PIXELS, MAX_PART_SIDE, OVERLAP, MAX_WIDTH, MIN_WIDTH } from '../src/lib/screenshot-parts'
 import { scheduleDay, reminderTitle, trainEarlyHint, TRAIN_PLATFORM_MIN, TRAIN_EXIT_WALK_MIN } from '../src/lib/itinerary-schedule'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
@@ -331,5 +332,57 @@ test.describe('a train trip\'s duration (lib/train-plan.ts)', () => {
     const { walkToStationMin, ...noWalk } = F_LINER
     expect(trainDurationText(noWalk)).toBe('⏱ 39 min on the train')
     expect(trainDurationText({ legs: [] })).toBe('')
+  })
+})
+
+// Route screenshots from a phone (lib/screenshot-parts.ts) and legs that aren't trains.
+test.describe('route screenshots: readable parts, and every leg (buses too)', () => {
+  test('a tall phone screenshot is cut into overlapping parts at full width, never shrunk below readable', () => {
+    const p = planScreenshotParts(1060, 2376)
+    expect(p.scale).toBe(1) // not shrunk (it used to be cut to 1024 px on its long side)
+    expect(p.width).toBe(1060)
+    expect(p.parts.length).toBe(3)
+    expect(p.parts[0].top).toBe(0)
+    const last = p.parts[p.parts.length - 1]
+    expect(last.top + last.height).toBe(2376) // down to the bottom
+    p.parts.forEach((part, i) => {
+      expect(p.width * part.height).toBeLessThanOrEqual(MAX_PART_PIXELS) // the API won't shrink it again
+      expect(part.height).toBeLessThanOrEqual(MAX_PART_SIDE)
+      if (i > 0) expect(p.parts[i - 1].top + p.parts[i - 1].height - part.top).toBeGreaterThanOrEqual(OVERLAP) // no row cut in two
+    })
+    // A small one stays whole; a wide one is scaled to MAX_WIDTH; a very long one never below MIN_WIDTH.
+    expect(planScreenshotParts(800, 600)).toMatchObject({ scale: 1, parts: [{ top: 0, height: 600 }] })
+    expect(planScreenshotParts(1920, 1080).width).toBe(MAX_WIDTH)
+    expect(planScreenshotParts(1170, 9000).width).toBeGreaterThanOrEqual(MIN_WIDTH)
+  })
+
+  test('the real route: a through service is one leg with both names, the bus a leg of its own with 🚌', () => {
+    const v = validateTrain({ walkToStationMin: 6, legs: [
+      { mode: 'train', line: 'Keihin-Tōhoku Line / Negishi Line', train: '', direction: 'Ōfuna', fromStation: 'Akihabara', departure: '08:39', platform: '4', toStation: 'Kannai', arrival: '09:35' },
+      { mode: 'Bus', line: 'Route 106', train: '', direction: '', fromStation: 'Yokohama Stadium Mae', departure: '09:44', platform: '', toStation: 'Wadayama-guchi', arrival: '10:00' },
+    ] })
+    if (!('train' in v)) throw new Error(v.error)
+    expect(v.train.legs[0].mode).toBeUndefined() // a train saves as before
+    expect(v.train.legs[0].direction).toBe('Ōfuna')
+    expect(v.train.legs[1].mode).toBe('bus')
+    expect(validateTrain({ legs: [{ mode: 'rocket', departure: '08:00', arrival: '09:00' }] })).toMatchObject({ train: { legs: [{ departure: '08:00' }] } })
+    expect(trainSummary(v.train)).toBe('🚆 08:39 Keihin-Tōhoku / Negishi → Kannai · 🚌 09:44 Route 106 → Wadayama-guchi 10:00')
+    expect(trainLegText(v.train.legs[1], 1)).toBe('2. 🚌 Route 106 · Yokohama Stadium Mae 09:44 → Wadayama-guchi 10:00')
+    expect(trainIcon(v.train)).toBe('🚆')
+    expect(trainIcon({ legs: [v.train.legs[1]] })).toBe('🚌')
+    // An all-train trip reads as before.
+    expect(trainSummary(ROUTE).startsWith('🚆 06:47 Yamanote → Tokyo')).toBe(true)
+    // The prompt: every segment a leg, buses included; a through service one leg; walks aren't legs.
+    expect(TRAIN_SCREENSHOT_PROMPT).toMatch(/buses, trams, ferries and monorails/)
+    expect(TRAIN_SCREENSHOT_PROMPT).toMatch(/ONE leg, with both line names/)
+    expect(TRAIN_SCREENSHOT_PROMPT).toMatch(/Walks between legs are not legs/)
+    expect(TRAIN_SCREENSHOT_PROMPT).toMatch(/mode: "train", "subway", "bus"/)
+  })
+
+  test('the endpoint: up to 12 images in one request, none missing', async ({ request }) => {
+    const tiny = Buffer.from('not really a jpeg').toString('base64')
+    expect((await request.post('/api/train-from-screenshot', { data: { images: Array(13).fill(tiny) } })).status()).toBe(400)
+    expect((await request.post('/api/train-from-screenshot', { data: { images: [] } })).status()).toBe(400)
+    expect((await request.post('/api/train-from-screenshot', { data: { images: ['%%%'] } })).status()).toBe(400)
   })
 })

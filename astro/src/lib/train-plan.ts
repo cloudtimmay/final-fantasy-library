@@ -6,8 +6,17 @@
 // the leg's anchor and starts the next stop after the last arrival.
 // Pure: reading (old saves included), validation, the times in minutes, and how it's shown.
 
+// How a leg is ridden — a train unless said otherwise (a bus, a tram … on the same route).
+export const TRANSIT_MODES = ['train', 'subway', 'bus', 'tram', 'ferry', 'monorail'] as const
+export type TransitMode = (typeof TRANSIT_MODES)[number]
+export const MODE_ICON: Record<TransitMode, string> = { train: '🚆', subway: '🚇', bus: '🚌', tram: '🚋', ferry: '⛴️', monorail: '🚝' }
+export const MODE_LABEL: Record<TransitMode, string> = { train: 'Train', subway: 'Subway', bus: 'Bus', tram: 'Tram', ferry: 'Ferry', monorail: 'Monorail' }
+const isMode = (v: unknown): v is TransitMode => typeof v === 'string' && (TRANSIT_MODES as readonly string[]).includes(v)
+
 export type TrainLeg = {
-  line: string // "Tokaido Shinkansen"
+  mode?: TransitMode // only when not a train ("bus" …); a train when left out
+  direction?: string // toward where, e.g. "Ōfuna" — when the route says
+  line: string // "Tokaido Shinkansen"; a through service both names, "Keihin-Tōhoku Line / Negishi Line"; a bus its route, "Route 106"
   train: string // name or number, e.g. "Hikari 701"; "local"
   fromStation: string
   departure: string // "HH:MM"
@@ -92,7 +101,12 @@ export function validateTrain(raw: unknown): { train: TrainPlan } | { error: str
   if (!rawLegs.length) return { error: 'Add at least one train.' }
   const legs: TrainLeg[] = []
   for (const [i, l] of rawLegs.entries()) {
-    const leg = {
+    const mode = typeof l?.mode === 'string' ? l.mode.trim().toLowerCase() : ''
+    const direction = text(l?.direction)
+    const leg: TrainLeg = {
+      // A train is the default: saved only for the other modes, so a train leg saves as before.
+      ...(isMode(mode) && mode !== 'train' ? { mode } : {}),
+      ...(direction ? { direction } : {}),
       line: text(l?.line), train: text(l?.train), fromStation: text(l?.fromStation), departure: clockText(l?.departure),
       platform: text(l?.platform), toStation: text(l?.toStation), arrival: clockText(l?.arrival),
     }
@@ -185,23 +199,35 @@ export function trainDeparture(t: unknown): string {
 }
 
 // A line's short name: "Yamanote Line" -> "Yamanote", "Tokaido Shinkansen" -> "Shinkansen".
-const shortLine = (line: string) => (/shinkansen/i.test(line) ? 'Shinkansen' : line.replace(/\s+line$/i, '').trim())
+// A through service ("Keihin-Tōhoku Line / Negishi Line") shortens each name: "Keihin-Tōhoku / Negishi".
+const shortLine = (line: string) => (/shinkansen/i.test(line) ? 'Shinkansen' : line.split(/\s*\/\s*/).map((p) => p.replace(/\s+line$/i, '').trim()).filter(Boolean).join(' / '))
 // A train worth naming: "Hikari 701", not "local".
 const named = (train: string) => !!train && !/^(local|普通|各駅停車)$/i.test(train.trim())
 
+// A leg's icon: 🚆, or 🚌 for a bus (MODE_ICON).
+export const legIcon = (l: Pick<TrainLeg, 'mode'>): string => MODE_ICON[l.mode && isMode(l.mode) ? l.mode : 'train']
+// The trip's icon (the timeline's band): its first leg's. 🚆 when unreadable.
+export function trainIcon(t: unknown): string {
+  const v = t ? validateTrain(t) : null
+  return v && 'train' in v ? legIcon(v.train.legs[0]) : '🚆'
+}
+
 // "🚆 06:47 Yamanote → Tokyo · 07:03 Shinkansen Hikari 701 (15) → Shizuoka · 08:07 Tokaido →
 // Higashi-Shizuoka 08:10" — each leg's departure, line (and train and platform when it's a named
-// train), where it goes; the last arrival at the end. Blocks cut it off with "…".
+// train), where it goes; the last arrival at the end. Blocks cut it off with "…". A trip that
+// isn't all trains has each leg's own icon: "🚆 08:39 Keihin-Tōhoku / Negishi → Kannai · 🚌 09:44
+// Route 106 → Wadayama-guchi 10:00".
 export function trainSummary(t: unknown): string {
   const v = t ? validateTrain(t) : null
   if (!v || 'error' in v) return '🚆'
   const legs = v.train.legs
+  const mixed = legs.some((l) => l.mode && l.mode !== 'train')
   const parts = legs.map((l) => {
     const name = [shortLine(l.line), named(l.train) ? l.train : ''].filter(Boolean).join(' ')
     const platform = named(l.train) && l.platform ? ` (${l.platform})` : ''
-    return `${l.departure}${name ? ` ${name}` : ''}${platform}${l.toStation ? ` → ${l.toStation}` : ''}`
+    return `${mixed ? `${legIcon(l)} ` : ''}${l.departure}${name ? ` ${name}` : ''}${platform}${l.toStation ? ` → ${l.toStation}` : ''}`
   })
-  return `🚆 ${parts.join(' · ')} ${legs[legs.length - 1].arrival}`
+  return `${mixed ? '' : '🚆 '}${parts.join(' · ')} ${legs[legs.length - 1].arrival}`
 }
 
 // One leg in full, as the editor's card and the sheet show it:
@@ -210,26 +236,36 @@ export function trainSummary(t: unknown): string {
 // .map(trainLegText) passes the array third.
 export function trainLegText(l: TrainLeg, i: number, withMinutes = false): string {
   const name = [l.line, l.train].filter(Boolean).join(' ')
-  return `${i + 1}. ${name ? `${name} · ` : ''}${l.fromStation ? `${l.fromStation} ` : ''}${l.departure}${l.platform ? ` (platform ${l.platform})` : ''} → ${l.toStation ? `${l.toStation} ` : ''}${l.arrival}${withMinutes === true ? ` · ${trainLegMinutes(l)} min` : ''}`
+  // Not a train: its icon first, "2. 🚌 Route 106 · …".
+  const icon = l.mode && l.mode !== 'train' ? `${legIcon(l)} ` : ''
+  return `${i + 1}. ${icon}${name ? `${name} · ` : ''}${l.fromStation ? `${l.fromStation} ` : ''}${l.departure}${l.platform ? ` (platform ${l.platform})` : ''} → ${l.toStation ? `${l.toStation} ` : ''}${l.arrival}${withMinutes === true ? ` · ${trainLegMinutes(l)} min` : ''}`
 }
 
 // --- Reading a train from a screenshot (/api/train-from-screenshot) ---------------------------
-export const TRAIN_SCREENSHOT_PROMPT = `The image is a screenshot of a public-transport route in Japan (Google Maps, Navitime, Jorudan, a station app or similar). Read the journey shown in it, one train at a time, in order.
+export const TRAIN_SCREENSHOT_PROMPT = `The image is a screenshot of a public-transport route in Japan (Google Maps, Navitime, Jorudan, a station app or similar). Read the whole journey shown in it, one leg at a time, in order.
+
+Every public-transport segment is a leg: trains, subways, buses, trams, ferries and monorails alike. A leg where the screenshot says to stay on board / continue on the same vehicle (a through service, e.g. "Keihin-Tōhoku Line" continuing as "Negishi Line") is ONE leg, with both line names. Walks between legs are not legs.
 
 Respond with ONLY a JSON object (no other text, no markdown code fences) with exactly these fields:
 - walkToStationMin: the walk to the first station in minutes, as a number, when the screenshot shows it; otherwise null.
 - walkFromStationMin: the walk from the last station to the destination in minutes, as a number, when the screenshot shows it (or it follows from the arrival time at the station and at the destination); otherwise null.
 - fareYen: the fare for the whole trip per person in yen, as a number (e.g. 6670 for "¥6,670"), when shown; otherwise null.
-- legs: an array, one object per train ridden, in order, each with:
-  - line: the line, e.g. "Yamanote Line", "Tokaido Shinkansen". "" if not shown.
+- legs: an array, one object per vehicle ridden, in order (do not stop after the first leg — include every bus, tram or other leg that follows), each with:
+  - mode: "train", "subway", "bus", "tram", "ferry" or "monorail".
+  - line: the line or route, e.g. "Yamanote Line", "Tokaido Shinkansen", "Route 106"; a through service as "Keihin-Tōhoku Line / Negishi Line". "" if not shown.
+  - direction: toward where (the direction or destination shown), e.g. "Ōfuna". "" if not shown.
   - train: that train's name or number, e.g. "Hikari 701", "Rapid 1234", or "local". "" if not shown.
-  - fromStation: where you board it. "" if not shown.
+  - fromStation: where you board it (station or stop). "" if not shown.
   - departure: its departure time, 24-hour "HH:MM".
   - platform: its platform, e.g. "15". "" if not shown.
-  - toStation: where you get off. "" if not shown.
+  - toStation: where you get off (station or stop). "" if not shown.
   - arrival: its arrival time there, 24-hour "HH:MM".
 
 Read only what the screenshot shows; never invent times. If a time can't be read, use "" for it.`
+
+// More than one image: parts of the same route, in order (a tall screenshot cut in overlapping
+// pieces, and/or the next screenshots after scrolling).
+export const TRAIN_SCREENSHOTS_NOTE = 'The images are parts of the same route, in order: pieces of one tall screenshot that overlap, and/or the following screenshots after scrolling. A row that appears in two images is the same row — read it once. Combine them into one journey.'
 
 // The model's text -> a validated train, or why not. The answer may come wrapped in a code fence
 // or after some other text; only a JSON object counts, and only when every time is valid HH:MM

@@ -2611,7 +2611,7 @@ test.describe('/itinerary on a phone: a train from a screenshot', () => {
     let reply: { status: number; body: unknown } = { status: 200, body: { ok: true, train: READ } }
     await page.route('**/api/train-from-screenshot', async (route) => {
       calls++
-      expect(route.request().postDataJSON().image).toMatch(/^[A-Za-z0-9+/=]+$/) // raw base64
+      expect(route.request().postDataJSON().images[0]).toMatch(/^[A-Za-z0-9+/=]+$/) // raw base64, in readable parts
       await route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
     })
     const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '06:00')
@@ -2948,7 +2948,9 @@ test.describe('a planned train\'s duration on the timeline', () => {
     await expect(short.locator('.itl-tr-dep')).toBeHidden()
     // "🚆 2 min": the icon drawn before the duration (CSS ::before, not in innerText).
     expect(await short.innerText()).toBe('2 min')
-    expect(await short.locator('.itl-tr-dur').evaluate((el) => getComputedStyle(el, '::before').content)).toBe('"🚆 "')
+    // The leg's own icon (🚌 for a bus), from its data-icon.
+    await expect(short.locator('.itl-tr-dur')).toHaveAttribute('data-icon', '🚆')
+    expect(await short.locator('.itl-tr-dur').evaluate((el) => getComputedStyle(el, '::before').content)).toContain('🚆')
 
     // The train line on the stop after the leg.
     const block = (p: Page, name: string) => p.locator('.itl-block').filter({ has: p.locator('.itl-name', { hasText: name }) })
@@ -3001,5 +3003,77 @@ test.describe('/itinerary: the trip starts when the visit ends', () => {
     // Plan train: Google Maps from the actual departure.
     await page.locator(band).click()
     await expect(page.locator('#itl-train-maps-when')).toHaveText('Google Maps opens with departures from 10:15, when you leave Yodobashi Camera Shinjuku')
+  })
+})
+
+test.describe('/itinerary on a phone: a route with a bus, from tall phone screenshots', () => {
+  // The real route: Keihin-Tōhoku Line continuing as the Negishi Line, Akihabara 08:39 (platform 4)
+  // → Kannai 09:35, a walk, then bus Route 106, Yokohama Stadium Mae 09:44 → Wadayama-guchi 10:00
+  // (12 stops) — as the model now answers it (mocked).
+  const READ = {
+    walkToStationMin: 6, walkFromStationMin: 3, fareYen: null,
+    legs: [
+      { mode: 'train', line: 'Keihin-Tōhoku Line / Negishi Line', train: '', direction: 'Ōfuna', fromStation: 'Akihabara', departure: '08:39', platform: '4', toStation: 'Kannai', arrival: '09:35' },
+      { mode: 'bus', line: 'Route 106', train: '', direction: '', fromStation: 'Yokohama Stadium Mae', departure: '09:44', platform: '', toStation: 'Wadayama-guchi', arrival: '10:00' },
+    ],
+  }
+  const DAY = [
+    { name: 'Akihabara Hotel', hours: '', tag: '', slot: '', lat: 35.698, lng: 139.771, dur: 30 },
+    { name: 'Wadayama Shop', hours: '', tag: '', slot: '', lat: 35.4300, lng: 139.6330, dur: 60 },
+  ]
+  // A phone screenshot's size (1060×2376), drawn in the page.
+  async function tallScreenshot(page: Page, w = 1060, h = 2376) {
+    const b64 = await page.evaluate(({ w, h }) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h
+      const ctx = c.getContext('2d')!
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h)
+      ctx.fillStyle = '#000'; ctx.font = '28px sans-serif'
+      for (let y = 40; y < h; y += 60) ctx.fillText(`Row ${y} Keihin-Tohoku Line 08:39`, 20, y)
+      return c.toDataURL('image/png').split(',')[1]
+    }, { w, h })
+    return { name: 'route.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') }
+  }
+
+  test('the tall screenshot goes in readable parts; both legs come back, the bus marked 🚌; a second screenshot is read with the first', async ({ page, sanity, trackDoc }) => {
+    test.setTimeout(90_000)
+    const requests: string[][] = []
+    await page.route('**/api/train-from-screenshot', async (route) => {
+      requests.push(route.request().postDataJSON().images)
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, train: READ }) })
+    })
+    const { saves } = await openTimeline(page, sanity, trackDoc, DAY, {}, '08:00')
+    await page.locator('.itl-travel[data-index="1"]').click()
+    await page.locator('#itl-train-shot').setInputFiles(await tallScreenshot(page))
+    await expect(page.locator('#itl-train-shot-msg')).toHaveText('Read from the screenshot — check it, then Save train.')
+    // 1060×2376: kept at full width, in 3 overlapping parts (not one image shrunk to 1024 px).
+    expect(requests[0]).toHaveLength(3)
+    const sizes = await page.evaluate(async (parts: string[]) => Promise.all(parts.map((b64) => new Promise<[number, number]>((resolve) => {
+      const i = new Image(); i.onload = () => resolve([i.naturalWidth, i.naturalHeight]); i.src = `data:image/jpeg;base64,${b64}`
+    }))), requests[0])
+    for (const [w, h] of sizes) { expect(w).toBe(1060); expect(w * h).toBeLessThanOrEqual(1_150_000) }
+    // Both legs, the bus with its icon and mode.
+    await expect(page.locator('.itl-tr-leg-title')).toHaveText([
+      '1. Keihin-Tōhoku Line / Negishi Line · Akihabara 08:39 (platform 4) → Kannai 09:35',
+      '2. 🚌 Route 106 · Yokohama Stadium Mae 09:44 → Wadayama-guchi 10:00',
+    ])
+    await expect(page.locator('.itl-tr-leg').nth(0).locator('.itl-tr-l-mode')).toHaveValue('train')
+    await expect(page.locator('.itl-tr-leg').nth(1).locator('.itl-tr-l-mode')).toHaveValue('bus')
+    await expect(page.locator('.itl-tr-leg').nth(0).locator('.itl-tr-l-direction')).toHaveValue('Ōfuna')
+
+    // A second screenshot (the route continued after scrolling): both read together.
+    await expect(page.locator('#itl-train-shot-more')).toBeVisible()
+    await page.locator('#itl-train-shot').setInputFiles(await tallScreenshot(page, 1060, 1200))
+    await expect(page.locator('#itl-train-shot-msg')).toHaveText('Read from 2 screenshots — check it, then Save train.')
+    expect(requests[1].length).toBe(3 + 2) // the first one's 3 parts and the second's 2
+
+    // Saved: the bus leg keeps its mode; the timeline shows 🚌 for it.
+    await page.locator('#itl-tr-save').click()
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops[1].train?.legs?.[1]?.mode, { timeout: 10000 }).toBe('bus')
+    const saved = saves[saves.length - 1].days['2026-12-05'].stops[1].train
+    expect(saved.legs[0].mode).toBeUndefined() // a train saves as before
+    expect(saved.legs[0]).toMatchObject({ line: 'Keihin-Tōhoku Line / Negishi Line', direction: 'Ōfuna' })
+    const block = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Wadayama Shop' }) })
+    await expect(block.locator('.itl-train-line')).toContainText('🚆 08:39 Keihin-Tōhoku / Negishi → Kannai · 🚌 09:44 Route 106 → Wadayama-guchi 10:00')
+    await expect(page.locator('.itl-travel[data-index="1"] .itl-tr-dep')).toHaveText('🚆 08:39')
   })
 })

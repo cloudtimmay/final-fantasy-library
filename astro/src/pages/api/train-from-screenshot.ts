@@ -1,29 +1,46 @@
 import type { APIRoute } from 'astro'
 import { json, parseJsonBody } from '../../lib/api'
-import { TRAIN_SCREENSHOT_PROMPT, trainFromModelText } from '../../lib/train-plan'
+import { TRAIN_SCREENSHOT_PROMPT, TRAIN_SCREENSHOTS_NOTE, trainFromModelText } from '../../lib/train-plan'
 
 export const prerender = false
 
-// "🚆 Plan train" → "📷 From a screenshot" on the timeline: reads each train leg of a route (line,
-// train name, stations, times, platform) and the walk to the first station from a screenshot. Same patterns as identify-product.ts.
-// Nothing is saved here — the page shows the result in its form to check first.
+// "🚆 Plan train" → "📷 From screenshots" on the timeline: reads each leg of a route — trains, buses,
+// trams … (mode, line, direction, stops, times, platform) — and the walk to the first station from
+// up to 3 screenshots, each a tall one cut in readable parts (lib/screenshot-parts.ts), all sent as
+// images in one request. Same patterns as identify-product.ts. Nothing is saved here — the page
+// shows the result in its form to check first.
+//   { images: ["<base64 JPEG>", …] } (or the first version's { image })
 
 // One place to change the model (the same as identify-product.ts).
 const MODEL = 'claude-haiku-5-5'
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024
-const TIMEOUT_MS = 25000
-// Room for a "thinking" block before the answer (see identify-product.ts).
-const MAX_TOKENS = 2048
+// 3 screenshots × up to 4 parts each (lib/screenshot-parts.ts MAX_PARTS); 20 MB in all.
+const MAX_IMAGES = 12
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024
+const TIMEOUT_MS = 45000
+// Room for a "thinking" block before the answer (see identify-product.ts), and for several legs.
+const MAX_TOKENS = 4096
 
 export const POST: APIRoute = async ({ request }) => {
   const body = await parseJsonBody(request)
   if (!body) return json(400, { error: 'Bad request' })
-  let image = typeof body.image === 'string' ? body.image : ''
-  // A "data:image/...;base64," prefix is taken off; the client sends raw base64.
-  const comma = image.indexOf(',')
-  if (image.startsWith('data:') && comma !== -1) image = image.slice(comma + 1)
-  if (!image || !/^[A-Za-z0-9+/=\s]+$/.test(image)) return json(400, { error: 'Missing image' })
-  if (Buffer.byteLength(image, 'base64') > MAX_IMAGE_BYTES) return json(400, { error: 'The image is too large (max 4MB)' })
+  const list: unknown[] = Array.isArray(body.images) ? body.images : typeof body.image === 'string' ? [body.image] : []
+  if (!list.length) return json(400, { error: 'Missing image' })
+  if (list.length > MAX_IMAGES) return json(400, { error: `Too many images (max ${MAX_IMAGES})` })
+  const images: string[] = []
+  let total = 0
+  for (const item of list) {
+    let image = typeof item === 'string' ? item : ''
+    // A "data:image/...;base64," prefix is taken off; the client sends raw base64.
+    const comma = image.indexOf(',')
+    if (image.startsWith('data:') && comma !== -1) image = image.slice(comma + 1)
+    if (!image || !/^[A-Za-z0-9+/=\s]+$/.test(image)) return json(400, { error: 'Missing image' })
+    const bytes = Buffer.byteLength(image, 'base64')
+    if (bytes > MAX_IMAGE_BYTES) return json(400, { error: 'An image is too large (max 4MB)' })
+    total += bytes
+    images.push(image)
+  }
+  if (total > MAX_TOTAL_BYTES) return json(400, { error: 'The screenshots are too large together (max 20MB)' })
 
   // Read via import.meta.env (astro/.env locally, the Vercel secret in production); never sent
   // to the browser.
@@ -44,8 +61,8 @@ export const POST: APIRoute = async ({ request }) => {
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-            { type: 'text', text: TRAIN_SCREENSHOT_PROMPT },
+            ...images.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })),
+            { type: 'text', text: images.length > 1 ? `${TRAIN_SCREENSHOT_PROMPT}\n\n${TRAIN_SCREENSHOTS_NOTE}` : TRAIN_SCREENSHOT_PROMPT },
           ],
         }],
       }),

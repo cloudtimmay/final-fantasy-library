@@ -170,6 +170,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           <ol id="itl-tr-legs" class="itl-tr-legs"></ol>
           <button id="itl-tr-add-leg" type="button" class="itl-train-btn">＋ Add a train</button>
           <label class="itl-tr-walk">Walk from the last station <span><input id="itl-tr-walk-from" type="number" min="0" max="60" step="1" placeholder="5" /> min</span></label>
+          <!-- Time to spare at the station before the train (train-plan.ts stationMarginMin): the
+               leave-by is the departure − the walk − this. Empty: the default, 5 min. -->
+          <label class="itl-tr-walk">Margin at the station <span><input id="itl-tr-margin" type="number" min="0" max="20" step="1" placeholder="5" /> min</span></label>
           <label class="itl-tr-walk">Fare per person <span>¥ <input id="itl-tr-fare" type="number" min="0" step="10" placeholder="6670" /></span></label>
           <label class="itl-tr-walk">Travelers on this train <span><input id="itl-tr-travelers" type="number" min="1" max="20" step="1" /> (empty: the trip's)</span></label>
           <p id="itl-tr-error" class="itl-train-error" hidden></p>
@@ -332,7 +335,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { OWNER, defaultAddTo, boughtPreCheck, priceEntryFormValues, priceEntryUpdateBody } from '../lib/price-entry-fields'
     import { optimizeRoute } from '../lib/route-optimizer'
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
-    import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainDurationText, trainFareText, yenWithNok, trainIcon, TRANSIT_MODES, MODE_ICON, MODE_LABEL, type TrainLeg } from '../lib/train-plan'
+    import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainDurationText, trainFareText, yenWithNok, trainIcon, trainLeaveText, trainBandMinutes, TRANSIT_MODES, MODE_ICON, MODE_LABEL, type TrainLeg } from '../lib/train-plan'
     import { screenshotParts } from '../lib/screenshot-parts'
     import { trainEarlyHint } from '../lib/itinerary-schedule'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX, freeTimeText } from '../lib/itinerary-timeline'
@@ -545,9 +548,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           el.classList.add('itl-travel-train')
           // The departure and the time on the train: on one line, on two when the band is too
           // narrow, the duration alone when it's too short for two (measured below).
-          const ride = trainRideMinutes(legTrain)
+          // Door to door when both walks are known ("18 min"), else the time on the train ("4 min on train").
+          const dur = trainBandMinutes(legTrain)?.text ?? `${trainRideMinutes(legTrain)} min on train`
           const icon = trainIcon(legTrain)
-          el.innerHTML = `<span class="itl-tr-text"><span class="itl-tr-dep">${icon} ${esc(trainDeparture(legTrain))}</span><span class="itl-tr-sep"> · </span><span class="itl-tr-dur" data-icon="${icon}">${ride} min</span></span>`
+          el.innerHTML = `<span class="itl-tr-text"><span class="itl-tr-dep">${icon} ${esc(trainDeparture(legTrain))}</span><span class="itl-tr-sep"> · </span><span class="itl-tr-dur" data-icon="${icon}">${esc(dur)}</span></span>`
           trainBands.push(el)
         } else {
           el.textContent = `${tr.mode === 'walk' ? '🚶' : '🚆'} ${tr.minutes} min`
@@ -1095,6 +1099,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const train = v && 'train' in v ? v.train : { legs: [] as TrainLeg[] }
       trEl('walk').value = train.walkToStationMin != null ? String(train.walkToStationMin) : ''
       trEl('walk-from').value = train.walkFromStationMin != null ? String(train.walkFromStationMin) : ''
+      trEl('margin').value = train.stationMarginMin != null ? String(train.stationMarginMin) : ''
       trEl('fare').value = train.fareYen != null ? String(train.fareYen) : ''
       trEl('travelers').value = train.travelers != null ? String(train.travelers) : ''
       trEl('travelers').placeholder = String(tripTravelers ?? 5)
@@ -1104,7 +1109,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       trainForm.hidden = false
     }
     function readTrainForm() {
-      return { walkToStationMin: trEl('walk').value, walkFromStationMin: trEl('walk-from').value, fareYen: trEl('fare').value, travelers: trEl('travelers').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
+      return { walkToStationMin: trEl('walk').value, walkFromStationMin: trEl('walk-from').value, stationMarginMin: trEl('margin').value, fareYen: trEl('fare').value, travelers: trEl('travelers').value, legs: [...legsEl.querySelectorAll('.itl-tr-leg')].map(readLeg) }
     }
     function openTrain(day: PlanDay, idx: number, leg: { minutes: number }, from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }, kind: TrainTarget['kind'] = 'stop') {
       trainLeg = { day, idx, kind }
@@ -1291,6 +1296,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (trainV && 'train' in trainV) {
         lines.push(trainSummary(trainV.train))
         lines.push(trainDurationText(trainV.train))
+        lines.push(`🚶 ${trainLeaveText(trainV.train)}`)
         if (trainV.train.walkToStationMin != null) lines.push(`🚶 ${trainV.train.walkToStationMin} min to the first station`)
         trainV.train.legs.forEach((l, i) => lines.push(trainLegText(l, i, trainV.train.legs.length > 1)))
         if (trainV.train.walkFromStationMin != null) lines.push(`🚶 ${trainV.train.walkFromStationMin} min from the last station`)
@@ -1301,6 +1307,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const after = idx === day.stops.length - 1 ? lastLegTrain(day) : null
       if (after && after.train) {
         lines.push(`${after.toAirport ? '✈️ To the airport' : '🏠 Back to the base'}: ${trainSummary(after.train)}`)
+        const afterLeave = trainLeaveText(after.train)
+        if (afterLeave) lines.push(`🚶 ${afterLeave}`)
         const afterDur = trainDurationText(after.train)
         if (afterDur) lines.push(afterDur)
         const backFare = trainFareText(after.train, tripRate, tripTravelers)

@@ -41,7 +41,7 @@
 //   `arrivesAfterLeave`, and the visit takes no time. A leave time well before the start (01:00
 //   for an evening visit) is the next morning.
 // - A train on the leg into a stop (`train`, chosen on the timeline): the leg runs from the
-//   stop before's leave-by — the departure minus TRAIN_PLATFORM_MIN (and the walk to the station
+//   stop before's leave-by — the departure minus the margin at the station (and the walk to the station
 //   when known) — to the final arrival plus TRAIN_EXIT_WALK_MIN, when the stop starts. The train
 //   is an anchor for the stops before it, like a fixed time: "leave earlier", "doesn't fit" and
 //   the segment overrun all count back from its leave-by. On a fixed-time stop, a train arriving
@@ -73,10 +73,12 @@ export type ScheduleStopInput = {
 
 // A train's times on a leg (lib/train-plan.ts trainTimes): minutes after midnight, the arrival
 // after the departure (past midnight when it runs over).
-export type TrainTimes = { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null }
+export type TrainTimes = { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null; marginMin?: number | null }
 // Time to get to the platform before the train leaves, and from the arrival platform to the stop
 // when the trip doesn't give its own walk from the last station.
-export const TRAIN_PLATFORM_MIN = 10
+// The margin at the station when a train doesn't set its own (train-plan.ts stationMarginMin,
+// DEFAULT_STATION_MARGIN_MIN — the same 5).
+export const TRAIN_PLATFORM_MIN = 5
 export const TRAIN_EXIT_WALK_MIN = 5
 export const TRAIN_EARLY_HINT_MIN = 30
 // "Arrives 08:22, 68 min before 09:30. A later train may be possible."
@@ -85,8 +87,12 @@ export function trainEarlyHint(e: { arrival: number; fixedTime: number }): strin
   return `Arrives ${c(e.arrival)}, ${e.fixedTime - e.arrival} min before ${c(e.fixedTime)}. A later train may be possible.`
 }
 // The latest the stop before a train leg can end.
+// Leave by: the departure − the walk to the station − the margin at the station (the train's own,
+// else TRAIN_PLATFORM_MIN). Everything uses this: leave-by, Latest, Fix, reminders, Check day,
+// Suggest route (route-optimizer.ts mirrors it), the airport train.
 export function trainLeaveBy(t: TrainTimes): number {
-  return t.departure - TRAIN_PLATFORM_MIN - Math.max(0, t.walkToStationMin || 0)
+  const margin = typeof t.marginMin === 'number' && t.marginMin >= 0 ? t.marginMin : TRAIN_PLATFORM_MIN
+  return t.departure - margin - Math.max(0, t.walkToStationMin || 0)
 }
 
 export type TravelLeg = { minutes: number; source: 'manual' | 'note' | 'estimate' | 'train'; mode: 'walk' | 'train' | null }

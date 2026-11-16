@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
-import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainLegMinutes, trainDurationText, trainIcon, TRAIN_SCREENSHOT_PROMPT, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
+import { validateTrain, trainTimes, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainLegMinutes, trainDurationText, trainIcon, TRAIN_SCREENSHOT_PROMPT, trainLeaveText, trainBandMinutes, DEFAULT_STATION_MARGIN_MIN, trainFareText, TRAIN_ORDER_ERROR, DEFAULT_WALK_FROM_STATION_MIN } from '../src/lib/train-plan'
 import { planScreenshotParts, MAX_PART_PIXELS, MAX_PART_SIDE, OVERLAP, MAX_WIDTH, MIN_WIDTH } from '../src/lib/screenshot-parts'
-import { scheduleDay, reminderTitle, trainEarlyHint, TRAIN_PLATFORM_MIN, TRAIN_EXIT_WALK_MIN } from '../src/lib/itinerary-schedule'
+import { scheduleDay, reminderTitle, trainEarlyHint, trainLeaveBy, TRAIN_PLATFORM_MIN, TRAIN_EXIT_WALK_MIN } from '../src/lib/itinerary-schedule'
 
 const t = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
 const BASE = { lat: 35.697999, lng: 139.770830 }
@@ -24,7 +24,7 @@ const withLeg = (i: number, change: Record<string, string>) => ({ ...ROUTE, legs
 test.describe('trains on a leg (lib/train-plan.ts): a list of legs', () => {
   test('the real route: valid, its times, the summary, each leg in full', () => {
     expect(validateTrain(ROUTE)).toEqual({ train: ROUTE })
-    expect(trainTimes(ROUTE)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: DEFAULT_WALK_FROM_STATION_MIN })
+    expect(trainTimes(ROUTE)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: DEFAULT_WALK_FROM_STATION_MIN, marginMin: 5 })
     expect(trainDeparture(ROUTE)).toBe('06:47')
     expect(trainSummary(ROUTE)).toBe('🚆 06:47 Yamanote → Tokyo · 07:03 Shinkansen Hikari 701 (15) → Shizuoka · 08:07 Tokaido → Higashi-Shizuoka 08:10')
     expect(ROUTE.legs.map(trainLegText)).toEqual([
@@ -43,7 +43,7 @@ test.describe('trains on a leg (lib/train-plan.ts): a list of legs', () => {
     expect(validateTrain(withLeg(2, { arrival: '08:05' }))).toEqual({ error: TRAIN_ORDER_ERROR }) // arrives before it leaves
     expect(validateTrain({ legs: [] })).toEqual({ error: 'Add at least one train.' })
     // Past midnight once is fine.
-    expect(trainTimes({ legs: [{ ...ONE.legs[0], departure: '23:50', arrival: '00:20' }] })).toEqual({ departure: t('23:50'), arrival: t('00:20') + 1440, walkToStationMin: null, walkFromStationMin: 5 })
+    expect(trainTimes({ legs: [{ ...ONE.legs[0], departure: '23:50', arrival: '00:20' }] })).toEqual({ departure: t('23:50'), arrival: t('00:20') + 1440, walkToStationMin: null, walkFromStationMin: 5, marginMin: 5 })
   })
 
   test('a train saved the old way (a main train with transfers) is read as legs', () => {
@@ -70,15 +70,15 @@ test.describe('trains on a leg (lib/train-plan.ts): a list of legs', () => {
     expect(d.stops[0].leaveEarlierMin).toBeNull() // ends 10:30
     expect(d.stops[1]).toMatchObject({ arrival: t('12:15') + TRAIN_EXIT_WALK_MIN, start: t('12:15') + TRAIN_EXIT_WALK_MIN })
     expect(d.stops[1].travelIn).toMatchObject({ source: 'train', mode: 'train', minutes: t('12:15') + TRAIN_EXIT_WALK_MIN - (t('11:00') - TRAIN_PLATFORM_MIN) })
-    // The real route, with its 5-min walk: leave the stop before by 06:47 − 10 − 5.
+    // The real route, with its 5-min walk: leave the stop before by 06:47 − 5 walk − 5 margin.
     d = scheduleDay([stop('Hotel Breakfast'), stop('Shizuoka Shop', { train: trainTimes(ROUTE) })], t('06:00'), BASE)
-    expect(d.stops[0].leaveBy).toBe(t('06:32'))
+    expect(d.stops[0].leaveBy).toBe(t('06:37'))
     expect(d.stops[1].start).toBe(t('08:10') + TRAIN_EXIT_WALK_MIN)
     // Too long before it: "leave earlier", and the segment's overrun with the train's time.
     d = scheduleDay([stop('Long Shop', { durationMin: 75 }), stop('Odawara Shop', { train })], t('10:00'), BASE)
-    expect(d.stops[0].leaveEarlierMin).toBe(t('11:15') - t('10:50'))
+    expect(d.stops[0].leaveEarlierMin).toBe(t('11:15') - t('10:55'))
     d = scheduleDay([stop('A', { durationMin: 40 }), stop('B', { durationMin: 40 }), stop('Odawara Shop', { train })], t('10:00'), BASE)
-    expect(d.segments).toEqual([expect.objectContaining({ anchorIndex: 2, anchorTime: t('11:00'), overrunMin: t('11:20') - t('10:50') })])
+    expect(d.segments).toEqual([expect.objectContaining({ anchorIndex: 2, anchorTime: t('11:00'), overrunMin: t('11:20') - t('10:55') })])
     expect(d.stops[1].doesntFit).toMatchObject({ anchorIndex: 2, anchorTime: t('11:00') })
   })
 
@@ -169,7 +169,7 @@ test.describe('a train trip\'s walks, travel time and fare', () => {
   test('both walks and the fare are kept; the walk from the last station is 5 min when not known; bad values are dropped', () => {
     expect(validateTrain(FULL)).toEqual({ train: FULL })
     expect(validateTrain({ ...ROUTE, fareYen: '¥6,670', walkFromStationMin: '12' })).toEqual({ train: FULL })
-    expect(trainTimes(FULL)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: 12 })
+    expect(trainTimes(FULL)).toEqual({ departure: t('06:47'), arrival: t('08:10'), walkToStationMin: 5, walkFromStationMin: 12, marginMin: 5 })
     expect(trainTimes(ROUTE)!.walkFromStationMin).toBe(5)
     expect(validateTrain({ ...ROUTE, fareYen: -5, walkFromStationMin: 90 })).toEqual({ train: ROUTE })
     expect(validateTrain({ ...ROUTE, fareYen: '', walkFromStationMin: '' })).toEqual({ train: ROUTE })
@@ -183,7 +183,7 @@ test.describe('a train trip\'s walks, travel time and fare', () => {
 
   test('the schedule: the next stop starts after the walk from the last station (08:22); the hint uses that arrival', () => {
     let d = scheduleDay([stop('Hotel Breakfast'), stop('Shizuoka Museum', { train: trainTimes(FULL) })], t('06:00'), BASE)
-    expect(d.stops[0].leaveBy).toBe(t('06:32'))
+    expect(d.stops[0].leaveBy).toBe(t('06:37'))
     expect(d.stops[1].start).toBe(t('08:22'))
     d = scheduleDay([stop('Hotel Breakfast'), stop('Shizuoka Museum', { train: trainTimes(FULL), fixedTime: t('09:30') })], t('06:00'), BASE)
     expect(trainEarlyHint(d.stops[1].trainEarly!)).toBe('Arrives 08:22, 68 min before 09:30. A later train may be possible.')
@@ -207,13 +207,13 @@ test.describe('trains on the last legs, and travelers', () => {
 
   test('a train back to the base: the last stop must be left by its leave-by; the day ends at its arrival + the walk', () => {
     let d = scheduleDay([stop('Shizuoka Shop', { durationMin: 60 })], t('16:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
-    expect(d.stops[0]).toMatchObject({ leaveBy: t('17:45'), latestLeave: t('17:45'), leaveEarlierMin: null })
+    expect(d.stops[0]).toMatchObject({ leaveBy: t('17:50'), latestLeave: t('17:50'), leaveEarlierMin: null })
     expect(d.returnLeg).toMatchObject({ source: 'train', mode: 'train' })
     expect(d.end).toBe(t('18:45'))
     // Staying too long: "leave earlier", and the stop before counts back from the train too.
     d = scheduleDay([stop('First', { durationMin: 30 }), stop('Shizuoka Shop', { durationMin: 120 })], t('16:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
-    expect(d.stops[1].leaveEarlierMin).toBe(d.stops[1].end - t('17:45'))
-    expect(d.stops[0].latestLeave).toBe(t('17:45') - 120 - d.stops[1].travelIn.minutes)
+    expect(d.stops[1].leaveEarlierMin).toBe(d.stops[1].end - t('17:50'))
+    expect(d.stops[0].latestLeave).toBe(t('17:50') - 120 - d.stops[1].travelIn.minutes)
     // Without it: as before (the estimate).
     expect(scheduleDay([stop('Shizuoka Shop')], t('16:00'), BASE).returnLeg).toMatchObject({ source: 'estimate' })
   })
@@ -223,8 +223,8 @@ test.describe('trains on the last legs, and travelers', () => {
     const flight = { date: '2027-03-05', time: '09:55', airport: 'Haneda' }
     const train = (dep: string, arr: string) => ({ walkToStationMin: 5, walkFromStationMin: 10, legs: [{ line: 'Keikyu Line', train: 'Airport Express', fromStation: 'Shinagawa', departure: dep, platform: '2', toStation: 'Haneda Airport Terminal 3', arrival: arr }] })
     expect(flightDeadline({ day: '2027-03-05' }, flight)).toEqual({ leaveBy: t('05:55'), train: false, atAirport: null, checkInBy: t('06:55'), late: false })
-    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('05:30', '05:50') as any }, flight)).toEqual({ leaveBy: t('05:15'), train: true, atAirport: t('06:00'), checkInBy: t('06:55'), late: false })
-    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('06:30', '06:50') as any }, flight)).toMatchObject({ leaveBy: t('06:15'), atAirport: t('07:00'), late: true })
+    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('05:30', '05:50') as any }, flight)).toEqual({ leaveBy: t('05:20'), train: true, atAirport: t('06:00'), checkInBy: t('06:55'), late: false })
+    expect(flightDeadline({ day: '2027-03-05', airportTrain: train('06:30', '06:50') as any }, flight)).toMatchObject({ leaveBy: t('06:20'), atAirport: t('07:00'), late: true })
     expect(flightDeadline({ day: '2027-03-04' }, flight)).toBeNull()
   })
 
@@ -259,14 +259,14 @@ test.describe('the train to the airport from the last stop, and Check day', () =
     const day: any = { day: '2026-12-06', startTime: '16:00', stops: [{ name: 'Shinjuku Shop', lat: 35.6905, lng: 139.7005, dur: 90, travelMin: 0, travelFrom: '__base__' }], airportTrain: NEX }
     expect(lastLegTrain(day)).toEqual({ train: NEX, toAirport: true })
     let { sched } = computeDayTimes(day, BASE, new Map())
-    expect(sched.stops[0]).toMatchObject({ end: t('17:30'), leaveBy: t('17:55'), leaveEarlierMin: null }) // 18:15 − 10 − 10
+    expect(sched.stops[0]).toMatchObject({ end: t('17:30'), leaveBy: t('18:00'), leaveEarlierMin: null }) // 18:15 − 10 walk − 5 margin
     expect(sched.end).toBe(t('19:45')) // at the airport: 19:40 + 5
-    expect(latestLeaveFor(sched, 0)).toBe(t('17:55'))
-    expect(flightDeadline(day, { date: '2026-12-06', time: '23:00', airport: 'Narita' })).toMatchObject({ leaveBy: t('17:55'), atAirport: t('19:45'), checkInBy: t('20:00'), late: false })
+    expect(latestLeaveFor(sched, 0)).toBe(t('18:00'))
+    expect(flightDeadline(day, { date: '2026-12-06', time: '23:00', airport: 'Narita' })).toMatchObject({ leaveBy: t('18:00'), atAirport: t('19:45'), checkInBy: t('20:00'), late: false })
     // Staying too long: leave earlier, and the fix is the train's leave-by.
     ;({ sched } = computeDayTimes({ ...day, stops: [{ ...day.stops[0], dur: 150 }] }, BASE, new Map()))
-    expect(sched.stops[0].leaveEarlierMin).toBe(t('18:30') - t('17:55'))
-    expect(leaveFixFor(sched, 0)).toBe(t('17:55'))
+    expect(sched.stops[0].leaveEarlierMin).toBe(t('18:30') - t('18:00'))
+    expect(leaveFixFor(sched, 0)).toBe(t('18:00'))
     // Without stops: no leg after a stop — the train leaves from the base (flightDeadline).
     expect(lastLegTrain({ ...day, stops: [] }).toAirport).toBe(false)
   })
@@ -310,7 +310,7 @@ test.describe('the train to the airport from the last stop, and Check day', () =
       // @ts-ignore
       render()
     }, NEX)
-    await expect(page.locator('#itn-next')).toHaveText('Next: leave Shinjuku Shop by 17:55 for Narita Airport (in 55 min)')
+    await expect(page.locator('#itn-next')).toHaveText('Next: leave Shinjuku Shop by 18:00 for Narita Airport (in 60 min)')
   })
 })
 
@@ -384,5 +384,37 @@ test.describe('route screenshots: readable parts, and every leg (buses too)', ()
     expect((await request.post('/api/train-from-screenshot', { data: { images: Array(13).fill(tiny) } })).status()).toBe(400)
     expect((await request.post('/api/train-from-screenshot', { data: { images: [] } })).status()).toBe(400)
     expect((await request.post('/api/train-from-screenshot', { data: { images: ['%%%'] } })).status()).toBe(400)
+  })
+})
+
+// The real case: Square Enix Iron Beads Workshop → SQUARE ENIX POP UP CAFE YOKOHAMA. Google Maps:
+// leave 14:12, walk 5 min, Minatomirai Line 14:17 → Yokohama 14:21, walk 9 min, arrive 14:30.
+const IRON_BEADS_TRAIN = { walkToStationMin: 5, walkFromStationMin: 9, legs: [{ line: 'Minatomirai Line', train: '', fromStation: 'Minatomirai', departure: '14:17', platform: '', toStation: 'Yokohama', arrival: '14:21' }] }
+
+test.describe('the margin at the station, and the band\'s number (the Iron Beads → cafe case)', () => {
+  test('leave by: the departure − the walk − the margin (5 min by default, the trip\'s own 0–20); the calculation', () => {
+    expect(DEFAULT_STATION_MARGIN_MIN).toBe(5)
+    expect(trainLeaveBy(trainTimes(IRON_BEADS_TRAIN)!)).toBe(t('14:07'))
+    expect(trainLeaveBy(trainTimes({ ...IRON_BEADS_TRAIN, stationMarginMin: 0 })!)).toBe(t('14:12')) // as Google Maps says
+    expect(trainLeaveBy(trainTimes({ ...IRON_BEADS_TRAIN, stationMarginMin: 15 })!)).toBe(t('13:57'))
+    expect(validateTrain({ ...IRON_BEADS_TRAIN, stationMarginMin: 25 })).toMatchObject({ train: { walkToStationMin: 5 } }) // out of range: not kept
+    expect('stationMarginMin' in (validateTrain({ ...IRON_BEADS_TRAIN, stationMarginMin: 25 }) as any).train).toBe(false)
+    expect(trainLeaveText(IRON_BEADS_TRAIN)).toBe('Leave 14:07 = 14:17 − 5 min walk − 5 min margin')
+    expect(trainLeaveText({ ...IRON_BEADS_TRAIN, stationMarginMin: 0 })).toBe('Leave 14:12 = 14:17 − 5 min walk − 0 min margin')
+    const { walkToStationMin, ...noWalk } = IRON_BEADS_TRAIN
+    expect(trainLeaveText(noWalk)).toBe('Leave 14:12 = 14:17 − 5 min margin')
+    // In the day's schedule: the workshop's leave-by.
+    const day = scheduleDay([
+      { name: 'Square Enix Iron Beads Workshop', lat: 35.4577, lng: 139.6326, durationMin: 60, fixedTime: null, arriveEarlyMin: null, manualTravelMin: 0, noteTravelMin: null },
+      { name: 'SQUARE ENIX POP UP CAFE YOKOHAMA', lat: 35.4658, lng: 139.6223, durationMin: 60, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null, train: trainTimes(IRON_BEADS_TRAIN)! },
+    ], t('13:00'), { lat: 35.4577, lng: 139.6326 })
+    expect(day.stops[0].leaveBy).toBe(t('14:07'))
+    expect(day.stops[1].start).toBe(t('14:30')) // 14:21 + 9 min walk
+  })
+
+  test('the band: door to door when both walks are known (18 min), else the time on the train, said so', () => {
+    expect(trainBandMinutes(IRON_BEADS_TRAIN)).toEqual({ minutes: 18, text: '18 min', doorToDoor: true })
+    const { walkFromStationMin, ...noWalkFrom } = IRON_BEADS_TRAIN
+    expect(trainBandMinutes(noWalkFrom)).toEqual({ minutes: 4, text: '4 min on train', doorToDoor: false })
   })
 })

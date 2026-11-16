@@ -24,7 +24,7 @@ export type OptimizerStop = {
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
   // A planned train on the leg INTO this stop (lib/train-plan.ts trainTimes): you arrive with it.
-  train?: { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null } | null
+  train?: { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null; marginMin?: number | null } | null
   // Stays in its position, like a fixed-time stop: the stops on both sides of a train leg, so the
   // leg stays intact (the same two stops, in that order, next to each other).
   locked?: boolean
@@ -32,7 +32,10 @@ export type OptimizerStop = {
 
 // Matches itinerary-schedule.ts (TRAIN_PLATFORM_MIN / TRAIN_EXIT_WALK_MIN; that module imports
 // this one, so the numbers are repeated here rather than imported).
-const TRAIN_PLATFORM_MIN = 10
+const TRAIN_PLATFORM_MIN = 5
+// A train's own margin at the station, else the default (as itinerary-schedule.ts trainLeaveBy).
+const trainLeave = (t: { departure: number; walkToStationMin?: number | null; marginMin?: number | null }) =>
+  t.departure - (typeof t.marginMin === 'number' && t.marginMin >= 0 ? t.marginMin : TRAIN_PLATFORM_MIN) - Math.max(0, t.walkToStationMin || 0)
 const TRAIN_EXIT_WALK_MIN = 5
 // Matches itinerary-schedule.ts LEAVE_BUFFER_MIN: the margin before reaching a fixed stop.
 const LEAVE_BUFFER_MIN = 10
@@ -139,7 +142,7 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
   order.forEach((stop, i) => {
     if (stop.train) {
       // The planned train: missing it (still busy at its leave-by) costs like a closed shop.
-      const leaveBy = stop.train.departure - TRAIN_PLATFORM_MIN - Math.max(0, stop.train.walkToStationMin || 0)
+      const leaveBy = trainLeave(stop.train)
       if (clock > leaveBy) closedCount++
       clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + (stop.train.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
     } else if (stop.fixedTime != null) {
@@ -264,7 +267,7 @@ function simulateFeasible(order: OptimizerStop[], movable: boolean[], startTime:
   for (let i = 0; i < order.length; i++) {
     const stop = order[i]
     if (stop.train) {
-      const leaveBy = stop.train.departure - TRAIN_PLATFORM_MIN - Math.max(0, stop.train.walkToStationMin || 0)
+      const leaveBy = trainLeave(stop.train)
       if (clock > leaveBy) return { feasible: false, travelMin, waitMin, times }
       clock = stop.fixedTime != null ? stop.fixedTime : stop.train.arrival + (stop.train.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
     } else {

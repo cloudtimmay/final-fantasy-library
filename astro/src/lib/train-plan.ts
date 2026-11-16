@@ -27,10 +27,17 @@ export type TrainLeg = {
 export type TrainPlan = {
   walkToStationMin?: number // from the stop before to the first station, when known
   walkFromStationMin?: number // from the last station to the stop (DEFAULT_WALK_FROM_STATION_MIN when not known)
+  stationMarginMin?: number // time to spare at the station before the departure (DEFAULT_STATION_MARGIN_MIN when not set), 0–MAX_STATION_MARGIN_MIN
   fareYen?: number // the fare for the whole trip, per person, as Google Maps shows it (¥6,670)
   travelers?: number // how many take this train, when not the trip's number (Trip Settings → Travelers)
   legs: TrainLeg[]
 }
+
+// Time to spare at the first station before the train leaves, unless the trip says otherwise
+// ("Margin at the station" in the train editor). The leave-by is the departure − the walk to the
+// station − this margin (itinerary-schedule.ts trainLeaveBy).
+export const DEFAULT_STATION_MARGIN_MIN = 5
+export const MAX_STATION_MARGIN_MIN = 20
 
 // Travelers when Trip Settings has no number: the family of five.
 export const DEFAULT_TRAVELERS = 5
@@ -121,6 +128,8 @@ export function validateTrain(raw: unknown): { train: TrainPlan } | { error: str
   if (walkTo != null) train.walkToStationMin = walkTo
   const walkFrom = minutes(r.walkFromStationMin)
   if (walkFrom != null) train.walkFromStationMin = walkFrom
+  const margin = minutes(r.stationMarginMin)
+  if (margin != null && margin <= MAX_STATION_MARGIN_MIN) train.stationMarginMin = margin
   // "¥6,670", "6670" or 6670.
   const fare = typeof r.fareYen === 'number' ? r.fareYen : typeof r.fareYen === 'string' && /\d/.test(r.fareYen) ? Number(r.fareYen.replace(/[^\d]/g, '')) : NaN
   if (Number.isInteger(fare) && fare > 0 && fare <= MAX_FARE_YEN) train.fareYen = fare
@@ -132,7 +141,7 @@ export function validateTrain(raw: unknown): { train: TrainPlan } | { error: str
 
 // The schedule's view (itinerary-schedule.ts TrainTimes): minutes, the first departure and the
 // last arrival (after it — past midnight when it runs over).
-export function trainTimes(t: unknown): { departure: number; arrival: number; walkToStationMin: number | null; walkFromStationMin: number } | null {
+export function trainTimes(t: unknown): { departure: number; arrival: number; walkToStationMin: number | null; walkFromStationMin: number; marginMin: number } | null {
   if (!t) return null
   const v = validateTrain(t)
   if ('error' in v) return null
@@ -141,7 +150,33 @@ export function trainTimes(t: unknown): { departure: number; arrival: number; wa
     departure: times[0], arrival: times[times.length - 1],
     walkToStationMin: v.train.walkToStationMin ?? null,
     walkFromStationMin: v.train.walkFromStationMin ?? DEFAULT_WALK_FROM_STATION_MIN,
+    marginMin: v.train.stationMarginMin ?? DEFAULT_STATION_MARGIN_MIN,
   }
+}
+
+// "Leave 14:07 = 14:17 − 5 min walk − 5 min margin" — how the leave-by for the train comes about
+// (the sheet). Without a known walk: "Leave 14:12 = 14:17 − 5 min margin". '' when unreadable.
+export function trainLeaveText(t: unknown): string {
+  const x = trainTimes(t)
+  if (!x) return ''
+  const clock = (m: number) => { const v = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}` }
+  const walk = x.walkToStationMin ?? 0
+  const leave = x.departure - walk - x.marginMin
+  return `Leave ${clock(leave)} = ${clock(x.departure)}${x.walkToStationMin != null ? ` − ${walk} min walk` : ''} − ${x.marginMin} min margin`
+}
+
+// The travel band's number: door to door when both walks are known ("🚆 14:17 · 18 min" — 5 + 4 +
+// 9), else the time on the train, said so ("🚆 14:17 · 4 min on train"). null when unreadable.
+export function trainBandMinutes(t: unknown): { minutes: number; text: string; doorToDoor: boolean } | null {
+  const v = t ? validateTrain(t) : null
+  const x = trainTimes(t)
+  if (!v || 'error' in v || !x) return null
+  if (v.train.walkToStationMin != null && v.train.walkFromStationMin != null) {
+    const m = v.train.walkToStationMin + (x.arrival - x.departure) + v.train.walkFromStationMin
+    return { minutes: m, text: `${m} min`, doorToDoor: true }
+  }
+  const ride = x.arrival - x.departure
+  return { minutes: ride, text: `${ride} min on train`, doorToDoor: false }
 }
 
 // The leg's travel time with this train, as Google Maps counts it: the walk to the first

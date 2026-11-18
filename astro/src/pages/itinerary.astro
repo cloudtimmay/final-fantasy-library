@@ -77,6 +77,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-reset-day" type="button" class="itl-daybtn" hidden>↺ Reset day</button>
       <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
       <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
+      <!-- Undo and history for the whole plan (lib/plan-history.ts, /api/itinerary-history). -->
+      <button id="itl-undo-btn" type="button" class="itl-daybtn">↩ Undo last change</button>
+      <button id="itl-history-btn" type="button" class="itl-daybtn" aria-expanded="false">🕘 History</button>
       <button id="itl-base-btn" type="button" class="itl-daybtn">🏨 Base</button>
       <button id="itl-test-btn" type="button" class="itl-daybtn">🧪 Test time</button>
       <button id="itl-test-clear" type="button" class="itl-daybtn" hidden={!testNow}>Clear test time</button>
@@ -135,6 +138,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <div id="itl-route-results" class="itl-panel" hidden></div>
     <!-- "🗺️ Routes": walking routes per area and trains between areas (itinerary-plan.ts dayRouteLinks). -->
     <div id="itl-routes-panel" class="itl-panel" hidden></div>
+    <div id="itl-history" class="itl-panel itl-hist" hidden></div>
     <div id="itl-travel-editor" class="itl-travel-editor" hidden>
       <div class="itl-travel-editor-head">
         <strong id="itl-travel-editor-title"></strong>
@@ -347,7 +351,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const TRAIN_PLAN_MIN_LEG = 20
     import { dayWarningMessages, lastTrainLegs, afterMidnight, LAST_TRAIN_MESSAGE } from '../lib/itinerary-schedule'
     import { formatDayShortEn } from '../lib/trip-dates'
-    import { tokyoNow } from '../lib/trip-dates'
+    import { tokyoNow, formatDayLabel } from '../lib/trip-dates'
 
     const DATA = JSON.parse(document.querySelector('#itl-data')?.textContent || '{}')
     const { plan, days, labels, flight, base, shops, savedState } = DATA
@@ -405,12 +409,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // (serializePlan), in this browser and, a second later, to /api/itinerary-save.
     const saveStatus = document.querySelector('#itl-save-status') as HTMLElement
     let saveTimer: ReturnType<typeof setTimeout> | undefined
-    function saveState() {
-      const payload = serializePlan(state, extraDays)
-      try { localStorage.setItem(STORE_KEY, payload) } catch {}
-      saveStatus.textContent = 'Saving…'
-      clearTimeout(saveTimer)
-      saveTimer = setTimeout(async () => {
+    let pendingPayload: string | null = null
+    let inFlight: Promise<void> = Promise.resolve()
+    function postSave(payload: string): Promise<void> {
+      inFlight = (async () => {
         try {
           // The trip's own plan (the server picks its document: lib/trip-plans.ts planDocIdFor).
           const res = await fetch('/api/itinerary-save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: payload, ...(DATA.pageTripId ? { tripId: DATA.pageTripId } : {}) }) })
@@ -418,8 +420,82 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         } catch (e) {
           saveStatus.textContent = 'Saved on this device (offline)'
         }
-      }, 1000)
+      })()
+      return inFlight
     }
+    function saveState() {
+      const payload = serializePlan(state, extraDays)
+      try { localStorage.setItem(STORE_KEY, payload) } catch {}
+      saveStatus.textContent = 'Saving…'
+      clearTimeout(saveTimer)
+      pendingPayload = payload
+      saveTimer = setTimeout(() => { saveTimer = undefined; postSave(payload) }, 1000)
+    }
+    // The save waiting for its second, now — and any on its way, done.
+    async function flushSave() {
+      if (saveTimer && pendingPayload) { clearTimeout(saveTimer); saveTimer = undefined; await postSave(pendingPayload) }
+      await inFlight
+    }
+
+    // --- Undo and history (lib/plan-history.ts, /api/itinerary-history) -------------------------
+    // Every save keeps the version it replaced; "↩ Undo last change" puts back the newest, "🕘
+    // History" lists them to restore one day or everything. Each restore is a save (undoable), and
+    // the page then reloads the plan as saved.
+    const tripQ = DATA.pageTripId ? `tripId=${encodeURIComponent(DATA.pageTripId)}` : ''
+    type Snapshot = { id: string; savedAt: string; changedDays: string[]; summary: string; note?: string }
+    async function snapshots(): Promise<Snapshot[]> {
+      const res = await fetch(`/api/itinerary-history?${tripQ}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not load the history')
+      return data.snapshots || []
+    }
+    const whenText = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    async function restoreSnapshot(id: string, day?: string) {
+      await flushSave()
+      const res = await fetch('/api/itinerary-history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshotId: id, ...(day ? { day } : {}), ...(DATA.pageTripId ? { tripId: DATA.pageTripId } : {}) }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) { window.alert(`Not restored: ${data.error || 'try again'}.`); return }
+      try { localStorage.setItem(STORE_KEY, data.data) } catch {}
+      window.location.reload()
+    }
+    document.querySelector('#itl-undo-btn')!.addEventListener('click', async () => {
+      let list: Snapshot[] = []
+      try { await flushSave(); list = await snapshots() } catch (e) { window.alert('Could not load the history — try again.'); return }
+      if (!list.length) { window.alert('Nothing to undo yet.'); return }
+      const last = list[0]
+      if (!window.confirm(`Undo the last change (${last.summary}, saved ${whenText(last.savedAt)})? The whole plan goes back to before it.`)) return
+      await restoreSnapshot(last.id)
+    })
+    const historyPanel = document.querySelector('#itl-history') as HTMLElement
+    const historyBtn = document.querySelector('#itl-history-btn') as HTMLButtonElement
+    historyBtn.addEventListener('click', async () => {
+      if (!historyPanel.hidden) { historyPanel.hidden = true; historyBtn.setAttribute('aria-expanded', 'false'); return }
+      historyPanel.hidden = false
+      historyBtn.setAttribute('aria-expanded', 'true')
+      historyPanel.innerHTML = '<p class="itl-hist-msg">Loading the history…</p>'
+      let list: Snapshot[] = []
+      try { await flushSave(); list = await snapshots() } catch (e) { historyPanel.innerHTML = '<p class="itl-hist-msg">⚠️ Could not load the history.</p>'; return }
+      historyPanel.innerHTML = `<div class="itl-hist-head"><strong>🕘 History</strong><span class="itl-hist-msg">Each save keeps the plan as it was before it (the last 30).</span></div>`
+        + (list.length ? `<ol class="itl-hist-list">${list.map((s) => `<li class="itl-hist-row" data-id="${esc(s.id)}">
+            <span class="itl-hist-when">${esc(whenText(s.savedAt))}</span>
+            <span class="itl-hist-what">Changed ${esc(s.summary)}${s.note ? ' (a restore)' : ''}</span>
+            <span class="itl-hist-actions">${s.changedDays.filter((d) => d !== 'all').map((d) => `<button type="button" class="itl-hist-day" data-day="${esc(d)}">Restore ${esc(formatDayLabel(d))}</button>`).join('')}<button type="button" class="itl-hist-all">Restore everything</button></span>
+          </li>`).join('')}</ol>` : '<p class="itl-hist-msg">No changes saved yet.</p>')
+    })
+    historyPanel.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null
+      const row = btn?.closest('.itl-hist-row') as HTMLElement | null
+      if (!btn || !row) return
+      const when = row.querySelector('.itl-hist-when')!.textContent
+      if (btn.classList.contains('itl-hist-day')) {
+        const day = btn.dataset.day!
+        if (!window.confirm(`Restore ${formatDayLabel(day)} as it was before the change saved ${when}? Only that day changes; it can be undone.`)) return
+        await restoreSnapshot(row.dataset.id!, day)
+      } else if (btn.classList.contains('itl-hist-all')) {
+        if (!window.confirm(`Restore the whole plan as it was before the change saved ${when}? It can be undone.`)) return
+        await restoreSnapshot(row.dataset.id!)
+      }
+    })
 
     // The clock in Tokyo — or the ?now= test time (see the frontmatter), which stays put.
     const testTimeEl = document.querySelector('#itl-test-time') as HTMLElement
@@ -2032,6 +2108,18 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-map-section summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; padding: 0.3rem 0; }
     .itl-map { margin-top: 0.4rem; }
     .itl-panel { margin: 0 0 0.8rem; }
+    /* 🕘 History (built in the script: is:global, "itl-hist-"). */
+    .itl-hist { padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .itl-hist[hidden] { display: none; }
+    .itl-hist-head { display: flex; flex-direction: column; gap: 0.15rem; margin-bottom: 0.4rem; }
+    .itl-hist-msg { font-size: 0.78rem; color: var(--muted); margin: 0; }
+    .itl-hist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+    .itl-hist-row { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; align-items: baseline; font-size: 0.85rem; border-top: 1px solid var(--border); padding-top: 0.4rem; }
+    .itl-hist-when { font-weight: 600; }
+    .itl-hist-what { color: var(--muted); }
+    .itl-hist-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; width: 100%; }
+    .itl-hist-actions button { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.55rem; font: inherit; font-size: 0.8rem; cursor: pointer; min-height: 34px; }
+    .itl-hist-actions .itl-hist-all { border-color: var(--accent); }
     .itl-panel[hidden] { display: none; }
     .itl-travel { pointer-events: auto; cursor: pointer; }
     .itl-travel-editor .itn-travel-from-train { font-size: 0.8rem; color: var(--muted, #888); }

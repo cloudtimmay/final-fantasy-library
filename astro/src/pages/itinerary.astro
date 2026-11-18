@@ -279,6 +279,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         <label>Tag <input id="itl-ed-tag" type="text" list="itl-tag-options" placeholder="MUST, mat …" /></label>
       </div>
       <datalist id="itl-tag-options"><option value="MUST"></option><option value="mat"></option><option value="sett av tid"></option></datalist>
+      <!-- A fixed time that can't fit (before the day starts): nothing moved, and why. -->
+      <p id="itl-ed-time-msg" class="itl-sheet-msg" hidden></p>
       <label class="itl-sheet-note">Note <textarea id="itl-ed-note" rows="2"></textarea></label>
       <div class="itl-sheet-row">
         <button id="itl-ed-up" type="button">▲ Up</button>
@@ -1402,6 +1404,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       sheetStop = sheetDay().stops[idx] || null
       if (!sheetStop) return
       ;(document.querySelector('#itl-ed-coord-msg') as HTMLElement).hidden = true
+      ;(document.querySelector('#itl-ed-time-msg') as HTMLElement).hidden = true
       const findResults = document.querySelector('#itl-ed-find-results') as HTMLElement
       findResults.hidden = true; findResults.innerHTML = ''
       fillSheet()
@@ -1414,11 +1417,14 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (idx >= 0) fn(sheetStop!, idx, sheetDay())
     }
     ed('dur').addEventListener('change', withStop((s) => { setStopDuration(s, ed('dur').value); changed() }))
+    // A fixed time places only this stop, by the other stops' planned times; the day's start never
+    // moves (itinerary-plan.ts setFixedTime). One that can't fit says so instead.
     ed('time').addEventListener('change', withStop((s, idx, day) => {
-      setFixedTime(day, idx, ed('time').value, basesOf(day).start, shopById)
-      // Now the first stop, at a time the day's start can't reach: the day starts earlier.
-      const fixed = s.fixedTime ? parseClock(s.fixedTime) : null
-      if (fixed != null && day.stops[0] === s) startEarlierFor(day, fixed - (typeof s.arriveEarly === 'number' ? s.arriveEarly : 0))
+      const r = setFixedTime(day, idx, ed('time').value, basesOf(day), shopById)
+      const msg = document.querySelector('#itl-ed-time-msg') as HTMLElement
+      msg.hidden = !r.warning
+      msg.textContent = r.warning ? `⚠️ ${r.warning}` : ''
+      msg.style.color = '#e67e22'
       changed()
     }))
     ed('leaveat').addEventListener('change', withStop((s) => { setLeaveAt(s, ed('leaveat').value); changed() }))

@@ -195,22 +195,29 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
     await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].startTime, { timeout: 10000 }).toBe(start)
   })
 
-  test('a fixed time earlier than the day\'s start can reach: the day starts in time for it', async ({ page, sanity, trackDoc }) => {
-    await openTimeline(page, sanity, trackDoc, [
+  test('a fixed time places only that stop, by the others\' planned times; never the day\'s start; one before the start can\'t fit — a warning, nothing moves', async ({ page, sanity, trackDoc }) => {
+    const { saves } = await openTimeline(page, sanity, trackDoc, [
       { name: 'Later Shop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60, travelMin: 0, travelFrom: '__base__' },
+      { name: 'Middle Shop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 60 },
       { name: 'Breakfast Booking', hours: '', tag: '', slot: '', lat: 35.698, lng: 139.771, dur: 45 },
     ], {}, '10:00')
+    const order = () => page.locator('.itl-block .itl-name').allTextContents()
     await page.locator('.itl-block .itl-name', { hasText: 'Breakfast Booking' }).click()
+    // Before the day starts (as a phone's time picker passes it while scrolling): can't fit.
     await page.locator('#itl-ed-time').fill('08:00')
     await page.locator('#itl-ed-time').dispatchEvent('change')
-    await expect(page.locator('.itl-block').first().locator('.itl-name')).toHaveText('Breakfast Booking')
-    await expect(page.locator('#itl-start-toast')).toContainText(/Day now starts at 0[78]:\d\d/)
-    expect(t(await page.locator('#itl-start').inputValue())).toBeLessThanOrEqual(t('08:00'))
-    // A fixed time the start already reaches: nothing changes.
-    await page.locator('#itl-start-undo').click()
-    await page.locator('#itl-ed-time').fill('11:30')
-    await page.locator('#itl-ed-time').dispatchEvent('change')
+    await expect(page.locator('#itl-ed-time-msg')).toHaveText('⚠️ 08:00 is before the day starts (10:00) — Breakfast Booking keeps no fixed time and stays where it is. Change the day\'s start if that\'s what you meant.')
+    expect(await order()).toEqual(['Later Shop', 'Middle Shop', 'Breakfast Booking'])
     await expect(page.locator('#itl-start')).toHaveValue('10:00')
+    await expect(page.locator('#itl-start-toast')).toBeHidden()
+    // 10:30: after the shop planned at 10:00, before the one planned at ~11:00 — only it moves.
+    await page.locator('#itl-ed-time').fill('10:30')
+    await page.locator('#itl-ed-time').dispatchEvent('change')
+    await expect(page.locator('#itl-ed-time-msg')).toBeHidden()
+    expect(await order()).toEqual(['Later Shop', 'Breakfast Booking', 'Middle Shop'])
+    await expect(page.locator('#itl-start')).toHaveValue('10:00')
+    await expect.poll(() => saves.length > 0 && saves[saves.length - 1].days['2026-12-05'].stops.map((x: any) => x.name).join(), { timeout: 10000 }).toBe('Later Shop,Breakfast Booking,Middle Shop')
+    expect(saves[saves.length - 1].days['2026-12-05'].startTime).toBe('10:00')
   })
 
   test('a stop added at 17:00 goes after the stops starting before 17:00, not pinned; saved in the list\'s format', async ({ page, sanity, trackDoc }) => {

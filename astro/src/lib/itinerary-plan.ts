@@ -392,19 +392,32 @@ export function setArriveEarly(stop: PlanStop, raw: string): void {
 
 // Order the day by time: fixed-time stops at their time, the others where the timetable puts
 // them (ties keep their order) — done after a fixed time is set or changed.
-export function resortByTime(day: PlanDay, base: RoutePoint, shopById: Map<string, PlanShop>): void {
-  const { times } = computeDayTimes(day, base, shopById)
-  const withT = day.stops.map((s, i) => ({
-    s, orig: i,
-    t: s.fixedTime && parseClock(s.fixedTime) != null ? parseClock(s.fixedTime)! : times[i],
-  }))
-  withT.sort((a, b) => a.t - b.t || a.orig - b.orig)
-  day.stops = withT.map((x) => x.s)
-}
-// "HH:MM" pins the stop to that time ('' unpins it), then the day is re-sorted.
-export function setFixedTime(day: PlanDay, idx: number, value: string, base: RoutePoint, shopById: Map<string, PlanShop>): void {
-  day.stops[idx].fixedTime = value || null
-  resortByTime(day, base, shopById)
+// "HH:MM" pins the stop to that time ('' unpins it, and nothing moves). Only that stop moves: to
+// its place among the others by their PLANNED times before the change — after every stop planned
+// at or before that time — and the others keep their order; the day's start is never changed. A
+// time before the day starts (e.g. a phone's time picker passing 00:45 while it scrolls) can't fit:
+// the stop stays where it is and `warning` says so. (Re-sorting the whole day by its computed times
+// once put the 1 December cafe first and every shop after it, past midnight — tests/plan-samples.)
+export function setFixedTime(day: PlanDay, idx: number, value: string, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): { moved: boolean; warning: string | null } {
+  const stop = day.stops[idx]
+  if (!stop) return { moved: false, warning: null }
+  // The others' planned times, as the day was before this change.
+  const { times, baseStart } = computeDayTimes(day, base, shopById)
+  const t = value ? parseClock(value) : null
+  if (t != null && t < baseStart) {
+    // Not applied at all: a passing value kept as the stop's time would skew every later placement.
+    return { moved: false, warning: `${value} is before the day starts (${hhmm(baseStart)}) — ${resolveStop(stop, shopById).name} keeps ${stop.fixedTime ? `its ${stop.fixedTime}` : 'no fixed time'} and stays where it is. Change the day's start if that's what you meant.` }
+  }
+  stop.fixedTime = value || null
+  if (t == null) return { moved: false, warning: null }
+  const others = day.stops.map((s, i) => ({ s, i })).filter((x) => x.i !== idx)
+  let insertAt = 0
+  others.forEach((x, k) => { if (times[x.i] <= t) insertAt = k + 1 })
+  const order = others.map((x) => x.s)
+  order.splice(insertAt, 0, stop)
+  const moved = order.some((s, i) => s !== day.stops[i])
+  day.stops = order
+  return { moved, warning: null }
 }
 
 // --- Actual times ("I'm here now" / "Leaving now" on the timeline) ----------------------------

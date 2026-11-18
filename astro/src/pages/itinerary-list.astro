@@ -635,8 +635,11 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
       }))
       document.querySelectorAll('.mc-time').forEach((inp) => inp.addEventListener('change', () => {
         const panel = inp.closest('.mc-panel'); const di = +panel.dataset.day
-        LIB().setFixedTime(state[di], +panel.dataset.idx, inp.value, base, shopById)
+        // Only this stop moves, by the others' planned times; the day's start never does
+        // (itinerary-plan.ts setFixedTime). A time that can't fit: nothing moves, and why.
+        const r = LIB().setFixedTime(state[di], +panel.dataset.idx, inp.value, base, shopById)
         saveState(); render()
+        if (r && r.warning) window.alert(r.warning)
       }))
       // Arrive early (fixed-time stops): the anchor for travel becomes time − minutes.
       document.querySelectorAll('.mc-early').forEach((inp) => inp.addEventListener('change', () => {

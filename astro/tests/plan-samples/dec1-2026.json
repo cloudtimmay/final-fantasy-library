@@ -1,0 +1,335 @@
+{
+ "_about": "The real 1 December 2026 day (production itineraryState, Sanity history): before = revision 9Rc3WCj8nFeCvfQyY8Xpxr (15 Nov 10:52 UTC, the last good one); broken = Y0VH2DkSofUjrhKiJj0uz9 (18 Nov 07:31:50 UTC, after the cafe fixed-time change re-sorted the day). shopNames: the linked places names (stops store only shopId).",
+ "before": {
+  "startTime": "08:45",
+  "stops": [
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 20,
+    "fixedTime": null,
+    "train": {
+     "legs": [
+      {
+       "line": "Tokyo Monorail",
+       "train": "Airport Rapid",
+       "fromStation": "Haneda Airport Terminal 1 Station",
+       "departure": "09:08",
+       "platform": "1",
+       "toStation": "Hamamatsucho Station",
+       "arrival": "09:25"
+      },
+      {
+       "line": "Yamanote Line",
+       "train": "local",
+       "fromStation": "Hamamatsuchō Station",
+       "departure": "09:28",
+       "platform": "2",
+       "toStation": "Akihabara Station",
+       "arrival": "09:39"
+      }
+     ],
+     "walkToStationMin": 4,
+     "walkFromStationMin": 4,
+     "fareYen": 720
+    }
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "56bc7b55-9147-4b2f-9e96-199116cd3179",
+    "travelMin": 10,
+    "travelFrom": "Kamikaze Style Akihabara",
+    "fixedTime": null,
+    "note": "Look for Scrapbook Kokuyo 2 nature colour and two red"
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "MUST",
+    "slot": "dagtid",
+    "dur": 45,
+    "shopId": "896d4a45-dc76-483c-9b3d-4769c05d2b55"
+   },
+   {
+    "hours": "11:00–20:00 · bruk god tid",
+    "tag": "MUST",
+    "slot": "dagtid",
+    "shopId": "b1be5522-c26c-4498-992a-0e2c4af8c7a4",
+    "dur": 60,
+    "lat": 35.699358,
+    "lng": 139.770702
+   },
+   {
+    "hours": "11:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "YWIgmQJfYTHI3k7jIzNw9n"
+   },
+   {
+    "name": "Darumanome Akihabara",
+    "hours": "11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00 (some listings show weekday opening at 10:30)",
+    "tag": "mat",
+    "slot": "",
+    "shopId": "sNnxROA743GUn9TQYpcDDd",
+    "lat": 35.69899,
+    "lng": 139.77031
+   },
+   {
+    "hours": "11:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSGGN"
+   },
+   {
+    "hours": "11:00–22:00",
+    "tag": "",
+    "slot": "kveld",
+    "shopId": "oe2xO1065MW4Af28laSGXn"
+   },
+   {
+    "hours": "11:00–20:30",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSGPf",
+    "dur": 30
+   },
+   {
+    "hours": "12:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "tc4RDa5HMhGDlAky9m520i"
+   },
+   {
+    "hours": "11:00–20:30",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "a18VeKlBja32k3qs4zV5ia"
+   },
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 10
+   },
+   {
+    "hours": "10:00–22:00",
+    "tag": "",
+    "slot": "kveld",
+    "shopId": "tc4RDa5HMhGDlAky9m52yK"
+   },
+   {
+    "hours": "Middag · FF-tema",
+    "tag": "mat",
+    "slot": "",
+    "fixedTime": "20:00",
+    "shopId": "tc4RDa5HMhGDlAky9m5136",
+    "arriveEarly": 15,
+    "dur": 90
+   },
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 10
+   },
+   {
+    "name": "Don Quijote Akihabara",
+    "hours": "Open 24 hours",
+    "tag": "",
+    "slot": "",
+    "shopId": "W3nDOvgbBjtWh5VPfWrARF",
+    "lat": null,
+    "lng": null,
+    "dur": 45
+   }
+  ]
+ },
+ "broken": {
+  "startTime": "00:07",
+  "stops": [
+   {
+    "hours": "Middag · FF-tema",
+    "tag": "mat",
+    "slot": "",
+    "fixedTime": "19:00",
+    "shopId": "tc4RDa5HMhGDlAky9m5136",
+    "arriveEarly": 15,
+    "dur": 90
+   },
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 10
+   },
+   {
+    "name": "Don Quijote Akihabara",
+    "hours": "Open 24 hours",
+    "tag": "",
+    "slot": "",
+    "shopId": "W3nDOvgbBjtWh5VPfWrARF",
+    "lat": null,
+    "lng": null,
+    "dur": 45
+   },
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 20,
+    "fixedTime": null,
+    "train": {
+     "legs": [
+      {
+       "line": "Tokyo Monorail",
+       "train": "Airport Rapid",
+       "fromStation": "Haneda Airport Terminal 1 Station",
+       "departure": "09:08",
+       "platform": "1",
+       "toStation": "Hamamatsucho Station",
+       "arrival": "09:25"
+      },
+      {
+       "line": "Yamanote Line",
+       "train": "local",
+       "fromStation": "Hamamatsuchō Station",
+       "departure": "09:28",
+       "platform": "2",
+       "toStation": "Akihabara Station",
+       "arrival": "09:39"
+      }
+     ],
+     "walkToStationMin": 4,
+     "walkFromStationMin": 4,
+     "fareYen": 720
+    }
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "56bc7b55-9147-4b2f-9e96-199116cd3179",
+    "travelMin": 10,
+    "travelFrom": "Kamikaze Style Akihabara",
+    "fixedTime": null,
+    "note": "Look for Scrapbook Kokuyo 2 nature colour and two red"
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "MUST",
+    "slot": "dagtid",
+    "dur": 45,
+    "shopId": "896d4a45-dc76-483c-9b3d-4769c05d2b55"
+   },
+   {
+    "hours": "11:00–20:00 · bruk god tid",
+    "tag": "MUST",
+    "slot": "dagtid",
+    "shopId": "b1be5522-c26c-4498-992a-0e2c4af8c7a4",
+    "dur": 60,
+    "lat": 35.699358,
+    "lng": 139.770702
+   },
+   {
+    "hours": "11:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "YWIgmQJfYTHI3k7jIzNw9n"
+   },
+   {
+    "name": "Darumanome Akihabara",
+    "hours": "11:00–23:00, Sat 10:00–23:00, Sun 10:00–22:00 (some listings show weekday opening at 10:30)",
+    "tag": "mat",
+    "slot": "",
+    "shopId": "sNnxROA743GUn9TQYpcDDd",
+    "lat": 35.69899,
+    "lng": 139.77031
+   },
+   {
+    "hours": "11:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSGGN"
+   },
+   {
+    "hours": "11:00–22:00",
+    "tag": "",
+    "slot": "kveld",
+    "shopId": "oe2xO1065MW4Af28laSGXn"
+   },
+   {
+    "hours": "11:00–20:30",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSGPf",
+    "dur": 30
+   },
+   {
+    "hours": "12:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "tc4RDa5HMhGDlAky9m520i"
+   },
+   {
+    "hours": "11:00–20:30",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "a18VeKlBja32k3qs4zV5ia"
+   },
+   {
+    "name": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "kOzn222m6X7T3LWplZv08j",
+    "lat": 35.698,
+    "lng": 139.77084,
+    "dur": 10
+   },
+   {
+    "hours": "10:00–22:00",
+    "tag": "",
+    "slot": "kveld",
+    "shopId": "tc4RDa5HMhGDlAky9m52yK"
+   }
+  ]
+ },
+ "shopNames": {
+  "56bc7b55-9147-4b2f-9e96-199116cd3179": "3COINS",
+  "896d4a45-dc76-483c-9b3d-4769c05d2b55": "Animate",
+  "W3nDOvgbBjtWh5VPfWrARF": "Don Quijote Akihabara",
+  "YWIgmQJfYTHI3k7jIzNw9n": "AKIHABARA KOTOBUKIYA",
+  "a18VeKlBja32k3qs4zV5ia": "Liberty Akihabara 5",
+  "b1be5522-c26c-4498-992a-0e2c4af8c7a4": "Super potato",
+  "kOzn222m6X7T3LWplZv08j": "Anshin Oyado Tokyo Akihabara Denkigaiten 安心お宿 Tokyo Man 秋葉原電気街店",
+  "oe2xO1065MW4Af28laSGGN": "Retro Game Camp",
+  "oe2xO1065MW4Af28laSGPf": "Liberty Hobby Shop",
+  "oe2xO1065MW4Af28laSGXn": "Tokyo Hobby Center anime store",
+  "sNnxROA743GUn9TQYpcDDd": "Darumanome Akihabara",
+  "tc4RDa5HMhGDlAky9m5136": "Final Fantasy Eorzea Cafe",
+  "tc4RDa5HMhGDlAky9m520i": "Yellow Submarine Akihabara RPG Shop",
+  "tc4RDa5HMhGDlAky9m52yK": "BOOKOFF Akihabara Ekimae Store"
+ }
+}

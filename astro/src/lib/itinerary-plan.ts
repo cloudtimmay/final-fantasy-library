@@ -372,6 +372,32 @@ export function moveStopToDay(from: { stops: PlanStop[] }, idx: number, to: { st
   const [s] = from.stops.splice(idx, 1)
   to.stops.push(s)
 }
+// "⇄ Swap with day…": everything planned on the two days changes places — the stops (with the
+// trains on their legs), the start time, the bases and the train back. The train to the airport
+// stays on the flight day: it belongs to that date.
+const SWAPPED = ['stops', 'startTime', 'startBase', 'endBase', 'returnTrain'] as const
+export function swapDays(a: PlanDay, b: PlanDay): void {
+  for (const k of SWAPPED) {
+    const x = (a as any)[k], y = (b as any)[k]
+    if (y === undefined) delete (a as any)[k]; else (a as any)[k] = y
+    if (x === undefined) delete (b as any)[k]; else (b as any)[k] = x
+  }
+}
+// "Select stops" → "Move to day…": the selected stops, in their order, to the end of another day.
+export function moveStopsToDay(from: { stops: PlanStop[] }, indices: number[], to: { stops: PlanStop[] }): number {
+  const pick = new Set(indices.filter((i) => i >= 0 && i < from.stops.length))
+  const moving = from.stops.filter((_, i) => pick.has(i))
+  from.stops = from.stops.filter((_, i) => !pick.has(i))
+  to.stops.push(...moving)
+  return moving.length
+}
+// "Select stops" → "Delete selected".
+export function deleteStops(day: { stops: PlanStop[] }, indices: number[]): number {
+  const pick = new Set(indices)
+  const before = day.stops.length
+  day.stops = day.stops.filter((_, i) => !pick.has(i))
+  return before - day.stops.length
+}
 export function copyStopToDay(from: { stops: PlanStop[] }, idx: number, to: { stops: PlanStop[] }): void {
   to.stops.push({ ...from.stops[idx] })
 }

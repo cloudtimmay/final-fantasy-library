@@ -78,6 +78,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <button id="itl-rem-btn" type="button" class="itl-daybtn">⏰ Reminders for this day</button>
       <button id="itl-link-btn" type="button" class="itl-daybtn">🔗 Link stops to shops</button>
       <!-- Undo and history for the whole plan (lib/plan-history.ts, /api/itinerary-history). -->
+      <button id="itl-swap-btn" type="button" class="itl-daybtn">⇄ Swap with day…</button>
+      <button id="itl-select-btn" type="button" class="itl-daybtn" aria-pressed="false">☑ Select stops</button>
       <button id="itl-undo-btn" type="button" class="itl-daybtn">↩ Undo last change</button>
       <button id="itl-history-btn" type="button" class="itl-daybtn" aria-expanded="false">🕘 History</button>
       <button id="itl-base-btn" type="button" class="itl-daybtn">🏨 Base</button>
@@ -139,6 +141,22 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <!-- "🗺️ Routes": walking routes per area and trains between areas (itinerary-plan.ts dayRouteLinks). -->
     <div id="itl-routes-panel" class="itl-panel" hidden></div>
     <div id="itl-history" class="itl-panel itl-hist" hidden></div>
+    <!-- ⇄ Swap this day with another (itinerary-plan.ts swapDays). -->
+    <div id="itl-swap" class="itl-panel itl-act" hidden>
+      <label>Swap <span id="itl-swap-this"></span> with <select id="itl-swap-day"></select></label>
+      <button id="itl-swap-go" type="button" class="itl-daybtn">⇄ Swap</button>
+      <button id="itl-swap-cancel" type="button" class="itl-daybtn">Cancel</button>
+    </div>
+    <!-- ☑ Select stops: tap blocks to tick them, then move them to another day or delete them. -->
+    <div id="itl-select-bar" class="itl-panel itl-act" hidden>
+      <span id="itl-select-count">Tap stops to select them</span>
+      <label>Move to <select id="itl-select-day"></select></label>
+      <button id="itl-select-move" type="button" class="itl-daybtn">Move to day</button>
+      <button id="itl-select-delete" type="button" class="itl-daybtn">🗑️ Delete selected</button>
+      <button id="itl-select-done" type="button" class="itl-daybtn">Done</button>
+    </div>
+    <!-- After a move, a swap or a delete: what happened, and ↩ Undo (the plan's history). -->
+    <p id="itl-act-toast" class="itl-start-toast" role="status" hidden><span id="itl-act-toast-text"></span> <button id="itl-act-undo" type="button" class="itl-daybtn">↩ Undo</button></p>
     <div id="itl-travel-editor" class="itl-travel-editor" hidden>
       <div class="itl-travel-editor-head">
         <strong id="itl-travel-editor-title"></strong>
@@ -322,7 +340,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, plannedDaysByShop, plannedPickerName, matchingShop, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
-      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, removeStop, setStopDuration,
+      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, legLeaveTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
@@ -466,6 +484,77 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (!window.confirm(`Undo the last change (${last.summary}, saved ${whenText(last.savedAt)})? The whole plan goes back to before it.`)) return
       await restoreSnapshot(last.id)
     })
+    // --- Moving days and stops (itinerary-plan.ts swapDays / moveStopsToDay / deleteStops) ---------
+    // Each confirmed first; saved like any change, so "↩ Undo" (in the toast, or the toolbar)
+    // takes it back from the plan's history.
+    const actToast = document.querySelector('#itl-act-toast') as HTMLElement
+    function showAct(text: string) {
+      ;(document.querySelector('#itl-act-toast-text') as HTMLElement).textContent = text
+      actToast.hidden = false
+    }
+    document.querySelector('#itl-act-undo')!.addEventListener('click', () => { actToast.hidden = true; (document.querySelector('#itl-undo-btn') as HTMLButtonElement).click() })
+    const otherDayOptions = (sel: HTMLSelectElement) => {
+      sel.innerHTML = state.filter((d) => d.day !== currentDay).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}${d.stops.length ? ` (${d.stops.length} stop${d.stops.length === 1 ? '' : 's'})` : ''}</option>`).join('')
+    }
+    const swapPanel = document.querySelector('#itl-swap') as HTMLElement
+    document.querySelector('#itl-swap-btn')!.addEventListener('click', () => {
+      swapPanel.hidden = !swapPanel.hidden
+      if (swapPanel.hidden) return
+      ;(document.querySelector('#itl-swap-this') as HTMLElement).textContent = currentDayPlan().date
+      otherDayOptions(document.querySelector('#itl-swap-day') as HTMLSelectElement)
+    })
+    document.querySelector('#itl-swap-cancel')!.addEventListener('click', () => { swapPanel.hidden = true })
+    document.querySelector('#itl-swap-go')!.addEventListener('click', () => {
+      const a = currentDayPlan()
+      const b = state.find((d) => d.day === (document.querySelector('#itl-swap-day') as HTMLSelectElement).value)
+      if (!b) return
+      if (!window.confirm(`Swap everything on ${a.date} and ${b.date}? The stops (with their trains), the start times and the bases change places.`)) return
+      swapDays(a, b)
+      swapPanel.hidden = true
+      closeSheet(); changed()
+      showAct(`Swapped ${a.date} and ${b.date}.`)
+    })
+    // ☑ Select stops.
+    let selectMode = false
+    const selected = new Set<number>()
+    const selectBar = document.querySelector('#itl-select-bar') as HTMLElement
+    const selectBtn = document.querySelector('#itl-select-btn') as HTMLButtonElement
+    function paintSelection() {
+      dayEl.querySelectorAll<HTMLElement>('.itl-block').forEach((b) => b.classList.toggle('itl-selected', selectMode && selected.has(Number(b.dataset.index))))
+      ;(document.querySelector('#itl-select-count') as HTMLElement).textContent = selected.size ? `${selected.size} selected` : 'Tap stops to select them'
+      ;(document.querySelector('#itl-select-move') as HTMLButtonElement).disabled = !selected.size
+      ;(document.querySelector('#itl-select-delete') as HTMLButtonElement).disabled = !selected.size
+    }
+    function setSelectMode(on: boolean) {
+      selectMode = on
+      selected.clear()
+      selectBtn.setAttribute('aria-pressed', String(on))
+      selectBar.hidden = !on
+      if (on) { closeSheet(); otherDayOptions(document.querySelector('#itl-select-day') as HTMLSelectElement) }
+      paintSelection()
+    }
+    selectBtn.addEventListener('click', () => setSelectMode(!selectMode))
+    document.querySelector('#itl-select-done')!.addEventListener('click', () => setSelectMode(false))
+    document.querySelector('#itl-select-move')!.addEventListener('click', () => {
+      const from = currentDayPlan()
+      const to = state.find((d) => d.day === (document.querySelector('#itl-select-day') as HTMLSelectElement).value)
+      if (!to || !selected.size) return
+      const n = selected.size
+      if (!window.confirm(`Move ${n} stop${n === 1 ? '' : 's'} from ${from.date} to the end of ${to.date}?`)) return
+      moveStopsToDay(from, [...selected].sort((x, y) => x - y), to)
+      setSelectMode(false); changed()
+      showAct(`Moved ${n} stop${n === 1 ? '' : 's'} to ${to.date}.`)
+    })
+    document.querySelector('#itl-select-delete')!.addEventListener('click', () => {
+      const day = currentDayPlan()
+      if (!selected.size) return
+      const names = [...selected].sort((x, y) => x - y).map((i) => resolveStop(day.stops[i], shopById).name)
+      if (!window.confirm(`Delete ${names.length} stop${names.length === 1 ? '' : 's'} from ${day.date}: ${names.join(', ')}?`)) return
+      deleteStops(day, [...selected])
+      setSelectMode(false); changed()
+      showAct(`Deleted ${names.length} stop${names.length === 1 ? '' : 's'}.`)
+    })
+
     const historyPanel = document.querySelector('#itl-history') as HTMLElement
     const historyBtn = document.querySelector('#itl-history-btn') as HTMLButtonElement
     historyBtn.addEventListener('click', async () => {
@@ -883,6 +972,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       end.style.setProperty('--itl-nav-h', `${nav ? nav.offsetHeight : 0}px`)
       dayEl.appendChild(end)
       updateNow()
+      paintSelection()
     }
 
     // The red "now" line: Tokyo time (lib/trip-dates.ts tokyoNow), whatever the phone's timezone;
@@ -1731,6 +1821,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const block = target.closest('.itl-block') as HTMLElement | null
       if (!block || target.closest('.itn-reminder')) return
       const idx = Number(block.dataset.index)
+      // ☑ Select stops: a tap ticks it instead of opening it.
+      if (selectMode) { e.preventDefault(); if (selected.has(idx)) selected.delete(idx); else selected.add(idx); paintSelection(); return }
       if (target.closest('.itl-train-line')) { openTravelEditor(idx); return }
       // "Fix: leave at HH:MM" on the block's warning: that leave time on this stop.
       const fixBtn = target.closest('.itl-fix') as HTMLElement | null
@@ -1847,6 +1939,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
 
     document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((tab) => tab.addEventListener('click', () => {
       currentDay = tab.dataset.day!
+      selected.clear(); (document.querySelector('#itl-swap') as HTMLElement).hidden = true
       checkMarks = {}
       checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true; remPanel.hidden = true; linkPanel.hidden = true
       closeSheet()
@@ -2108,6 +2201,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-map-section summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; padding: 0.3rem 0; }
     .itl-map { margin-top: 0.4rem; }
     .itl-panel { margin: 0 0 0.8rem; }
+    /* ⇄ Swap and ☑ Select stops (is:global, "itl-act"/"itl-selected"). */
+    .itl-act { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.55rem 0.7rem; background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; font-size: 0.85rem; }
+    .itl-act[hidden] { display: none; }
+    .itl-act select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem; font: inherit; }
+    .itl-block.itl-selected { outline: 3px solid var(--accent); outline-offset: -1px; }
+    .itl-daybtn:disabled { opacity: 0.5; }
     /* 🕘 History (built in the script: is:global, "itl-hist-"). */
     .itl-hist { padding: 0.6rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     .itl-hist[hidden] { display: none; }

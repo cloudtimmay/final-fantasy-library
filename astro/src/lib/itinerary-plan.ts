@@ -16,6 +16,7 @@ import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
 import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
 import { googleMapsTimedUrl } from './transit-links'
+import { isGoogleMapsUrl, parseGoogleMapsUrl } from './google-maps-link'
 import { plannedPickerName, type PlannedDays } from './plan-usage'
 // Which places are already in the plan (the pickers, Shop Notes): one shared helper.
 export { plannedDaysByShop, plannedDaysText, plannedPickerName, matchingShop, PLANNED_MARK, type PlannedDays } from './plan-usage'
@@ -353,7 +354,15 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
 
 // "lat, lng" (or "lat lng") as pasted from Google Maps; null when it isn't a valid pair.
 export function parseLatLng(str: string | null | undefined): { lat: number; lng: number } | null {
-  const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(str || '')
+  // A pasted Google Maps link: the place's own pin (lib/google-maps-link.ts) — never the link's
+  // first number pair, which is the map's view centre (@lat,lng), not the place. A link without
+  // coordinates (a share link) gives nothing here.
+  const text = (str || '').trim()
+  if (/^https?:\/\//i.test(text)) {
+    const p = isGoogleMapsUrl(text) ? parseGoogleMapsUrl(text) : null
+    return p ? { lat: p.lat, lng: p.lng } : null
+  }
+  const m = /(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/.exec(text)
   if (!m) return null
   const lat = parseFloat(m[1]), lng = parseFloat(m[2])
   if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null

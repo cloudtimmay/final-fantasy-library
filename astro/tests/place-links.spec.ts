@@ -196,3 +196,29 @@ test.describe('the place\'s own pin, never the view centre; "Open in Maps"', () 
     expect(openInMapsUrl({ name: 'Animate', area: 'Akihabara' })).toBe(S + encodeURIComponent('Animate, Akihabara, Japan'))
   })
 })
+
+// The real link (from Kim), SQUARE ENIX Cafe & Shop SHINJUKU: the map's view centre @35.6897996,
+// 139.6994265 — what got saved — and the place's pin !3d35.6897953!4d139.7020068 (~235 m east).
+const SHINJUKU_URL = 'https://www.google.com/maps/place/SQUARE+ENIX+Cafe+%26+Shop+SHINJUKU/@35.6897996,139.6994265,17z/data=!4m14!1m7!3m6!1s0x60188deef92f695d:0x279997bf7829c69e!2sSQUARE+ENIX+Cafe+%26+Shop+SHINJUKU!8m2!3d35.6897953!4d139.7020068!16s%2Fg%2F11nk80rh09!3m5!1s0x60188deef92f695d:0x279997bf7829c69e!8m2!3d35.6897953!4d139.7020068!16s%2Fg%2F11nk80rh09?entry=ttu&g_ep=EgoyMDI2MTExNS4wIKXMDSoASAFQAw%3D%3D'
+
+test.describe('the real SQUARE ENIX Cafe & Shop SHINJUKU link', () => {
+  test('the parser gives the place\'s pin, not the view centre that was saved; so does a link pasted as coordinates', async () => {
+    expect(parseGoogleMapsUrl(SHINJUKU_URL)).toEqual({ name: 'SQUARE ENIX Cafe & Shop SHINJUKU', lat: 35.6897953, lng: 139.7020068 })
+    const { parseLatLng } = await import('../src/lib/itinerary-plan')
+    // The coordinate field took the link's first number pair — the view centre. Now: the pin.
+    expect(parseLatLng(SHINJUKU_URL)).toEqual({ lat: 35.6897953, lng: 139.7020068 })
+    expect(parseLatLng(SHINJUKU_URL)).not.toEqual({ lat: 35.6897996, lng: 139.6994265 })
+    expect(parseLatLng('35.6990, 139.7710')).toEqual({ lat: 35.699, lng: 139.771 }) // plain coordinates as before
+    expect(parseLatLng('https://maps.app.goo.gl/AbC123')).toBeNull() // a share link has none in it
+  })
+
+  test('the shop page\'s "Paste lat, lng" box: the link gives the pin', async ({ page, sanity, trackDoc }) => {
+    const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`SQUARE ENIX Cafe & Shop SHINJUKU ${Date.now()}`), area: 'Shinjuku' })
+    trackDoc(shop._id)
+    await page.goto(`/edit-store?id=${shop._id}`)
+    await page.locator('#s-coord-paste').fill(SHINJUKU_URL)
+    await page.locator('#s-coord-apply').click()
+    await expect(page.locator('#s-lat')).toHaveValue('35.68980')
+    await expect(page.locator('#s-lng')).toHaveValue('139.70201') // the pin; the view centre would be 139.69943
+  })
+})

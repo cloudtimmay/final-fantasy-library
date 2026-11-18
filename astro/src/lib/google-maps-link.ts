@@ -35,17 +35,34 @@ const coordPair = (lat: number, lng: number) =>
   Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0) ? { lat, lng } : null
 const LATLNG = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/
 
-// The place in a (full) Google Maps URL: its pin (!3d<lat>!4d<lng> — the place itself, so first),
-// else q=/query=/ll= coordinates, else the map's centre (@lat,lng,zoom); its name from
-// /maps/place/<name>/ or a q=/query= that isn't coordinates. null without coordinates.
+// Percent-decoding that never throws (a stray "%" in a pasted link): what can't be decoded stays.
+const safeDecode = (s: string) => { try { return decodeURIComponent(s) } catch { return s.replace(/%21/gi, '!').replace(/%2C/gi, ',').replace(/%40/g, '@') } }
+
+// The place's own pin in a Google Maps URL — never the map's view centre (@lat,lng, which is
+// only where the map was looking). In the place's data block: "!3d<lat>!4d<lng>" (the one after
+// the place's id "!1s0x…", else the last); an embed/"pb=" link: "!2d<lng>!3d<lat>".
+export function placePin(full: string): { lat: number; lng: number } | null {
+  const pins = [...full.matchAll(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/g)]
+  if (pins.length) {
+    const placeId = full.lastIndexOf('!1s0x')
+    const afterId = placeId >= 0 ? pins.find((m) => (m.index ?? 0) > placeId) : undefined
+    const m = afterId || pins[pins.length - 1]
+    return coordPair(Number(m[1]), Number(m[2]))
+  }
+  const embed = [...full.matchAll(/!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/g)]
+  if (embed.length) { const m = embed[embed.length - 1]; return coordPair(Number(m[2]), Number(m[1])) }
+  return null
+}
+
+// The place in a (full) Google Maps URL: its pin (placePin — the place itself, so first), else
+// q=/query=/ll= coordinates, else /search/<lat>,<lng>, and only then the map's centre
+// (@lat,lng,zoom); its name from /maps/place/<name>/ or a q=/query= that isn't coordinates. null
+// without coordinates.
 export function parseGoogleMapsUrl(text: string): { name: string; lat: number; lng: number } | null {
   const u = urlOf(text)
   if (!u || !isGoogleHost(u.hostname.toLowerCase())) return null
-  const full = decodeURIComponent(u.pathname + u.search + u.hash)
-  let at: { lat: number; lng: number } | null = null
-  // The pin: the last !3d…!4d… pair (the place, after any map-view data).
-  const pins = [...full.matchAll(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/g)]
-  if (pins.length) at = coordPair(Number(pins[pins.length - 1][1]), Number(pins[pins.length - 1][2]))
+  const full = safeDecode(u.pathname + u.search + u.hash)
+  let at: { lat: number; lng: number } | null = placePin(full)
   let name = ''
   for (const key of ['q', 'query', 'll', 'destination', 'daddr']) {
     const v = u.searchParams.get(key)
@@ -61,7 +78,7 @@ export function parseGoogleMapsUrl(text: string): { name: string; lat: number; l
   if (!at && centre) at = coordPair(Number(centre[1]), Number(centre[2]))
   const placeName = /\/maps\/place\/([^/@]+)/.exec(u.pathname)
   if (placeName) {
-    const n = decodeURIComponent(placeName[1].replace(/\+/g, ' ')).trim()
+    const n = safeDecode(placeName[1].replace(/\+/g, ' ')).trim()
     if (n && !LATLNG.test(n)) name = n
   }
   if (!at) return null

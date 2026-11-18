@@ -318,9 +318,14 @@ if (shop) {
         }
       }
 
+      // By the name and address when there is one, else the coordinates — as lib/shop-maps.ts
+      // openInMapsUrl (this script is inline, so it can't import it).
       function updateMapLink() {
-        if (typeof lat === 'number' && typeof lng === 'number') {
-          mapLink.href = `https://www.google.com/maps?q=${lat},${lng}`
+        const addrText = addressInput.value.trim()
+        if (addrText && !isUrl(addrText)) {
+          mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([nameInput.value.trim(), addrText].filter(Boolean).join(', '))}`
+        } else if (typeof lat === 'number' && typeof lng === 'number') {
+          mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`
         } else {
           const addr = addressInput.value.trim()
           if (isUrl(addr)) {

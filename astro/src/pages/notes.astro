@@ -4,6 +4,7 @@ import { sanity } from '../lib/sanity'
 import { cdnImage } from '../lib/image-url'
 import { foundItems, foundThumbs, foundPricesQuery, foundPurchasesQuery, type FoundPriceDoc, type FoundPurchaseDoc } from '../lib/shop-found'
 import { pickDefaultTrip } from '../lib/spending'
+import { openInMapsUrl } from '../lib/shop-maps'
 import { planDocIdFor, withFlightDays } from '../lib/trip-plans'
 import { savedPlanDays, plannedDaysByShop, type PlannedDays } from '../lib/plan-usage'
 
@@ -119,11 +120,8 @@ function isUrl(s: string): boolean {
       const searchQuery = [n.shopName, addressIsUrl ? '' : n.address, n.area, 'Japan'].filter(Boolean).join(' ')
       const hasQuery = !!(n.shopName || (!addressIsUrl && n.address))
 
-      const mapHref = hasCoords
-        ? `https://www.google.com/maps?q=${n.latitude},${n.longitude}`
-        : addressIsUrl
-        ? n.address
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`
+      // By its name and address when it has one, else its coordinates (lib/shop-maps.ts openInMapsUrl).
+      const mapHref = openInMapsUrl({ name: n.shopName, address: n.address, lat: n.latitude, lng: n.longitude, area: n.area })
 
       const embedSrc = hasCoords
         ? `https://maps.google.com/maps?q=${n.latitude},${n.longitude}&z=16&output=embed`

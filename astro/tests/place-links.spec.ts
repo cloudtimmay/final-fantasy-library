@@ -169,3 +169,30 @@ test.describe('"📍 Find location" on the shop page: a pasted Google Maps link'
     expect(doc).toEqual({ latitude: 35.6998771, longitude: 139.7711234 })
   })
 })
+
+test.describe('the place\'s own pin, never the view centre; "Open in Maps"', () => {
+  test('a place URL: the pin after the place\'s id, not the @ view centre (SQUARE ENIX Cafe & Shop SHINJUKU); embed links; a stray %', async () => {
+    const { placePin } = await import('../src/lib/google-maps-link')
+    // The shape of the Shinjuku case (reconstructed — the view centre is where the place was saved,
+    // 35.6897996, 139.6994265; the pin in the place's data block is the place). An earlier !3d!4d
+    // pair (before the place's id) isn't the place either.
+    const url = 'https://www.google.com/maps/place/SQUARE+ENIX+Cafe+%26+Shop+SHINJUKU/@35.6897996,139.6994265,17z/data=!3m1!4b1!4m10!1m3!3d35.6800001!4d139.6900001!3m5!1s0x60188cd0f3a8b1d5:0x9e1d1c7c1c6c3a1b!8m2!3d35.6913721!4d139.7036412!16s%2Fg%2F11y3k1q1x9?entry=ttu'
+    expect(parseGoogleMapsUrl(url)).toEqual({ name: 'SQUARE ENIX Cafe & Shop SHINJUKU', lat: 35.6913721, lng: 139.7036412 })
+    // Only a view centre: that, as the last resort.
+    expect(parseGoogleMapsUrl('https://www.google.com/maps/place/Somewhere/@35.6897996,139.6994265,17z')).toMatchObject({ lat: 35.6897996, lng: 139.6994265 })
+    // An embed ("pb=") link: !2d<lng>!3d<lat>.
+    expect(placePin('/maps/embed?pb=!1m18!1m12!1m3!1d3240!2d139.7036412!3d35.6913721!2m3!1f0')).toEqual({ lat: 35.6913721, lng: 139.7036412 })
+    // A stray "%" doesn't break it.
+    expect(parseGoogleMapsUrl('https://www.google.com/maps/place/100%+Shop/@35.70,139.77,17z/data=!8m2!3d35.701!4d139.771')).toMatchObject({ lat: 35.701, lng: 139.771 })
+  })
+
+  test('"Open in Maps": by name and address when there is one, else the coordinates', async () => {
+    const { openInMapsUrl } = await import('../src/lib/shop-maps')
+    const S = 'https://www.google.com/maps/search/?api=1&query='
+    expect(openInMapsUrl({ name: 'SQUARE ENIX Cafe & Shop SHINJUKU', address: '3-36-1 Shinjuku, Shinjuku-ku, Tokyo', lat: 35.6897996, lng: 139.6994265 }))
+      .toBe(S + encodeURIComponent('SQUARE ENIX Cafe & Shop SHINJUKU, 3-36-1 Shinjuku, Shinjuku-ku, Tokyo'))
+    expect(openInMapsUrl({ name: 'Animate', lat: 35.7, lng: 139.77 })).toBe(S + encodeURIComponent('35.7,139.77'))
+    expect(openInMapsUrl({ name: 'ARTNIA', address: 'https://www.google.com/maps/place/ARTNIA/data=!4m2' })).toBe('https://www.google.com/maps/place/ARTNIA/data=!4m2')
+    expect(openInMapsUrl({ name: 'Animate', area: 'Akihabara' })).toBe(S + encodeURIComponent('Animate, Akihabara, Japan'))
+  })
+})

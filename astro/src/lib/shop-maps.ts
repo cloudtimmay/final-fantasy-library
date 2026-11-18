@@ -22,6 +22,21 @@ const validCoords = (lat: unknown, lng: unknown): boolean =>
   typeof lat === 'number' && typeof lng === 'number' && isFinite(lat) && isFinite(lng) &&
   Math.abs(lat) <= 90 && Math.abs(lng) <= 180
 
+// "🗺️ Open in Maps" for a place: a search for its name and address when it has an address (Google
+// Maps opens the place itself — coordinates alone only drop a pin, and a pin from a map's view
+// centre can be off), else its coordinates, else a Maps link pasted as the address, else a search
+// for the name and area.
+//   https://www.google.com/maps/search/?api=1&query=<name, address>
+export function openInMapsUrl(p: MapsPlace): string {
+  const name = String(p.name || '').trim()
+  const address = String(p.address || '').trim()
+  const addressIsUrl = /^https?:\/\//i.test(address)
+  if (address && !addressIsUrl) return `${SEARCH}?api=1&query=${encodeURIComponent([name, address].filter(Boolean).join(', '))}`
+  if (validCoords(p.lat, p.lng)) return `${SEARCH}?api=1&query=${encodeURIComponent(`${p.lat},${p.lng}`)}`
+  if (addressIsUrl) return address
+  return `${SEARCH}?api=1&query=${encodeURIComponent([name, String(p.area || '').trim(), 'Japan'].filter(Boolean).join(', '))}`
+}
+
 export function googleMapsPlaceUrl(p: MapsPlace): string {
   const name = String(p.name || '').trim()
   const address = String(p.address || '').trim()

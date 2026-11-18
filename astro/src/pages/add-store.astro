@@ -138,6 +138,7 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
 
   <script>
     import { attachPlaceSearch } from '../lib/place-search-ui'
+    import { openInMapsUrl } from '../lib/shop-maps'
     const nameInput = document.querySelector('#s-name')
     const typeSel = document.querySelector('#s-type')
     const areaSel = document.querySelector('#s-area')
@@ -217,19 +218,12 @@ const areaOptions = [...new Set([...DEFAULT_AREAS, ...(usedAreas || [])])].filte
       }
     }
 
+    // By the name and address when there is one, else the coordinates (lib/shop-maps.ts openInMapsUrl).
     function updateMapLink() {
-      if (typeof lat === 'number' && typeof lng === 'number') {
-        mapLink.href = `https://www.google.com/maps?q=${lat},${lng}`
-      } else {
-        const addr = addressInput.value.trim()
-        if (isUrl(addr)) {
-          mapLink.href = addr
-        } else {
-          const q = [nameInput.value.trim(), addr, areaSel.value !== '__new__' ? areaSel.value : areaNewInput.value.trim(), 'Japan']
-            .filter(Boolean).join(' ')
-          mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`
-        }
-      }
+      mapLink.href = openInMapsUrl({
+        name: nameInput.value, address: addressInput.value, lat, lng,
+        area: areaSel.value !== '__new__' ? areaSel.value : areaNewInput.value,
+      })
     }
     updateMapLink()
     addressInput.addEventListener('input', updateMapLink)

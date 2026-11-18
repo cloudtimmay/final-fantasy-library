@@ -53,7 +53,9 @@ test.describe('edit-store: AI "Fill in from web"', () => {
     await expect(page.locator('#s-lat')).toHaveValue('35.69840')
     await expect(page.locator('#s-lng')).toHaveValue('139.77310')
     await expect(page.locator('#s-coords')).toContainText('35.69840, 139.77310')
-    await expect(page.locator('#s-map-link')).toHaveAttribute('href', 'https://www.google.com/maps?q=35.6984,139.7731')
+    // Open in Maps: by the name and address when there is one (as lib/shop-maps.ts openInMapsUrl).
+    const shopNameNow = await page.locator('#s-name').inputValue()
+    await expect(page.locator('#s-map-link')).toHaveAttribute('href', `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${shopNameNow}, 1-2-3 Example, Chiyoda-ku, Tokyo`)}`)
 
     // Nothing persisted yet — Apply only touches the live form.
     const beforeSave = await sanity.fetch<{ openingHours: string | null }>('*[_id == $id][0]{ openingHours }', { id: shop._id })

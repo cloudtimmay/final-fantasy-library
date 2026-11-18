@@ -32,7 +32,9 @@ test.describe('add-store: AI "Fill in from web"', () => {
     await expect(page.locator('#s-address')).toHaveValue('4-5-6 Example, Toshima-ku, Tokyo')
     await expect(page.locator('#s-lat')).toHaveValue('35.72950')
     await expect(page.locator('#s-lng')).toHaveValue('139.71090')
-    await expect(page.locator('#s-map-link')).toHaveAttribute('href', 'https://www.google.com/maps?q=35.7295,139.7109')
+    // Open in Maps: by the name and address (lib/shop-maps.ts openInMapsUrl), not the coordinates.
+    const name = await page.locator('#s-name').inputValue()
+    await expect(page.locator('#s-map-link')).toHaveAttribute('href', `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${name}, 4-5-6 Example, Toshima-ku, Tokyo`)}`)
     await expect(page.locator('#s-taxfree')).toHaveValue('true')
     await expect(page.locator('#s-website')).toHaveValue('https://example-shop.test/en')
 

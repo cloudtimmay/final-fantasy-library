@@ -8,7 +8,7 @@
 
 import { scheduleDay, dayWarning, type DaySchedule, type DayWarning, type ScheduleStopInput } from './itinerary-schedule'
 import { extractNoteTravelMinutes, MEAL_WINDOW_MIN, type RoutePoint } from './route-optimizer'
-import { checkHours, visitWarning, closedOnArrival, closingTime } from './opening-hours'
+import { checkHours, visitWarning, closedOnArrival, closingTime, hoursOnDate } from './opening-hours'
 import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
 import { trainTimes, trainRideMinutes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN, isMealStop } from './itinerary-review-helpers'
@@ -17,7 +17,7 @@ import { PLACE_TYPE_INFO } from './place-types'
 import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
 import { googleMapsTimedUrl } from './transit-links'
 import { isGoogleMapsUrl, parseGoogleMapsUrl } from './google-maps-link'
-import { plannedPickerName, type PlannedDays } from './plan-usage'
+import { plannedPickerName, matchingShop, type PlannedDays } from './plan-usage'
 // Which places are already in the plan (the pickers, Shop Notes): one shared helper.
 export { plannedDaysByShop, plannedDaysText, plannedPickerName, matchingShop, PLANNED_MARK, type PlannedDays } from './plan-usage'
 
@@ -233,20 +233,40 @@ export function serializePlan(state: PlanDay[], extraDays: Record<string, PlanDa
 // areas A–Z and the shops A–Z in each, each with its index in `shops`. The selected trip's shops
 // (shopNote.trips) are marked "🧳 " in their area — no group of their own. Places already in the
 // trip's plan (`planned`, plan-usage.ts plannedDaysByShop): "✓ Animate · 2. des" — still in their
-// place, and still pickable.
+// place, and still pickable. With `date` ("YYYY-MM-DD", the day being planned) each name ends
+// with the place's hours that day (withHoursOnDate): "Animate · 10:00–21:00".
 export const TRIP_SHOP_MARK = '🧳 '
-export function shopOptionGroups(shops: { _id?: string; shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null }[], tripId: string | null = null, planned: PlannedDays = {}): { area: string; items: { i: number; name: string; hasCoord: boolean; onTrip: boolean; plannedDays: string[] }[] }[] {
+export function shopOptionGroups(shops: { _id?: string; shopName?: string; area?: string; latitude?: number; longitude?: number; tripIds?: string[] | null; openingHours?: string | null }[], tripId: string | null = null, planned: PlannedDays = {}, date: string | null = null): { area: string; items: { i: number; name: string; hasCoord: boolean; onTrip: boolean; plannedDays: string[] }[] }[] {
   const byArea: Record<string, { i: number; name: string; hasCoord: boolean; onTrip: boolean; plannedDays: string[]; sortName: string }[]> = {}
   shops.forEach((s, i) => {
     const onTrip = !!tripId && Array.isArray(s.tripIds) && s.tripIds.includes(tripId)
     const area = s.area || 'Andre'
     const plannedDays = (s._id && planned[s._id]) || []
     if (!byArea[area]) byArea[area] = []
-    byArea[area].push({ i, name: (onTrip ? TRIP_SHOP_MARK : '') + plannedPickerName(s.shopName || '', plannedDays), sortName: s.shopName || '', onTrip, plannedDays, hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
+    byArea[area].push({ i, name: withHoursOnDate((onTrip ? TRIP_SHOP_MARK : '') + plannedPickerName(s.shopName || '', plannedDays), s.openingHours, date), sortName: s.shopName || '', onTrip, plannedDays, hasCoord: typeof s.latitude === 'number' && typeof s.longitude === 'number' })
   })
   const byName = (a: { sortName: string }, b: { sortName: string }) => a.sortName.localeCompare(b.sortName, 'en', { sensitivity: 'base' })
   return Object.keys(byArea).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
     .map((area) => ({ area, items: byArea[area].sort(byName).map(({ sortName, ...item }) => item) }))
+}
+
+// A picker label with the place's hours on `date` (opening-hours.ts hoursOnDate): "Animate ·
+// 10:00–21:00", "✓ Animate · 2. des · Closed", "Don Quijote · 24h". The label as it is when the
+// hours are missing, not understood or say nothing about that day.
+export function withHoursOnDate(label: string, hours: string | null | undefined, date: string | null): string {
+  const h = hoursOnDate(hours, date)
+  return h ? `${label} · ${h}` : label
+}
+
+// The note under a "🔍 Search place" result on a day: a saved place already in the plan is
+// "✓ Animate · 2. des", and the hours that day follow (the saved place's own hours, else the
+// ones OpenStreetMap gave): "✓ Animate · 2. des · 10:00–21:00", or just "10:00–21:00".
+export function searchResultNote(place: { name: string; lat: number; lng: number; openingHours?: string | null }, shops: PlanShop[], planned: PlannedDays, date: string | null): string {
+  const shop = matchingShop(place, shops)
+  const days = shop ? planned[shop._id] : undefined
+  const head = shop && days ? plannedPickerName(shop.shopName || place.name, days) : ''
+  const h = hoursOnDate((shop && shop.openingHours) || place.openingHours, date)
+  return [head, h].filter(Boolean).join(' · ')
 }
 
 // A stop for a shop from the shop list, or one typed in by hand — the same saved shape on both pages.

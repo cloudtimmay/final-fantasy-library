@@ -23,7 +23,7 @@
 // Minutes after midnight throughout; a range past midnight ends after 1440 (18:00–02:00 is
 // 1080–1560), and "open 24 hours" is 0–1440.
 
-import { addDays, isIsoDate } from './trip-dates'
+import { addDays, isIsoDate, weekdayIndex } from './trip-dates'
 
 export type TimeRange = { start: number; end: number }
 // One weekday: closed, or open in these ranges.
@@ -393,13 +393,33 @@ export function visitWarning(c: VisitCheck): { badge: string; message: string; n
 // The one check every page uses: parse (cached — the same few texts are checked over and over,
 // thousands of times by Suggest route) and check.
 const cache = new Map<string, OpeningHours | null>()
-export function checkHours(text: string | null | undefined, weekday: number | null, arrival: number, leave: number, date: string | null = null): VisitCheck {
+function parsedHours(text: string | null | undefined): OpeningHours | null {
   const key = String(text || '')
   if (!cache.has(key)) {
     if (cache.size > 500) cache.clear()
     cache.set(key, parseOpeningHours(key))
   }
-  return checkVisit(cache.get(key)!, weekday, arrival, leave, date)
+  return cache.get(key)!
+}
+export function checkHours(text: string | null | undefined, weekday: number | null, arrival: number, leave: number, date: string | null = null): VisitCheck {
+  return checkVisit(parsedHours(text), weekday, arrival, leave, date)
+}
+
+// A place's hours on one date ("YYYY-MM-DD"), short, for the itinerary's place pickers:
+// "10:00–21:00", "11:30–14:00, 17:00–22:00", "18:00–02:00", "24h" or "Closed" (a closed weekday,
+// or a date outside hours given for certain dates only). null when there are no hours, they
+// aren't understood, or they say nothing about that day.
+export function hoursOnDate(text: string | null | undefined, date: string | null | undefined): string | null {
+  if (!date || !isIsoDate(date)) return null
+  const h = parsedHours(text)
+  if (!h || h.unparsed) return null
+  if (h.dates && !h.dates.includes(date.slice(5))) return 'Closed'
+  const day = h.days[weekdayIndex(date)]
+  if (!day) return null
+  if (day.closed) return 'Closed'
+  if (!day.ranges.length) return null
+  if (day.ranges.some((r) => r.start <= 0 && r.end >= 1440)) return '24h'
+  return day.ranges.map((r) => `${hhmm(r.start)}–${hhmm(r.end)}`).join(', ')
 }
 
 // "Fill in from web" (/api/shop-info): the hours without bracketed remarks, and those remarks on

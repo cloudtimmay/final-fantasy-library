@@ -339,7 +339,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
   <script>
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
-      shopOptionGroups, plannedDaysByShop, plannedPickerName, matchingShop, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
+      shopOptionGroups, plannedDaysByShop, searchResultNote, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
       legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, legLeaveTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
@@ -1533,7 +1533,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // "🔗 Link to shop" for a stop without one (or whose shop is gone).
       const unlinked = !s.shopId || !shopById.has(s.shopId)
       ;(document.querySelector('#itl-ed-link') as HTMLElement).hidden = !unlinked
-      if (unlinked) (document.querySelector('#itl-ed-link-shop') as HTMLSelectElement).innerHTML = shopPickerOptions(suggestShop(s.name, shops || [])?.shop._id || null)
+      if (unlinked) (document.querySelector('#itl-ed-link-shop') as HTMLSelectElement).innerHTML = shopPickerOptions(suggestShop(s.name, shops || [])?.shop._id || null, currentDay)
       ;(document.querySelector('#itl-ed-leaveat-clear') as HTMLButtonElement).hidden = !s.leaveAt
       // "Until closing": the shop's closing time that day (hidden when unknown or open 24 hours).
       const closes = closingTimeFor(s, shopById, day.day, x.start)
@@ -1747,9 +1747,10 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     })
 
     // --- Linking stops to shops (lib/stop-linking.ts) ----------------------------------------------
-    // The shop picker: every shop by area (the add-stop picker's grouping), value = its _id.
-    function shopPickerOptions(selected: string | null): string {
-      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state)).map(({ area, items }) =>
+    // The shop picker: every shop by area (the add-stop picker's grouping), value = its _id, with
+    // each place's hours on `day` (the stop's day).
+    function shopPickerOptions(selected: string | null, day: string): string {
+      return '<option value="">— leave unlinked —</option>' + shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state), day).map(({ area, items }) =>
         `<optgroup label="${esc(area)}">${items.map(({ i, name }) => {
           const id = (shops || [])[i]._id
           return `<option value="${esc(id)}"${id === selected ? ' selected' : ''}>${esc(name)}</option>`
@@ -1766,7 +1767,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         return `<li class="itl-link-row" data-day="${esc(r.day)}" data-index="${r.index}">
           <label class="itl-link-stop"><input type="checkbox" class="itl-link-check"${r.suggestion?.kind === 'exact' ? ' checked' : ''} />
             <span><span class="itl-link-day">${esc(formatDayShortEn(r.day))}</span> · <span class="itl-link-name">${esc(r.name || '(no name)')}</span></span></label>
-          <span class="itl-link-to">→ <select class="itl-link-shop" aria-label="Shop">${shopPickerOptions(id)}</select>
+          <span class="itl-link-to">→ <select class="itl-link-shop" aria-label="Shop">${shopPickerOptions(id, r.day)}</select>
             <span class="itl-link-kind">${r.suggestion ? (r.suggestion.kind === 'exact' ? 'exact' : 'close') : ''}</span>
             <span class="itl-link-area">${shopArea(id) ? `📍 ${esc(shopArea(id))}` : ''}</span></span>
         </li>`
@@ -1842,12 +1843,15 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const addDur = document.querySelector('#itl-add-dur') as HTMLInputElement
     let addMinutes = 0
     // The same grouped list as the list's add-stop (shopOptionGroups), then "write it yourself" —
-    // rebuilt each time the form opens, so "✓ … · 2. des" follows the plan as it is now.
+    // rebuilt each time the form opens (and on another day), so "✓ … · 2. des" follows the plan as
+    // it is now and each place's hours are the day's: "Animate · 10:00–21:00". The choice is kept.
     function fillAddShop() {
+      const chosen = addShop.value
       addShop.innerHTML = '<option value="">Choose a place…</option>' +
-        shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state)).map(({ area, items }) =>
+        shopOptionGroups(shops || [], DATA.pageTripId || null, plannedDaysByShop(state), currentDay).map(({ area, items }) =>
           `<optgroup label="${esc(area)}">${items.map(({ i, name, hasCoord }) => `<option value="${i}">${esc(name)}${hasCoord ? '' : ' (uten koord.)'}</option>`).join('')}</optgroup>`
         ).join('') + '<option value="__custom__">✏️ Write it yourself</option>'
+      addShop.value = chosen
     }
     fillAddShop()
     addShop.addEventListener('change', () => { addCustom.hidden = addShop.value !== '__custom__'; if (addShop.value) clearAddPlace() })
@@ -1861,15 +1865,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       addSearch.hidden = !addSearch.hidden
       if (!addSearch.hidden) (document.querySelector('#itl-add-search-q') as HTMLInputElement).focus()
     })
-    attachPlaceSearch({
+    const addSearchResults = document.querySelector('#itl-add-search-results') as HTMLElement
+    const addSearcher = attachPlaceSearch({
       input: document.querySelector('#itl-add-search-q') as HTMLInputElement,
-      results: document.querySelector('#itl-add-search-results') as HTMLElement,
-      // A result that is a saved place already in the plan: "✓ Animate · 2. des".
-      note: (p) => {
-        const shop = matchingShop(p, (shops || []) as PlanShop[])
-        const days = shop ? plannedDaysByShop(state)[shop._id] : undefined
-        return shop && days ? plannedPickerName(shop.shopName || p.name, days) : ''
-      },
+      results: addSearchResults,
+      // A result that is a saved place already in the plan: "✓ Animate · 2. des"; and the place's
+      // hours on the day: "✓ Animate · 2. des · 10:00–21:00", or just "10:00–21:00".
+      note: (p) => searchResultNote(p, (shops || []) as PlanShop[], plannedDaysByShop(state), currentDay),
       onChoose: (p) => {
         addPlace = p
         addShop.value = ''; addCustom.hidden = true
@@ -1943,6 +1945,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       checkMarks = {}
       checkPanel.hidden = true; routePanel.hidden = true; travelEditor.hidden = true; remPanel.hidden = true; linkPanel.hidden = true
       closeSheet()
+      // An open "add a stop": its places' hours follow the day (the search results too).
+      if (!addForm.hidden) {
+        fillAddShop()
+        if (!addSearch.hidden && !addSearchResults.hidden && addSearchResults.querySelector('.ps-result')) addSearcher.search()
+      }
       document.querySelectorAll<HTMLButtonElement>('.itl-tab').forEach((t) => {
         t.classList.toggle('active', t === tab)
         t.setAttribute('aria-selected', t === tab ? 'true' : 'false')

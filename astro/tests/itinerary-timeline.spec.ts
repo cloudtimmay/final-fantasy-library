@@ -264,7 +264,8 @@ test.describe('/itinerary: tap an empty spot to add a stop', () => {
 
     await tapAt(page, '14:30') // on the axis (from 14:00), before the 15:06 stop
     const firstShop = page.locator('#itl-add-shop optgroup option').first()
-    const shopName = (await firstShop.textContent())!.replace(' (uten koord.)', '')
+    // The label ends with the place's hours that day ("3COINS · 10:00–21:00"); the stop is the name alone.
+    const shopName = (await firstShop.textContent())!.replace(' (uten koord.)', '').replace(/ · (Closed|24h|\d{2}:\d{2}–.*)$/, '')
     await page.locator('#itl-add-shop').selectOption(await firstShop.getAttribute('value'))
     await page.locator('#itl-add-save').click()
     await expect.poll(() => saves.length, { timeout: 10000 }).toBeGreaterThan(0)

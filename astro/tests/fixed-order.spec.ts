@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { test, expect, testName } from './fixtures'
-import { computeDayTimes, checkDayRequestBody, misplacedFixedFor, placeFixedStopByTime, moveStopToDay, moveStopsToDay, swapDays, type PlanDay } from '../src/lib/itinerary-plan'
+import { computeDayTimes, checkDayRequestBody, misplacedFixedFor, placeFixedStopByTime, moveStopToDay, moveStopsToDay, swapDays, applyReviewAction, type PlanDay } from '../src/lib/itinerary-plan'
 import { reviewInputsFromBody, serverReviewItems } from '../src/lib/itinerary-review-helpers'
 import { planDocIdFor } from '../src/lib/trip-plans'
 
@@ -66,6 +66,23 @@ test.describe('fixed stops out of order: the real 5 December day', () => {
     swapDays(broken, empty, PLACE)
     expect(nameOf(empty.stops[0])).toBe(MARKET)
     expect(broken.stops).toEqual([])
+  })
+
+  test('Check day\'s "Apply: move to day" places a fixed-time stop by its time, as "Move to day…" does', () => {
+    const ikebukuro = realDay()
+    const [market] = ikebukuro.stops.splice(10, 1)
+    const other: PlanDay = { day: '2026-12-04', date: '4. des', area: '', note: '', startTime: '08:00', stops: [market] } as any
+    const find = (date: string) => (date === ikebukuro.day ? ikebukuro : undefined)
+    const action = { type: 'move_day', stopIndex: 0, stopName: MARKET, toDate: '2026-12-05' }
+    expect(applyReviewAction(other, action, SHOPS, find, PLACE)).toBe(true)
+    expect(other.stops).toEqual([])
+    expect(nameOf(ikebukuro.stops[0])).toBe(MARKET)
+    expect(misplacedFixedFor(ikebukuro, AKIBA, SHOPS)).toEqual([])
+    // A stop without a fixed time still goes to the end.
+    const shop = { name: 'Plain Shop', hours: '', tag: '', slot: '', lat: 35.7, lng: 139.77, dur: 30 }
+    const from: PlanDay = { day: '2026-12-04', date: '4. des', area: '', note: '', startTime: '08:00', stops: [shop] } as any
+    expect(applyReviewAction(from, { type: 'move_day', stopIndex: 0, stopName: 'Plain Shop', toDate: '2026-12-05' }, SHOPS, find, PLACE)).toBe(true)
+    expect(ikebukuro.stops[ikebukuro.stops.length - 1].name).toBe('Plain Shop')
   })
 
   test('Check day says it explicitly, with "Apply" moving it to position 1 (instead of "need N min more")', () => {

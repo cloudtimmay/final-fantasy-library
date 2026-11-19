@@ -239,12 +239,12 @@ test.describe('trains on the last legs, and travelers', () => {
     const day: any = { day: '2026-12-05', stops: [{ name: 'Hotel' }, { name: 'Shizuoka', train: FULL }], returnTrain: ONE_BACK }
     const sched = scheduleDay([stop('Hotel'), stop('Shizuoka', { train: trainTimes(FULL) })], t('06:00'), BASE, { returnTrain: trainTimes(ONE_BACK) })
     const fares = dayTrainFares(day, sched, new Map(), null)
-    expect(fares).toEqual({ totalYen: 7340, groupYen: 36700, travelers: 5, estimate: false })
+    expect(fares).toEqual({ totalYen: 7340, groupYen: 36700, travelers: 5, estimate: false, staleNotCounted: false })
     expect(dayTrainFaresText(fares, 0.064)).toBe('🚆 Trains today: ¥7,340 per person (≈ 470 kr) · ¥36,700 for 5')
     // The trip's own number, and one train with its own.
     expect(dayTrainFaresText(dayTrainFares(day, sched, new Map(), 4), null)).toBe('🚆 Trains today: ¥7,340 per person · ¥29,360 for 4')
     const mixed = dayTrainFares({ ...day, returnTrain: { ...ONE_BACK, travelers: 2 } }, sched, new Map(), null)
-    expect(mixed).toEqual({ totalYen: 7340, groupYen: 6670 * 5 + 670 * 2, travelers: null, estimate: false })
+    expect(mixed).toEqual({ totalYen: 7340, groupYen: 6670 * 5 + 670 * 2, travelers: null, estimate: false, staleNotCounted: false })
     expect(dayTrainFaresText(mixed, null)).toBe('🚆 Trains today: ¥7,340 per person · ¥34,690 for everyone')
   })
 })

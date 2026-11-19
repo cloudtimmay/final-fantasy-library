@@ -554,7 +554,8 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         // puts every day's stops back as they were.
         onApply: (action) => {
           const before = state.map((d) => ({ d, stops: JSON.parse(JSON.stringify(d.stops)) }))
-          if (!LIB().applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date))) return null
+          // move_day: a fixed-time stop to its place by its time there (as on the timeline).
+          if (!LIB().applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date), { base: basesOf, shopById })) return null
           saveState(); render()
           return () => {
             before.forEach(({ d, stops }) => { d.stops = stops })

@@ -1159,7 +1159,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // every day's stops back as they were.
         onApply: (action) => {
           const before = state.map((d) => ({ d, stops: JSON.parse(JSON.stringify(d.stops)) }))
-          if (!applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date))) return null
+          if (!applyReviewAction(day, action, shopById, (date) => state.find((d) => d.day === date), placeCtx)) return null
           saveState(); render()
           return () => {
             before.forEach(({ d, stops }) => { d.stops = stops })

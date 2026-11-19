@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { test, expect, testName } from './fixtures'
-import { computeDayTimes, checkDayRequestBody, optimizerInput, type PlanDay } from '../src/lib/itinerary-plan'
+import { computeDayTimes, checkDayRequestBody, optimizerInput, dayTrainFares, dayTrainFaresText, type PlanDay } from '../src/lib/itinerary-plan'
 import { scheduleDay, staleTrainMessage } from '../src/lib/itinerary-schedule'
 import { reviewInputsFromBody, serverReviewItems } from '../src/lib/itinerary-review-helpers'
 import { planDocIdFor } from '../src/lib/trip-plans'
@@ -63,6 +63,47 @@ test.describe('a stale train on the real 5 December day', () => {
   })
 })
 
+test.describe('the day\'s fares leave a stale train out', () => {
+  const s = (name: string, extra: Record<string, unknown> = {}) => ({ name, hours: '', tag: '', slot: '', lat: 35.698, lng: 139.7731, dur: 60, ...extra })
+  const leg = (departure: string, arrival: string) => ({ line: 'Yamanote Line', train: 'local', fromStation: 'Akihabara Station', departure, platform: '', toStation: 'Ueno Station', arrival })
+  const fresh = (): PlanDay => ({ day: '2026-12-05', date: '5. des', area: '', note: '', startTime: '10:00', stops: [
+    s('A'),
+    s('B', { train: { legs: [leg('08:34', '08:40')], walkToStationMin: 5, fareYen: 260 } }), // stale: B is reached ~11:00
+    s('C', { train: { legs: [leg('14:00', '14:10')], walkToStationMin: 5, fareYen: 210 } }),
+  ] } as any)
+
+  test('not in the total, and "(stale train not counted)" next to it; counted again once it fits', () => {
+    let day = fresh()
+    let { sched } = computeDayTimes(day, AKIBA, SHOPS)
+    expect(sched.stops[1].staleTrain).toBe(t('08:34'))
+    let f = dayTrainFares(day, sched, SHOPS, 1)!
+    expect(f).toMatchObject({ totalYen: 210, groupYen: 210, staleNotCounted: true })
+    expect(dayTrainFaresText(f, null)).toBe('🚆 Trains today: ¥210 per person · ¥210 for 1 (stale train not counted)')
+    // B first: its 08:34 train is the first leg (never stale) and counts.
+    day = fresh()
+    day.stops.reverse()
+    day.stops = [day.stops[1], day.stops[2], day.stops[0]]
+    ;({ sched } = computeDayTimes(day, AKIBA, SHOPS))
+    expect(sched.stops[0].staleTrain).toBeNull()
+    f = dayTrainFares(day, sched, SHOPS, 1)!
+    expect(f.staleNotCounted).toBe(false)
+    expect(f.totalYen).toBe(470)
+    expect(dayTrainFaresText(f, null)).not.toContain('stale')
+  })
+
+  test('the real 5 December day: the market\'s ¥260 isn\'t counted, the 15:34 train\'s ¥210 is', () => {
+    const day = realDay()
+    const { sched } = computeDayTimes(day, AKIBA, SHOPS)
+    const f = dayTrainFares(day, sched, SHOPS, 1)!
+    expect(f.staleNotCounted).toBe(true)
+    // The same day without the stale train on the market: the same total.
+    const without = realDay()
+    delete (without.stops[10] as any).train
+    expect(dayTrainFares(without, computeDayTimes(without, AKIBA, SHOPS).sched, SHOPS, 1)!.totalYen).toBe(f.totalYen)
+    expect(dayTrainFaresText(f, null)).toMatch(/\(stale train not counted\)$/)
+  })
+})
+
 test.describe('stale trains (itinerary-schedule.ts)', () => {
   const stop = (name: string, extra: Record<string, unknown> = {}) => ({ name, lat: 35.698, lng: 139.7731, durationMin: 60, fixedTime: null, arriveEarlyMin: null, manualTravelMin: null, noteTravelMin: null, ...extra })
   const train = { departure: t('11:00'), arrival: t('11:20'), walkToStationMin: 5 }
@@ -95,8 +136,9 @@ test.describe('/itinerary: a stale train on the leg and in the sheet', () => {
     const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Stale Train ${tag}`), firstTokyoDay: '2027-03-02', lastTokyoDay: '2027-03-03' })
     trackDoc(trip._id)
     const s = (name: string, extra: Record<string, unknown> = {}) => ({ name, hours: '', tag: '', slot: '', lat: 35.698, lng: 139.7731, dur: 60, ...extra })
-    const TRAIN = { legs: [{ line: 'Keihin-Tōhoku Line', train: 'local', fromStation: 'Akihabara Station', departure: '08:34', platform: '4', toStation: 'Ōimachi Station', arrival: '08:54' }], walkToStationMin: 5, walkFromStationMin: 3 }
-    const data = JSON.stringify({ v: 2, days: { '2027-03-02': { startTime: '10:00', stops: [s('Shop One'), s('Shop Two'), s('Market', { lat: 35.6068, lng: 139.7343, train: TRAIN }), s('Shop Three')] } } })
+    const TRAIN = { legs: [{ line: 'Keihin-Tōhoku Line', train: 'local', fromStation: 'Akihabara Station', departure: '08:34', platform: '4', toStation: 'Ōimachi Station', arrival: '08:54' }], walkToStationMin: 5, walkFromStationMin: 3, fareYen: 260 }
+    const LATER = { legs: [{ line: 'Keihin-Tōhoku Line', train: 'local', fromStation: 'Ōimachi Station', departure: '16:00', platform: '', toStation: 'Akihabara Station', arrival: '16:20' }], walkToStationMin: 5, walkFromStationMin: 3, fareYen: 210 }
+    const data = JSON.stringify({ v: 2, days: { '2027-03-02': { startTime: '10:00', stops: [s('Shop One'), s('Shop Two'), s('Market', { lat: 35.6068, lng: 139.7343, train: TRAIN }), s('Shop Three', { train: LATER })] } } })
     const plan = await sanity.createOrReplace({ _id: planDocIdFor({ ...trip }), _type: 'itineraryState', data, updatedAt: new Date().toISOString(), trip: { _type: 'reference', _ref: trip._id, _weak: true } })
     trackDoc(plan._id)
     await page.route('**/api/itinerary-save', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }))
@@ -105,6 +147,9 @@ test.describe('/itinerary: a stale train on the leg and in the sheet', () => {
     const market = page.locator('.itl-block').filter({ has: page.locator('.itl-name', { hasText: 'Market' }) })
     await expect(market.locator('.itl-train-stale')).toHaveText('⚠️ This train (08:34) no longer fits here. Plan a new one or remove it.')
     await expect(page.locator('.itl-badge', { hasText: "Doesn't fit" })).toHaveCount(0)
+    // The day's fares: the 16:00 train's ¥210, not the stale one's ¥260.
+    await expect(page.locator('#itl-day-fares')).toContainText('¥210 per person')
+    await expect(page.locator('#itl-day-fares')).toContainText('(stale train not counted)')
     await market.locator('.itl-name').click()
     await expect(page.locator('#itl-detail')).toContainText('⚠️ This train (08:34) no longer fits here. Plan a new one or remove it.')
   })

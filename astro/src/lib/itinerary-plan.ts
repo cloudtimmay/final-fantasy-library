@@ -675,11 +675,13 @@ export function closingTimeFor(s: PlanStop, shopById: Map<string, PlanShop>, day
 // train). null when the day has no train legs.
 // The trains back to the base and to the airport count like any other planned train. `groupYen`:
 // each fare × its travelers (the train's own number, else the trip's, else DEFAULT_TRAVELERS);
-// `travelers`: that number when every fare counted has the same, else null.
-export type DayTrainFares = { totalYen: number; groupYen: number; travelers: number | null; estimate: boolean }
+// `travelers`: that number when every fare counted has the same, else null. A stale train
+// (itinerary-schedule.ts staleTrain — not the leg any more) isn't counted: its leg counts like one
+// without a planned train, and `staleNotCounted` says so.
+export type DayTrainFares = { totalYen: number; groupYen: number; travelers: number | null; estimate: boolean; staleNotCounted: boolean }
 export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<string, PlanShop>, tripTravelers: number | null = null): DayTrainFares | null {
   const tripN = tripTravelers ?? DEFAULT_TRAVELERS
-  let totalYen = 0, groupYen = 0, estimate = false, legs = 0
+  let totalYen = 0, groupYen = 0, estimate = false, legs = 0, staleNotCounted = false
   const counts = new Set<number>()
   // A planned train: its fare (or, without one, an estimate). false when it isn't a valid train.
   const planned = (t: unknown): boolean => {
@@ -692,7 +694,8 @@ export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<st
     return true
   }
   day.stops.forEach((s, i) => {
-    if (planned(s.train)) return
+    if (s.train && sched.stops[i]?.staleTrain != null) staleNotCounted = true
+    else if (planned(s.train)) return
     if (sched.stops[i]?.travelIn.mode === 'train') {
       legs++
       estimate = true
@@ -704,13 +707,14 @@ export function dayTrainFares(day: PlanDay, sched: DaySchedule, shopById: Map<st
   })
   if (!planned(day.returnTrain) && sched.returnLeg?.mode === 'train') { legs++; estimate = true }
   planned(day.airportTrain)
-  return legs ? { totalYen, groupYen, travelers: counts.size === 0 ? tripN : counts.size === 1 ? [...counts][0] : null, estimate } : null
+  return legs || staleNotCounted ? { totalYen, groupYen, travelers: counts.size === 0 ? tripN : counts.size === 1 ? [...counts][0] : null, estimate, staleNotCounted } : null
 }
 // "🚆 Trains today: ¥7,340 per person (≈ 470 kr) · ¥36,700 for 5 · estimate"; '' without fares.
+// "… (stale train not counted)" when a stale train's fare was left out.
 export function dayTrainFaresText(f: DayTrainFares | null, rate: number | null | undefined): string {
   if (!f || !f.totalYen) return ''
   const group = `${formatYen(f.groupYen)} ${f.travelers != null ? `for ${f.travelers}` : 'for everyone'}`
-  return `🚆 Trains today: ${yenWithNok(f.totalYen, rate).replace(/^(¥[\d,]+)/, '$1 per person')} · ${group}${f.estimate ? ' · estimate' : ''}`
+  return `🚆 Trains today: ${yenWithNok(f.totalYen, rate).replace(/^(¥[\d,]+)/, '$1 per person')} · ${group}${f.estimate ? ' · estimate' : ''}${f.staleNotCounted ? ' (stale train not counted)' : ''}`
 }
 
 // The flight day's deadline. Without a train to the airport: leave the base by
@@ -959,6 +963,8 @@ export function applyReviewAction(
   action: { type: string; stopIndex: number; stopName: string; leaveAt?: string; durationMin?: number; toIndex?: number; toDate?: string },
   shopById: Map<string, PlanShop>,
   findDay: (date: string) => PlanDay | undefined,
+  // move_day: a fixed-time stop to its place by its time on that day (as "Move to day…" does).
+  place?: PlaceCtx,
 ): boolean {
   const stop = day.stops[action.stopIndex]
   if (!stop || resolveStop(stop, shopById).name !== action.stopName) return false
@@ -981,7 +987,7 @@ export function applyReviewAction(
     case 'move_day': {
       const to = action.toDate ? findDay(action.toDate) : undefined
       if (!to || to === day) return false
-      moveStopToDay(day, action.stopIndex, to)
+      moveStopToDay(day, action.stopIndex, to, place)
       return true
     }
     case 'remove_stop':

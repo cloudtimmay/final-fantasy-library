@@ -138,6 +138,7 @@ export function flightLine(flight: FlightHome): string {
 export type ReviewScheduleStop = {
   fixedTime: number | null
   arriveEarlyMin: number | null
+  notBefore?: number | null // "⏳ Not before": a soft time the owner chose
   sched: ScheduledStop
 }
 
@@ -236,6 +237,7 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       if (sc.fixedTime != null) {
         lines.push(`    FIXED TIME ${formatClock(sc.fixedTime)} (anchor)${sc.arriveEarlyMin ? `; must arrive ${sc.arriveEarlyMin} min early, by ${formatClock(sc.sched.arrival)}` : ''}`)
       }
+      if (sc.notBefore != null) lines.push(`    NOT BEFORE ${formatClock(sc.notBefore)} (a soft time the owner chose: start no earlier — not a deadline, never a reason the stops before it don't fit)${sc.sched.heldMin ? `; it starts ${sc.sched.heldMin} min later than it could` : ''}`)
       if (sc.sched.leaveBy != null) lines.push(`    Leave by: ${formatClock(sc.sched.leaveBy)}${sc.sched.nextIsAnchor ? ` (next stop has a fixed time; includes a ${LEAVE_BUFFER_MIN}-min buffer)` : ''}`)
       if (sc.sched.stayUntil != null) lines.push(`    Can stay until: ${formatClock(sc.sched.stayUntil)}`)
       if (sc.sched.doesntFit) lines.push(`    PROBLEM: can't reach the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} in time after this (${sc.sched.doesntFit.shortMin} min short)`)
@@ -505,6 +507,7 @@ export function reviewInputsFromBody(body: any): { error: string } | ReviewInput
       actualStart: hhmm(raw?.actualStart),
       actualEnd: hhmm(raw?.actualEnd),
       leaveAt: hhmm(raw?.leaveAt),
+      notBefore: fixedTime == null ? hhmm(raw?.notBefore) : null,
       train: trainTimes(validTrainOf(raw?.train)),
       openingHours: openingHoursByStop[i],
     }
@@ -523,7 +526,7 @@ export function reviewInputsFromBody(body: any): { error: string } | ReviewInput
     ? { leaveBy: trainLeaveBy(airportTrainTimes), atAirport: daySchedule ? daySchedule.end : airportTrainTimes.arrival + (airportTrainTimes.walkFromStationMin ?? 5), summary: trainSummary(airportPlan).replace(/^🚆 /, '') }
     : null
   const schedule: ReviewScheduleStop[] | null = daySchedule
-    ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, sched }))
+    ? daySchedule.stops.map((sched, i) => ({ fixedTime: scheduleInputs[i].fixedTime, arriveEarlyMin: scheduleInputs[i].arriveEarlyMin, notBefore: scheduleInputs[i].notBefore ?? null, sched }))
     : null
   return { stops, notesByStop, openingHoursByStop, scheduleInputs, startMin, dayDate, weekday, flight, daySchedule, schedule, airportTrain }
 }

@@ -44,6 +44,9 @@ export type PlanStop = {
   actualStart?: string // "HH:MM", set by "I'm here now" on the timeline
   actualEnd?: string // "HH:MM", set by "Leaving now"
   leaveAt?: string // "HH:MM": "🚪 Leave at" — the visit ends then (itinerary-schedule.ts)
+  // "HH:MM" (Tokyo time): "⏳ Not before" — a soft earliest start set by ▲ / ▼ (moveLaterInTime);
+  // not an anchor (itinerary-schedule.ts). Only on a stop without a fixed time.
+  notBefore?: string
   train?: TrainPlan // "🚆 Plan train": the train on the leg INTO this stop (lib/train-plan.ts)
   [key: string]: unknown
 }
@@ -155,6 +158,7 @@ export function computeDayTimes(
       actualStart: parseClock(s.actualStart),
       actualEnd: parseClock(s.actualEnd),
       leaveAt: parseClock(s.leaveAt),
+      notBefore: s.fixedTime ? null : parseClock(s.notBefore),
       train: trainTimes(s.train),
       openingHours: stopHoursText(s, shopById).text || null,
     }
@@ -302,6 +306,7 @@ export function checkDayRequestBody(
       // A leave time sets the length; the review recomputes it from leaveAt too.
       durationMin: s.leaveAt ? sched.stops[si].end - sched.stops[si].start : s.dur != null ? s.dur : defaultDurationMin(s),
       leaveAt: s.leaveAt || null,
+      notBefore: (!s.fixedTime && s.notBefore) || null,
       train: s.train || null,
       lat: r.lat,
       lng: r.lng,
@@ -364,6 +369,7 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       openingHours: stopHoursText(s, ctx.shopById).text || null,
       note: stopNote(s, ctx.shopById),
       leaveAt: parseClock(s.leaveAt),
+      notBefore: s.fixedTime ? null : parseClock(s.notBefore),
       train,
       // A train leg stays intact: the stop after it and the stop before it keep their places.
       locked: !!train || !!trainOf(i + 1),
@@ -390,6 +396,64 @@ export function parseLatLng(str: string | null | undefined): { lat: number; lng:
   const lat = parseFloat(m[1]), lng = parseFloat(m[2])
   if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
   return { lat, lng }
+}
+
+// --- ▲ / ▼ on the timeline: in time, like a calendar ------------------------------------------
+// ▼ (moveLaterInTime): with free time after the stop — before the next stop's anchor, train or own
+// "not before" time, or its wait for the opening — the stop moves later by its own length (or the
+// free time, if less) through a soft "⏳ Not before" time (PlanStop.notBefore), and nothing else
+// moves; with none, it swaps with the next stop as before. ▲ (moveEarlierInTime): a stop its
+// "not before" time holds back moves earlier by its length — the soft time goes once it reaches the
+// time it would have without it; otherwise it swaps with the stop before (and drops a soft time,
+// which would only hold it back there). A stop with a fixed time, actual times or a leave time
+// always swaps. 'later' / 'earlier': moved in time; 'swapped'; null: nothing to do.
+export type TimeMove = 'later' | 'earlier' | 'swapped' | null
+const movesInTime = (s: PlanStop) => !s.fixedTime && !s.actualStart && !s.actualEnd && !s.leaveAt
+const clockText = (m: number) => hhmm(((Math.round(m) % 1440) + 1440) % 1440)
+export function moveLaterInTime(day: PlanDay, idx: number, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): TimeMove {
+  const s = day.stops[idx]
+  if (!s || idx >= day.stops.length - 1) return null
+  if (movesInTime(s)) {
+    const { sched } = computeDayTimes(day, base, shopById)
+    const x = sched.stops[idx], next = sched.stops[idx + 1]
+    const free = (next.freeBefore?.minutes || 0) + (next.waitMin || 0)
+    const by = Math.min(x.end - x.start, free)
+    if (by > 0) { s.notBefore = clockText(x.start + by); return 'later' }
+  }
+  return moveStopBy(day, idx, +1) ? 'swapped' : null
+}
+// How much later stop idx starts because of its "not before" time (0 when it doesn't hold it back).
+export function heldByNotBefore(day: PlanDay, idx: number, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): number {
+  const s = day.stops[idx]
+  if (!s || !s.notBefore || !movesInTime(s)) return 0
+  return computeDayTimes(day, base, shopById).sched.stops[idx]?.heldMin || 0
+}
+export function moveEarlierInTime(day: PlanDay, idx: number, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): TimeMove {
+  const s = day.stops[idx]
+  if (!s) return null
+  if (heldByNotBefore(day, idx, base, shopById) > 0) {
+    const x = computeDayTimes(day, base, shopById).sched.stops[idx]
+    const without: PlanDay = { ...day, stops: day.stops.map((o, i) => (i === idx ? { ...o, notBefore: undefined } : o)) }
+    const natural = computeDayTimes(without, base, shopById).sched.stops[idx].start
+    const to = x.start - Math.max(1, x.end - x.start)
+    if (to <= natural) delete s.notBefore
+    else s.notBefore = clockText(to)
+    return 'earlier'
+  }
+  if (idx === 0) return null
+  if (movesInTime(s)) delete s.notBefore
+  return moveStopBy(day, idx, -1) ? 'swapped' : null
+}
+// Suggest route's new order (route-optimizer.ts `order`: old indexes): a stop that keeps its place
+// keeps its "not before" time; one the suggestion moves loses it (copies — an undo keeps the old).
+export function applyRouteOrder(day: { stops: PlanStop[] }, order: number[]): void {
+  const old = day.stops
+  day.stops = order.map((from, to) => {
+    const s = old[from]
+    if (from === to || !s.notBefore) return s
+    const { notBefore, ...rest } = s
+    return rest as PlanStop
+  })
 }
 
 // One place up (delta -1) or down (+1); false when it's already first/last.

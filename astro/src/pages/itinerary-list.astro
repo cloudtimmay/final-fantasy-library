@@ -604,7 +604,7 @@ const tripQuery = tripParam ? `?trip=${encodeURIComponent(tripParam)}` : ''
         fmt,
         onApply: () => {
           undoByDay[di] = day.stops.slice()
-          state[di].stops = result.order.map((i) => day.stops[i])
+          LIB().applyRouteOrder(state[di], result.order) // a moved stop loses its "not before" time
           saveState(); render()
         },
       })

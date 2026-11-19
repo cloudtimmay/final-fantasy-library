@@ -340,7 +340,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, plannedDaysByShop, searchResultNote, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
-      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
+      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, moveLaterInTime, moveEarlierInTime, heldByNotBefore, applyRouteOrder, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, legLeaveTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
@@ -853,6 +853,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           ${firstLine()}
           ${times}
           ${x.waitMin ? `<span class="itl-wait">⏳ Waits ${x.waitMin} min for opening</span>` : ''}
+          ${s.notBefore && !s.fixedTime ? `<span class="itl-nb">⏳ Not before ${esc(s.notBefore)} <button type="button" class="itl-nb-clear" aria-label="Clear the not-before time" title="Clear">✕</button></span>` : ''}
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
@@ -1172,7 +1173,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         fmt: formatClock,
         onApply: () => {
           undoByDay[day.day] = day.stops.slice()
-          day.stops = result.order.map((i) => day.stops[i])
+          applyRouteOrder(day, result.order) // a moved stop loses its "not before" time
           checkMarks = {}
           saveState(); render()
           renderRouteApplied(routePanel, () => {
@@ -1458,6 +1459,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // "Leave by" with the list's "⏰ Reminder" link (itinerary-ui.ts reminderLinkHtml).
       if (x.leaveBy != null) lines.push({ html: `Leave by ${formatClock(x.leaveBy)}${reminderLinkHtml(day, idx, x.departAt ?? x.leaveBy, shopById)}` })
       if (x.waitMin) lines.push(`⏳ Waits ${x.waitMin} min for opening (there ${formatClock(x.arrival)}, opens ${formatClock(x.start)})`)
+      if (s.notBefore && !s.fixedTime) lines.push({ html: `⏳ Not before ${esc(s.notBefore)} <button type="button" class="itl-nb-clear" aria-label="Clear the not-before time" title="Clear">✕</button>` })
       if (x.stayUntil != null) lines.push(`You can stay until ${formatClock(x.stayUntil)}`)
       // The warning with its one-tap fix (leaveFixFor), when leaving earlier can fix it.
       const fix = fixButton(leaveFixFor(sched, idx, flightDeadlineFor(day)))
@@ -1557,7 +1559,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-ed-early-label') as HTMLElement).hidden = !s.fixedTime
       ed('tag').value = s.tag || ''
       ;(document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value = typeof s.note === 'string' ? s.note : ''
-      ;(document.querySelector('#itl-ed-up') as HTMLButtonElement).disabled = idx === 0
+      // ▲ on the first stop still moves it earlier when its "not before" time holds it back.
+      ;(document.querySelector('#itl-ed-up') as HTMLButtonElement).disabled = idx === 0 && heldByNotBefore(day, idx, basesOf(day), shopById) === 0
       ;(document.querySelector('#itl-ed-down') as HTMLButtonElement).disabled = idx === day.stops.length - 1
       const move = document.querySelector('#itl-ed-move') as HTMLSelectElement
       move.innerHTML = '<option value="">—</option>' + state.filter((d) => d !== day).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}</option>`).join('')
@@ -1606,6 +1609,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     }))
     // "Fix: leave at HH:MM" on a warning in the sheet.
     document.querySelector('#itl-detail-lines')!.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.itl-nb-clear')) { withStop((s) => { delete s.notBefore; changed() })(); return }
       const btn = (e.target as HTMLElement).closest('.itl-fix') as HTMLElement | null
       if (btn) withStop((s) => { setLeaveAt(s, btn.dataset.time || ''); changed() })()
     })
@@ -1620,17 +1624,20 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       if (v) s.note = v; else delete s.note
       changed()
     }))
+    // ▲ / ▼ move the stop in time, like a calendar (itinerary-plan.ts moveEarlierInTime /
+    // moveLaterInTime): into free time through a soft "not before" time, else a swap as before.
     document.querySelector('#itl-ed-up')!.addEventListener('click', withStop((s, idx, day) => {
       // Above the first stop: it comes before it, so the day may need to start earlier.
       const oldFirstStart = idx === 1 ? computeDayTimes(day, basesOf(day), shopById).sched.stops[0].start : null
-      if (!moveStopBy(day, idx, -1)) return
-      if (oldFirstStart != null) {
+      const moved = moveEarlierInTime(day, idx, basesOf(day), shopById)
+      if (!moved) return
+      if (moved === 'swapped' && oldFirstStart != null) {
         const by = arriveByBefore(day, basesOf(day), shopById, oldFirstStart)
         if (by != null) startEarlierFor(day, by)
       }
       changed()
     }))
-    document.querySelector('#itl-ed-down')!.addEventListener('click', withStop((s, idx, day) => { if (moveStopBy(day, idx, +1)) changed() }))
+    document.querySelector('#itl-ed-down')!.addEventListener('click', withStop((s, idx, day) => { if (moveLaterInTime(day, idx, basesOf(day), shopById)) changed() }))
     document.querySelector('#itl-ed-move')!.addEventListener('change', withStop((s, idx, day) => {
       const to = state.find((d) => d.day === (document.querySelector('#itl-ed-move') as HTMLSelectElement).value)
       if (!to) return
@@ -1831,6 +1838,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // ☑ Select stops: a tap ticks it instead of opening it.
       if (selectMode) { e.preventDefault(); if (selected.has(idx)) selected.delete(idx); else selected.add(idx); paintSelection(); return }
       if (target.closest('.itl-train-line')) { openTravelEditor(idx); return }
+      // ✕ on "⏳ Not before": back to its natural time.
+      if (target.closest('.itl-nb-clear')) { delete currentDayPlan().stops[idx].notBefore; changed(); return }
       // "Fix: leave at HH:MM" on the block's warning: that leave time on this stop.
       const fixBtn = target.closest('.itl-fix') as HTMLElement | null
       if (fixBtn) { setLeaveAt(currentDayPlan().stops[idx], fixBtn.dataset.time || ''); changed(); return }
@@ -2339,6 +2348,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-travel.itl-travel-stack .itl-tr-sep { display: none; }
     .itl-travel.itl-travel-duronly .itl-tr-dep, .itl-travel.itl-travel-duronly .itl-tr-sep { display: none; }
     .itl-travel.itl-travel-duronly .itl-tr-dur::before { content: attr(data-icon) ' '; }
+    .itl-nb { font-size: 0.7rem; color: #8e7cc3; font-weight: 600; white-space: nowrap; }
+    .itl-nb-clear { background: none; border: none; color: inherit; font: inherit; padding: 0 0.2rem; cursor: pointer; }
     .itl-train-stale { color: #e67e22 !important; white-space: normal !important; }
     .itl-train-line { font-size: 0.7rem; font-weight: 600; color: #6b9fd4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .itl-train { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }

@@ -46,6 +46,11 @@
 //   is an anchor for the stops before it, like a fixed time: "leave earlier", "doesn't fit" and
 //   the segment overrun all count back from its leave-by. On a fixed-time stop, a train arriving
 //   too late for it is `trainLateMin`.
+// - "⏳ Not before" (`notBefore`, a soft time — the timeline's ▲ / ▼ set it): a non-fixed stop is
+//   reached no earlier than then — the trip sets off so it arrives then, and the time before is
+//   free (`freeBefore`); `heldMin` is how much later than without it. With a train on the leg the
+//   visit waits for it instead. It is not an anchor: nothing before it is ever warned about it.
+//   Ignored on a stop with actual times (it's under way).
 // - A stale train (`staleTrain`): one whose departure is earlier than you can reach its station
 //   even leaving the stop before the moment you get there (its arrival, or its actual end once
 //   left) plus the walk to the station. A stop before it that only runs long keeps the train
@@ -76,6 +81,7 @@ export type ScheduleStopInput = {
   actualStart?: number | null // when you really got there (minutes after midnight)
   actualEnd?: number | null // when you really left
   leaveAt?: number | null // "Leave at": when the visit ends (minutes after midnight)
+  notBefore?: number | null // "⏳ Not before": a soft earliest start (minutes after midnight); not an anchor
   train?: TrainTimes | null // a train on the leg INTO this stop
   openingHours?: string | null // its hours text: a visit reached before the opening waits for it
 }
@@ -141,6 +147,7 @@ export type ScheduledStop = {
   // The leg's planned train leaves before you can reach its station (see the rules): its departure
   // (minutes after midnight, as planned). Not used for the schedule. null otherwise.
   staleTrain: number | null
+  heldMin: number | null // starts this much later because of its "not before" time, else null
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -201,8 +208,13 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     }
     const anchor = anchorArrival(s)
     const actualStart = s.fixedTime == null && s.actualStart != null ? s.actualStart : null
-    const arrival = anchor != null ? anchor : actualStart != null ? actualStart : trainArrival != null ? trainArrival : clock + legs[i].minutes
-    let start = s.fixedTime != null ? s.fixedTime : arrival
+    let arrival = anchor != null ? anchor : actualStart != null ? actualStart : trainArrival != null ? trainArrival : clock + legs[i].minutes
+    // "⏳ Not before" (see the rules): get there then (by train: wait for it there).
+    const notBefore = s.fixedTime == null && actualStart == null && s.actualEnd == null && s.notBefore != null
+      ? (s.notBefore + 720 < clock ? s.notBefore + 1440 : s.notBefore) : null
+    const heldMin = notBefore != null && notBefore > arrival ? notBefore - arrival : null
+    if (heldMin != null && trainArrival == null) arrival = notBefore!
+    let start = s.fixedTime != null ? s.fixedTime : heldMin != null ? notBefore! : arrival
     // Not open yet when you get there: the visit starts at the opening, and the day runs on from it.
     let waitMin: number | null = null
     if (s.fixedTime == null && actualStart == null && s.actualEnd == null && s.leaveAt == null && s.openingHours) {
@@ -219,6 +231,8 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
     let freeBefore: ScheduledStop['freeBefore'] = null
     if (trainArrival != null) {
       if (travelStart > prevEnd) freeBefore = { from: prevEnd, to: travelStart, minutes: travelStart - prevEnd }
+    } else if (heldMin != null) {
+      if (travelStart > prevEnd) freeBefore = { from: prevEnd, to: travelStart, minutes: travelStart - prevEnd }
     } else if (anchor != null && prevEnd + legs[i].minutes <= anchor) {
       travelStart = prevEnd
       const reach = prevEnd + legs[i].minutes, by = anchor - LEAVE_BUFFER_MIN
@@ -232,6 +246,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
       trainEarly: s.fixedTime != null && trainArrival != null && s.fixedTime - trainArrival > TRAIN_EARLY_HINT_MIN ? { arrival: trainArrival, fixedTime: s.fixedTime } : null,
       staleTrain,
+      heldMin,
     })
     clock = end
   })

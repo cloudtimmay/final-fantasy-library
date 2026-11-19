@@ -23,6 +23,7 @@ export type OptimizerStop = {
   openingHours: string | null // free text, e.g. "10:00–20:00, closed Tue"
   note: string | null // the shop's own note — may contain a real travel time from Akihabara
   leaveAt?: number | null // "Leave at": the visit ends then (itinerary-schedule.ts)
+  notBefore?: number | null // "⏳ Not before": reached no earlier than then (a soft time, not counted as waiting)
   // A planned train on the leg INTO this stop (lib/train-plan.ts trainTimes): you arrive with it.
   train?: { departure: number; arrival: number; walkToStationMin?: number | null; walkFromStationMin?: number | null; marginMin?: number | null } | null
   // Stays in its position, like a fixed-time stop: the stops on both sides of a train leg, so the
@@ -37,6 +38,12 @@ const TRAIN_PLATFORM_MIN = 5
 const trainLeave = (t: { departure: number; walkToStationMin?: number | null; marginMin?: number | null }) =>
   t.departure - (typeof t.marginMin === 'number' && t.marginMin >= 0 ? t.marginMin : TRAIN_PLATFORM_MIN) - Math.max(0, t.walkToStationMin || 0)
 const TRAIN_EXIT_WALK_MIN = 5
+// "⏳ Not before" (itinerary-schedule.ts): a stop without a fixed time is reached no earlier than
+// then — free time, not a wait the score counts.
+const notBeforeAt = (s: { fixedTime: number | null; notBefore?: number | null }, clock: number) => {
+  if (s.fixedTime != null || s.notBefore == null) return clock
+  return Math.max(clock, s.notBefore + 720 < clock ? s.notBefore + 1440 : s.notBefore)
+}
 // Matches itinerary-schedule.ts LEAVE_BUFFER_MIN: the margin before reaching a fixed stop.
 const LEAVE_BUFFER_MIN = 10
 // When a fixed stop must be reached — the same anchor as the schedule: its time less arrive-early.
@@ -166,6 +173,7 @@ function computeSchedule(order: OptimizerStop[], startTime: number, start: Route
       clock += travel
       travelMin += travel
     }
+    clock = notBeforeAt(stop, clock)
     // Closed when you get there (closed that weekday, not open yet, or closed already): the
     // large penalty. Not open yet also counts the wait (lib/opening-hours.ts).
     // Not open yet: wait for the opening, as the schedule does (lib/itinerary-schedule.ts); still
@@ -283,6 +291,7 @@ function simulateFeasible(order: OptimizerStop[], movable: boolean[], startTime:
         if (clock > stop.mealWindow.to) return { feasible: false, travelMin, waitMin, times }
       }
     }
+    clock = notBeforeAt(stop, clock)
     if (movable[i]) {
       let hours = checkHours(stop.openingHours, weekday, clock, clock + stop.durationMin, date)
       if (hours.kind === 'before-open') {

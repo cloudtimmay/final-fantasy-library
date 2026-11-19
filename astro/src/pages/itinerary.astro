@@ -361,7 +361,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import { linkSuggestions, suggestShop } from '../lib/stop-linking'
     import { validateTrain, trainSummary, trainLegText, trainDeparture, trainTravelMinutes, trainRideMinutes, trainDurationText, trainFareText, yenWithNok, trainIcon, trainLeaveText, trainBandMinutes, TRANSIT_MODES, MODE_ICON, MODE_LABEL, type TrainLeg } from '../lib/train-plan'
     import { screenshotParts } from '../lib/screenshot-parts'
-    import { trainEarlyHint } from '../lib/itinerary-schedule'
+    import { trainEarlyHint, staleTrainMessage } from '../lib/itinerary-schedule'
     import { timelineRange, layoutTimeline, offsetFor, minutesAtOffset, insertIndexForTime, ZOOM_LEVELS, DEFAULT_ZOOM_INDEX, CHIP_PX, freeTimeText } from '../lib/itinerary-timeline'
     import { latestEndForFlight, formatClock } from '../lib/itinerary-review-helpers'
     import { transitRouteUrl } from '../lib/itinerary-schedule'
@@ -813,6 +813,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         // on this one on a block too short for that line.
         const trainDur = s.train ? trainDurationText(s.train) : ''
         const trainLine = s.train ? `<span class="itl-train-line" role="button" title="Edit the train">${esc(trainSummary(s.train) + (trainDur ? ` · ${trainDur}` : ''))}</span>` : ''
+        // A train left on the leg that leaves before you can get to it (itinerary-schedule.ts staleTrain):
+        // not used for the times — plan a new one or remove it (a tap opens the train editor).
+        const staleLine = x.staleTrain != null ? `<span class="itl-train-stale itl-train-line" role="button" title="Edit the train">⚠️ ${esc(staleTrainMessage(x.staleTrain))}</span>` : ''
         // The linked shop's place type (🛍️ 🍜 🗼 📌) before the name; none for a stop without a shop.
         const type = placeTypeIcon(s.shopId ? shopById.get(s.shopId) : null)
         const typeIcon = type ? `<span class="itl-type" role="img" aria-label="${esc(type.label)}" title="${esc(type.label)}">${type.icon}</span>` : ''
@@ -826,6 +829,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const problems = [
           ...(midnight ? ['After midnight'] : []), ...(lastTrain ? [LAST_TRAIN_MESSAGE] : []),
           ...(closed ? [hoursWarning!.message] : []), ...warnings,
+          ...(x.staleTrain != null ? [staleTrainMessage(x.staleTrain)] : []),
         ]
         compactCandidates.push({
           el,
@@ -852,6 +856,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           ${actions}
           ${badges ? `<span class="itl-badges">${badges}</span>` : ''}
           ${trainLine}
+          ${staleLine}
           ${x.trainEarly ? `<span class="itl-hint">💡 ${esc(trainEarlyHint(x.trainEarly))}</span>` : ''}
           ${hoursWarning?.note ? `<span class="itl-hours-note">${esc(hoursWarning.message)}</span>` : ''}
           ${s.hours ? `<span class="itl-hours">${esc(s.hours)}</span>` : ''}
@@ -1482,6 +1487,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const backFare = trainFareText(after.train, tripRate, tripTravelers)
         if (backFare) lines.push(`💴 ${backFare}`)
       }
+      if (x.staleTrain != null) lines.push(`⚠️ ${staleTrainMessage(x.staleTrain)}`)
       if (x.trainLateMin != null) lines.push(`⚠️ The train arrives ${x.trainLateMin} min too late for the fixed time`)
       if (x.trainEarly) lines.push(`💡 ${trainEarlyHint(x.trainEarly)}`)
       const hoursWarning = stopHoursWarning(s, shopById, day.day, x.start, x.end)
@@ -2333,6 +2339,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     .itl-travel.itl-travel-stack .itl-tr-sep { display: none; }
     .itl-travel.itl-travel-duronly .itl-tr-dep, .itl-travel.itl-travel-duronly .itl-tr-sep { display: none; }
     .itl-travel.itl-travel-duronly .itl-tr-dur::before { content: attr(data-icon) ' '; }
+    .itl-train-stale { color: #e67e22 !important; white-space: normal !important; }
     .itl-train-line { font-size: 0.7rem; font-weight: 600; color: #6b9fd4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .itl-train { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
     .itl-train-head { margin: 0 0 0.3rem; font-weight: 600; font-size: 0.9rem; }

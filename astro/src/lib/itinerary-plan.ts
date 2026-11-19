@@ -347,9 +347,12 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
   // Meals stay at their time (± MEAL_WINDOW_MIN): their current start in the timetable.
   const nowTimes = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? computeDayTimes(day, { lat: ctx.base.lat, lng: ctx.base.lng }, ctx.shopById).times : null
   const start = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? { lat: ctx.base.lat, lng: ctx.base.lng } : null
+  const nowSched = typeof ctx.base.lat === 'number' && typeof ctx.base.lng === 'number' ? computeDayTimes(day, { lat: ctx.base.lat, lng: ctx.base.lng }, ctx.shopById).sched : null
+  // A stale train (itinerary-schedule.ts staleTrain) isn't kept: the leg is free to change.
+  const trainOf = (i: number) => (nowSched?.stops[i]?.staleTrain != null ? null : trainTimes(day.stops[i]?.train))
   const stops = day.stops.map((s, i) => {
     const r = resolveStop(s, ctx.shopById)
-    const train = trainTimes(s.train)
+    const train = trainOf(i)
     return {
       lat: r.lat,
       lng: r.lng,
@@ -363,7 +366,7 @@ export function optimizerInput(day: PlanDay, ctx: { base: { lat: number | null; 
       leaveAt: parseClock(s.leaveAt),
       train,
       // A train leg stays intact: the stop after it and the stop before it keep their places.
-      locked: !!train || !!trainTimes(day.stops[i + 1]?.train),
+      locked: !!train || !!trainOf(i + 1),
     }
   })
   return { stops, startTime: startTime != null ? startTime : parseClock(DEFAULT_START)!, start, weekday: dayWeekday(day.day), date: isIsoDate(day.day) ? day.day : null }
@@ -833,7 +836,7 @@ export function dayRouteLinks(
         ? googleMapsTimedUrl(from, p, legLeaveTime(day, sched, i === last ? day.stops.length : i - 1, i === last ? 'return' : 'stop', { baseStart }))
         : transitRouteUrl(from, p)
       // With its duration: a planned train's time on the train, else the estimate ("~45 min").
-      const planned = trainRideMinutes(legTrain)
+      const planned = i !== last && sched.stops[i - 1]?.staleTrain != null ? null : trainRideMinutes(legTrain)
       const dur = planned != null ? ` · ${planned} min` : estimate != null ? ` · ~${estimate} min` : ''
       out.push({ kind: 'train', label: `🚆 ${label(from)} → ${label(p)}${dur}`, url })
       run = [p]

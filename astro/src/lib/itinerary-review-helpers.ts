@@ -3,7 +3,7 @@
 // from it directly) so they can be imported by tests without pulling in Astro's
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
-import { trainEarlyHint } from './itinerary-schedule'
+import { trainEarlyHint, staleTrainMessage } from './itinerary-schedule'
 import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, scheduleDay, trainLeaveBy, type DaySchedule, type ScheduledStop, type SegmentOverrun, type ScheduleStopInput, type TrainTimes } from './itinerary-schedule'
 import { validateTrain, trainTimes, trainSummary, type TrainPlan } from './train-plan'
 import { extractNoteTravelMinutes } from './route-optimizer'
@@ -156,6 +156,10 @@ export function scheduleReviewItems(names: string[], schedule: ReviewScheduleSto
   leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.trainEarly
     ? [{ severity: 'tip' as const, stopIndex: i, message: `${names[i]}: ${trainEarlyHint(sc.sched.trainEarly)}`, suggestion: null }]
     : []))
+  // A train left on a leg it no longer fits (itinerary-schedule.ts staleTrain): not used for the times.
+  leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.staleTrain != null
+    ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: ${staleTrainMessage(sc.sched.staleTrain)}`, suggestion: 'The timetable uses the estimated trip instead. Plan a new train for this leg, or remove it.' }]
+    : []))
   // A chosen train arriving too late for a fixed-time stop.
   leaveItems.push(...schedule.flatMap((sc, i) => sc.sched.trainLateMin != null
     ? [{ severity: 'warning' as const, stopIndex: i, message: `${names[i]}: the chosen train arrives ${sc.sched.trainLateMin} min too late for its fixed time.`, suggestion: 'Take an earlier train.' }]
@@ -237,7 +241,9 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       if (sc.sched.doesntFit) lines.push(`    PROBLEM: can't reach the fixed-time stop [${sc.sched.doesntFit.anchorIndex}] at ${formatClock(sc.sched.doesntFit.anchorTime)} in time after this (${sc.sched.doesntFit.shortMin} min short)`)
       else if (sc.sched.leaveEarlierMin) lines.push(`    PROBLEM: ends ${sc.sched.leaveEarlierMin} min after its leave-by time`)
     }
-    if (trainLines[i]) lines.push(`    Train here (chosen by the owner; the timetable above uses it): ${trainLines[i]}`)
+    if (trainLines[i]) lines.push(schedule?.[i]?.sched.staleTrain != null
+      ? `    Train here (chosen by the owner, but STALE: it leaves before this stop can be reached, so the timetable above does NOT use it — the leg is the estimate): ${trainLines[i]}`
+      : `    Train here (chosen by the owner; the timetable above uses it): ${trainLines[i]}`)
     if (openingHoursByStop[i]) lines.push(`    Opening hours: ${openingHoursByStop[i]}`)
     if (notesByStop[i]) lines.push(`    Note from the trip owner (may contain real train route/fare — trust over the straight-line distance above): ${notesByStop[i]}`)
   })

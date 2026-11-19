@@ -46,6 +46,15 @@
 //   is an anchor for the stops before it, like a fixed time: "leave earlier", "doesn't fit" and
 //   the segment overrun all count back from its leave-by. On a fixed-time stop, a train arriving
 //   too late for it is `trainLateMin`.
+// - A stale train (`staleTrain`): one whose departure is earlier than you can reach its station
+//   even leaving the stop before the moment you get there (its arrival, or its actual end once
+//   left) plus the walk to the station. A stop before it that only runs long keeps the train
+//   ("leave earlier" / "doesn't fit", as above), and a train on the first leg is never stale (one
+//   before the day's start sets when you leave the base). Typically a
+//   train planned while the stop was earlier in the day, left on the leg after reordering (on
+//   5 Dec 2026 the 08:34 train into Ōimachi Station Market, the market moved after ten Ikebukuro
+//   shops, made every one of them "doesn't fit before 08:34"). It is not an anchor and not the
+//   leg: the leg is the usual estimate, and the stop says to plan a new train or remove it.
 
 import { estimateLeg, type RoutePoint } from './route-optimizer'
 import { checkHours } from './opening-hours'
@@ -90,6 +99,11 @@ export function trainEarlyHint(e: { arrival: number; fixedTime: number }): strin
 // Leave by: the departure − the walk to the station − the margin at the station (the train's own,
 // else TRAIN_PLATFORM_MIN). Everything uses this: leave-by, Latest, Fix, reminders, Check day,
 // Suggest route (route-optimizer.ts mirrors it), the airport train.
+// "⚠️ This train (08:34) no longer fits here. Plan a new one or remove it." (the leg, the sheet, Check day)
+export function staleTrainMessage(departure: number): string {
+  const v = ((departure % 1440) + 1440) % 1440
+  return `This train (${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}) no longer fits here. Plan a new one or remove it.`
+}
 export function trainLeaveBy(t: TrainTimes): number {
   const margin = typeof t.marginMin === 'number' && t.marginMin >= 0 ? t.marginMin : TRAIN_PLATFORM_MIN
   return t.departure - margin - Math.max(0, t.walkToStationMin || 0)
@@ -124,6 +138,9 @@ export type ScheduledStop = {
   // A fixed-time stop its train reaches more than TRAIN_EARLY_HINT_MIN early: when you arrive, and
   // the fixed time (a later train may do).
   trainEarly: { arrival: number; fixedTime: number } | null
+  // The leg's planned train leaves before you can reach its station (see the rules): its departure
+  // (minutes after midnight, as planned). Not used for the schedule. null otherwise.
+  staleTrain: number | null
 }
 
 // The non-fixed stops before an anchor need `overrunMin` more than there is. `suggestions`: up to
@@ -167,9 +184,16 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   stops.forEach((s, i) => {
     const prevEnd = clock // the visit before ends (or the day starts)
     let trainArrival: number | null = null
-    if (s.train) {
-      const shift = s.train.departure + 720 < clock ? 1440 : 0
-      const t = { ...s.train, departure: s.train.departure + shift, arrival: s.train.arrival + shift }
+    let staleTrain: number | null = null
+    const shift = s.train && s.train.departure + 720 < clock ? 1440 : 0
+    const t = s.train ? { ...s.train, departure: s.train.departure + shift, arrival: s.train.arrival + shift } : null
+    // Leaves before you can be at its station even leaving the stop before as soon as you get there:
+    // stale (see the rules), and the leg is the estimate.
+    // Never on the first leg: a train from the base before the day's start sets when you leave.
+    const before = out[i - 1]
+    const earliest = !before ? null : before.visited ? before.end : before.arrival
+    if (t && earliest != null && t.departure < earliest + Math.max(0, t.walkToStationMin || 0)) staleTrain = s.train!.departure
+    else if (t) {
       trains[i] = t
       trainArrival = t.arrival + (t.walkFromStationMin ?? TRAIN_EXIT_WALK_MIN)
       // The leg: from the stop before's leave-by to the stop.
@@ -207,6 +231,7 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
       arrivesAfterLeave: late ? leaveAt : null,
       trainLateMin: anchor != null && trainArrival != null && trainArrival > anchor ? trainArrival - anchor : null,
       trainEarly: s.fixedTime != null && trainArrival != null && s.fixedTime - trainArrival > TRAIN_EARLY_HINT_MIN ? { arrival: trainArrival, fixedTime: s.fixedTime } : null,
+      staleTrain,
     })
     clock = end
   })

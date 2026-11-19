@@ -374,6 +374,43 @@ export function scheduleDay(stops: ScheduleStopInput[], startTime: number, base:
   return { stops: out, segments, returnLeg, end }
 }
 
+// --- Fixed-time stops in the order ----------------------------------------------------------
+// Where a fixed-time stop belongs by its time (the rule when a fixed time is changed, itinerary-plan.ts
+// setFixedTime, and when stops are moved to a day): after every other stop planned to start at or
+// before it, the others keeping their order. `starts`: each stop's planned start; the result is its
+// new index.
+export function fixedTimePlace(starts: number[], idx: number, time: number): number {
+  let at = 0, k = 0
+  starts.forEach((st, i) => {
+    if (i === idx) return
+    k++
+    if (st <= time) at = k
+  })
+  return at
+}
+// A fixed-time stop placed after stops planned to start later than its time (on 5 Dec 2026, after
+// moving stops between days, Ōimachi Station Market at 09:00 ended up after ten Ikebukuro shops
+// from 10:00 on — and every one of them "didn't fit before 09:00"). Only when clearly out of order:
+// a stop before it starts after it would already be over (not stops before it just running a little
+// long, which is "doesn't fit" as before). `laterBefore`: how many stops before it start later than
+// its time; `to`: where its time puts it (fixedTimePlace).
+export type MisplacedFixed = { index: number; to: number; laterBefore: number }
+export function misplacedFixedStops(inputs: ScheduleStopInput[], sched: DaySchedule): MisplacedFixed[] {
+  const starts = sched.stops.map((x) => x.start)
+  const out: MisplacedFixed[] = []
+  inputs.forEach((s, a) => {
+    if (s.fixedTime == null) return
+    const before = sched.stops.slice(0, a).filter((x) => !x.visited)
+    const laterBefore = before.filter((x) => x.start > s.fixedTime!).length
+    // Clearly out of order, not just stops running long into it: one of them starts only after
+    // this stop would already be over.
+    if (!laterBefore || !before.some((x) => x.start >= sched.stops[a].end)) return
+    const to = fixedTimePlace(starts, a, s.fixedTime)
+    if (to !== a) out.push({ index: a, to, laterBefore })
+  })
+  return out
+}
+
 // Google Maps public transit directions between two stops: coordinates when both ends have
 // them, otherwise the names.
 export function transitRouteUrl(from: { name: string; lat: number | null; lng: number | null }, to: { name: string; lat: number | null; lng: number | null }): string {

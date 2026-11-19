@@ -94,7 +94,7 @@ test.describe('/itinerary: ⇄ Swap with day and ☑ Select stops', () => {
     await expect(block('First')).toHaveClass(/itl-selected/)
     await expect(page.locator('#itl-select-count')).toHaveText('2 selected')
     await page.locator('#itl-select-move').click()
-    expect(dialogs[0]).toBe('Move 2 stops from 2. mar (tir) to the end of 3. mar (ons)?')
+    expect(dialogs[0]).toBe('Move 2 stops from 2. mar (tir) to the end of 3. mar (ons)? (A stop with a fixed time goes to its time.)')
     expect(await names(page, 0)).toEqual(['Second', 'Fourth'])
     expect(await names(page, 1)).toEqual(['Other Day Stop', 'First', 'Third'])
     await expect(page.locator('#itl-act-toast')).toContainText('Moved 2 stops to 3. mar (ons).')

@@ -12,7 +12,7 @@ import { checkHours, visitWarning, closedOnArrival, closingTime, hoursOnDate } f
 import { isIsoDate, weekdayIndex, addDays } from './trip-dates'
 import { trainTimes, trainRideMinutes, validateTrain, yenWithNok, formatYen, DEFAULT_TRAVELERS, type TrainPlan } from './train-plan'
 import { extractJpyTotal, latestEndForFlight, AIRPORTS, AIRPORT_ARRIVAL_BEFORE_MIN, isMealStop } from './itinerary-review-helpers'
-import { trainLeaveBy, transitRouteUrl } from './itinerary-schedule'
+import { trainLeaveBy, transitRouteUrl, fixedTimePlace, misplacedFixedStops, type MisplacedFixed } from './itinerary-schedule'
 import { PLACE_TYPE_INFO } from './place-types'
 import { AIRPORT_POINTS, AIRPORT_NAMES } from './trip-plans'
 import { googleMapsTimedUrl } from './transit-links'
@@ -456,6 +456,40 @@ export function applyRouteOrder(day: { stops: PlanStop[] }, order: number[]): vo
   })
 }
 
+// --- Fixed-time stops by their time ----------------------------------------------------------
+// The day's base for placing (the page's basesOf) and the shops: what placing a fixed stop needs.
+export type PlaceCtx = { base: (day: PlanDay) => RoutePoint | { start: RoutePoint; end: RoutePoint }; shopById: Map<string, PlanShop> }
+// Stop idx (with a fixed time) to its place by its time (fixedTimePlace — the rule of setFixedTime):
+// after every other stop planned at or before it. Returns its new index.
+export function placeFixedStopByTime(day: PlanDay, idx: number, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): number {
+  const stop = day.stops[idx]
+  const t = stop ? parseClock(stop.fixedTime) : null
+  if (!stop || t == null) return idx
+  const { times } = computeDayTimes(day, base, shopById)
+  const to = fixedTimePlace(times, idx, t)
+  if (to === idx) return idx
+  const order = day.stops.filter((_, i) => i !== idx)
+  order.splice(to, 0, stop)
+  day.stops = order
+  return to
+}
+// Stops just added to a day ("Move to day…", "Select stops", "Swap with day…"): each fixed-time one,
+// earliest first, to its place by its time instead of the end.
+export function placeAddedFixedStops(day: PlanDay, added: PlanStop[], ctx: PlaceCtx): void {
+  added
+    .filter((s) => parseClock(s.fixedTime) != null)
+    .sort((a, b) => parseClock(a.fixedTime)! - parseClock(b.fixedTime)!)
+    .forEach((s) => {
+      const i = day.stops.indexOf(s)
+      if (i >= 0) placeFixedStopByTime(day, i, ctx.base(day), ctx.shopById)
+    })
+}
+// The day's fixed-time stops placed after stops planned later than their time (misplacedFixedStops).
+export function misplacedFixedFor(day: PlanDay, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): MisplacedFixed[] {
+  const { sched, inputs } = computeDayTimes(day, base, shopById)
+  return misplacedFixedStops(inputs, sched)
+}
+
 // One place up (delta -1) or down (+1); false when it's already first/last.
 export function moveStopBy(day: { stops: PlanStop[] }, idx: number, delta: number): boolean {
   const arr = day.stops, ni = idx + delta
@@ -463,28 +497,33 @@ export function moveStopBy(day: { stops: PlanStop[] }, idx: number, delta: numbe
   ;[arr[idx], arr[ni]] = [arr[ni], arr[idx]]
   return true
 }
-// To the end of another day.
-export function moveStopToDay(from: { stops: PlanStop[] }, idx: number, to: { stops: PlanStop[] }): void {
+// To the end of another day — a fixed-time stop to its place by its time there (with `place`).
+export function moveStopToDay(from: { stops: PlanStop[] }, idx: number, to: { stops: PlanStop[] }, place?: PlaceCtx): void {
   const [s] = from.stops.splice(idx, 1)
   to.stops.push(s)
+  if (place && s) placeAddedFixedStops(to as PlanDay, [s], place)
 }
 // "⇄ Swap with day…": everything planned on the two days changes places — the stops (with the
 // trains on their legs), the start time, the bases and the train back. The train to the airport
 // stays on the flight day: it belongs to that date.
 const SWAPPED = ['stops', 'startTime', 'startBase', 'endBase', 'returnTrain'] as const
-export function swapDays(a: PlanDay, b: PlanDay): void {
+// With `place`: each day's fixed-time stops to their place by their time on the new date.
+export function swapDays(a: PlanDay, b: PlanDay, place?: PlaceCtx): void {
   for (const k of SWAPPED) {
     const x = (a as any)[k], y = (b as any)[k]
     if (y === undefined) delete (a as any)[k]; else (a as any)[k] = y
     if (x === undefined) delete (b as any)[k]; else (b as any)[k] = x
   }
+  if (place) for (const d of [a, b]) placeAddedFixedStops(d, d.stops.slice(), place)
 }
-// "Select stops" → "Move to day…": the selected stops, in their order, to the end of another day.
-export function moveStopsToDay(from: { stops: PlanStop[] }, indices: number[], to: { stops: PlanStop[] }): number {
+// "Select stops" → "Move to day…": the selected stops, in their order, to the end of another day —
+// the fixed-time ones to their place by their time there (with `place`).
+export function moveStopsToDay(from: { stops: PlanStop[] }, indices: number[], to: { stops: PlanStop[] }, place?: PlaceCtx): number {
   const pick = new Set(indices.filter((i) => i >= 0 && i < from.stops.length))
   const moving = from.stops.filter((_, i) => pick.has(i))
   from.stops = from.stops.filter((_, i) => !pick.has(i))
   to.stops.push(...moving)
+  if (place) placeAddedFixedStops(to as PlanDay, moving, place)
   return moving.length
 }
 // "Select stops" → "Delete selected".
@@ -532,11 +571,8 @@ export function setFixedTime(day: PlanDay, idx: number, value: string, base: Rou
   }
   stop.fixedTime = value || null
   if (t == null) return { moved: false, warning: null }
-  const others = day.stops.map((s, i) => ({ s, i })).filter((x) => x.i !== idx)
-  let insertAt = 0
-  others.forEach((x, k) => { if (times[x.i] <= t) insertAt = k + 1 })
-  const order = others.map((x) => x.s)
-  order.splice(insertAt, 0, stop)
+  const order = day.stops.filter((_, i) => i !== idx)
+  order.splice(fixedTimePlace(times, idx, t), 0, stop)
   const moved = order.some((s, i) => s !== day.stops[i])
   day.stops = order
   return { moved, warning: null }

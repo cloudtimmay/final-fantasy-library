@@ -4,6 +4,7 @@
 // APIRoute/import.meta.env machinery.
 import { checkHours, closedOnArrival, visitWarning } from './opening-hours'
 import { trainEarlyHint, staleTrainMessage } from './itinerary-schedule'
+import { misplacedFixedStops } from './itinerary-schedule'
 import { LEAVE_BUFFER_MIN, dayWarning, dayWarningMessages, lastTrainLegs, LAST_TRAIN_MESSAGE, scheduleDay, trainLeaveBy, type DaySchedule, type ScheduledStop, type SegmentOverrun, type ScheduleStopInput, type TrainTimes } from './itinerary-schedule'
 import { validateTrain, trainTimes, trainSummary, type TrainPlan } from './train-plan'
 import { extractNoteTravelMinutes } from './route-optimizer'
@@ -236,6 +237,8 @@ export function buildUserPrompt(dayLabel: string | null, dayArea: string | null,
       if (sc.sched.freeBefore) lines.push(`    Free time before this stop: ${sc.sched.freeBefore.minutes} min (${formatClock(sc.sched.freeBefore.from)}–${formatClock(sc.sched.freeBefore.to)}) — could be used for something nearby`)
       if (sc.fixedTime != null) {
         lines.push(`    FIXED TIME ${formatClock(sc.fixedTime)} (anchor)${sc.arriveEarlyMin ? `; must arrive ${sc.arriveEarlyMin} min early, by ${formatClock(sc.sched.arrival)}` : ''}`)
+        const laterBefore = schedule!.slice(0, i).filter((o) => !o.sched.visited && o.sched.start > sc.fixedTime!).length
+        if (laterBefore) lines.push(`    PROBLEM: placed after ${laterBefore} stop(s) planned later than its time — it is out of order; moving it to its time fixes the stops before it`)
       }
       if (sc.notBefore != null) lines.push(`    NOT BEFORE ${formatClock(sc.notBefore)} (a soft time the owner chose: start no earlier — not a deadline, never a reason the stops before it don't fit)${sc.sched.heldMin ? `; it starts ${sc.sched.heldMin} min later than it could` : ''}`)
       if (sc.sched.leaveBy != null) lines.push(`    Leave by: ${formatClock(sc.sched.leaveBy)}${sc.sched.nextIsAnchor ? ` (next stop has a fixed time; includes a ${LEAVE_BUFFER_MIN}-min buffer)` : ''}`)
@@ -555,7 +558,21 @@ export function serverReviewItems(inp: ReviewInputs): ServerReviewItem[] {
         suggestion: `Start the day by ${formatClock(need)}.`,
       })
     }
-    out.push(...scheduleReviewItems(names, inp.schedule, sched.segments))
+    // A fixed-time stop placed after stops planned later than its time: said as such, with the move
+    // to its time as the action — instead of its segment's "need N min more" (moving it fixes that).
+    const misplaced = misplacedFixedStops(inp.scheduleInputs, sched)
+    const actionCtx = { stops: inp.stops.map((s) => ({ name: s.name, plannedTime: s.plannedTime, durationMin: s.durationMin })), dayDate: inp.dayDate, tripDays: [] as string[] }
+    misplaced.forEach((m) => {
+      const fixed = inp.scheduleInputs[m.index].fixedTime!
+      out.push({
+        severity: 'warning', stopIndex: m.index,
+        message: `${names[m.index]} (fixed ${formatClock(fixed)}) is stop ${m.index + 1}, after ${m.laterBefore} stop${m.laterBefore === 1 ? '' : 's'} planned later than its time — so the stops before it can't fit before ${formatClock(fixed)}.`,
+        suggestion: `Move ${names[m.index]} to its time (position ${m.to + 1}).`,
+        ...(() => { const a = validateReviewAction({ type: 'move_position', toIndex: m.to }, m.index, actionCtx); return a ? { action: a } : {} })(),
+      } as any)
+    })
+    const misplacedAt = new Set(misplaced.map((m) => m.index))
+    out.push(...scheduleReviewItems(names, inp.schedule, sched.segments.filter((g) => !misplacedAt.has(g.anchorIndex))))
     sched.stops.forEach((x, i) => {
       if (x.waitMin) out.push({ severity: 'tip', stopIndex: i, message: `${names[i]}: you get there at ${formatClock(x.arrival)} and it opens at ${formatClock(x.start)} — ${x.waitMin} min waiting.`, suggestion: 'Start later, or visit something else first.' })
     })

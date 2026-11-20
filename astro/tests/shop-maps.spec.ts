@@ -43,7 +43,7 @@ test.describe('"📷 Photos on Google Maps" on the pages', () => {
     await expect(link).toHaveAttribute('href', `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${withAddress.shopName}, 1-2-3 Sotokanda, Tokyo`)}`)
   })
 
-  test('in the timeline\'s edit sheet: the linked shop, or the stop\'s own name and coordinates', async ({ page, sanity, trackDoc }) => {
+  test('in the timeline\'s edit sheet: "🗺️ Open in Maps" for the linked shop, or the stop\'s own coordinates', async ({ page, sanity, trackDoc }) => {
     const shop = await sanity.create({ _type: 'shopNote', shopName: testName(`Sheet Maps Shop ${Date.now()}`), address: 'Nakano Broadway 3F' })
     trackDoc(shop._id)
     const trip = await sanity.create({ _type: 'tripSettings', label: testName(`Maps Trip ${Date.now()}`), firstTokyoDay: '2026-12-05', lastTokyoDay: '2026-12-06' })
@@ -64,11 +64,12 @@ test.describe('"📷 Photos on Google Maps" on the pages', () => {
 
     await block(shop.shopName).click()
     const link = page.locator('#itl-ed-gmaps')
-    await expectNewTab(link)
+    await expect(link).toHaveText('🗺️ Open in Maps')
+    await expect(link).toHaveAttribute('target', '_blank')
     await expect(link).toHaveAttribute('href', `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${shop.shopName}, Nakano Broadway 3F`)}`)
     await page.locator('#itl-detail-close').click()
 
     await block('Own Coords Stop').click()
-    await expect(link).toHaveAttribute('href', 'https://www.google.com/maps/search/Own%20Coords%20Stop/@35.69,139.7,17z')
+    await expect(link).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=35.69%2C139.7')
   })
 })

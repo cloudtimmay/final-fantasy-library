@@ -412,11 +412,14 @@ const movesInTime = (s: PlanStop) => !s.fixedTime && !s.actualStart && !s.actual
 const clockText = (m: number) => hhmm(((Math.round(m) % 1440) + 1440) % 1440)
 export function moveLaterInTime(day: PlanDay, idx: number, base: RoutePoint | { start: RoutePoint; end: RoutePoint }, shopById: Map<string, PlanShop>): TimeMove {
   const s = day.stops[idx]
-  if (!s || idx >= day.stops.length - 1) return null
+  if (!s) return null
+  const lastStop = idx === day.stops.length - 1
+  if (lastStop && !movesInTime(s)) return null
   if (movesInTime(s)) {
     const { sched } = computeDayTimes(day, base, shopById)
     const x = sched.stops[idx], next = sched.stops[idx + 1]
-    const free = (next.freeBefore?.minutes || 0) + (next.waitMin || 0)
+    // The day's last stop: nothing after it — later by its own length (the day ends later).
+    const free = lastStop ? Infinity : (next.freeBefore?.minutes || 0) + (next.waitMin || 0)
     const by = Math.min(x.end - x.start, free)
     if (by > 0) { s.notBefore = clockText(x.start + by); return 'later' }
   }
@@ -444,6 +447,132 @@ export function moveEarlierInTime(day: PlanDay, idx: number, base: RoutePoint | 
   if (movesInTime(s)) delete s.notBefore
   return moveStopBy(day, idx, -1) ? 'swapped' : null
 }
+// --- −10 min / +10 min in the sheet; ▲ ▼ −10 +10 for a group of selected stops ----------------
+// +10 (nudgeLater): the stop starts NUDGE_MIN later, through its "not before" time. −10
+// (nudgeEarlier): first its own "not before" time is reduced or removed; without one, the stop
+// before is shortened by NUDGE_MIN (its duration, or its leave time when it has one) — not when
+// that stop has a fixed time or is already done, when the trip here is a planned train, when it
+// would be under NUDGE_MIN minutes, or when this stop still wouldn't start earlier (it waits for
+// its opening, say): then nothing changes and `message` says why. A stop with a fixed time or
+// under way isn't moved. A stop's own leave time moves with it (the visit keeps its length).
+export const NUDGE_MIN = 10
+export type NudgeResult = { ok: true } | { ok: false; message: string }
+type StopsBase = RoutePoint | { start: RoutePoint; end: RoutePoint }
+function cantNudge(day: PlanDay, idx: number, shopById: Map<string, PlanShop>): string | null {
+  const s = day.stops[idx]
+  const name = resolveStop(s, shopById).name
+  if (s.fixedTime) return `${name} has a fixed time (${s.fixedTime}) — change the time instead.`
+  if (s.actualStart || s.actualEnd) return `${name} is already under way.`
+  return null
+}
+function shiftLeaveAt(s: PlanStop, by: number): void {
+  const t = parseClock(s.leaveAt)
+  if (t != null && by) s.leaveAt = clockText(t + by)
+}
+export function nudgeLater(day: PlanDay, idx: number, base: StopsBase, shopById: Map<string, PlanShop>, by = NUDGE_MIN): NudgeResult {
+  if (!day.stops[idx]) return { ok: false, message: 'No such stop.' }
+  const why = cantNudge(day, idx, shopById)
+  if (why) return { ok: false, message: why }
+  const s = day.stops[idx]
+  s.notBefore = clockText(computeDayTimes(day, base, shopById).sched.stops[idx].start + by)
+  shiftLeaveAt(s, by)
+  return { ok: true }
+}
+export function nudgeEarlier(day: PlanDay, idx: number, base: StopsBase, shopById: Map<string, PlanShop>, by = NUDGE_MIN): NudgeResult {
+  if (!day.stops[idx]) return { ok: false, message: 'No such stop.' }
+  const why = cantNudge(day, idx, shopById)
+  if (why) return { ok: false, message: why }
+  const s = day.stops[idx]
+  const name = resolveStop(s, shopById).name
+  const before = computeDayTimes(day, base, shopById).sched.stops[idx]
+  const ownNotBefore = s.notBefore
+  if (ownNotBefore) {
+    if ((before.heldMin || 0) > 0) {
+      const without: PlanDay = { ...day, stops: day.stops.map((o, i) => (i === idx ? { ...o, notBefore: undefined } : o)) }
+      const natural = computeDayTimes(without, base, shopById).sched.stops[idx].start
+      const to = before.start - by
+      if (to <= natural) delete s.notBefore
+      else s.notBefore = clockText(to)
+      shiftLeaveAt(s, Math.max(to, natural) - before.start)
+      return { ok: true }
+    }
+    delete s.notBefore // it held nothing back: on to the stop before
+  }
+  const fail = (message: string): NudgeResult => { if (ownNotBefore) s.notBefore = ownNotBefore; return { ok: false, message } }
+  if (idx === 0) return fail(`${name} is the first stop — start the day earlier instead.`)
+  const p = day.stops[idx - 1]
+  const pName = resolveStop(p, shopById).name
+  if (p.fixedTime) return fail(`${pName} has a fixed time (${p.fixedTime}), so it can't be shortened.`)
+  if (p.actualEnd) return fail(`${pName} is already done.`)
+  if (s.train) return fail(`The trip here is a planned train, so shortening ${pName} doesn't move ${name}.`)
+  const px = computeDayTimes(day, base, shopById).sched.stops[idx - 1]
+  const len = px.end - px.start
+  if (len - by < NUDGE_MIN) return fail(`${pName} would be shorter than ${NUDGE_MIN} min.`)
+  const old = { dur: p.dur, leaveAt: p.leaveAt }
+  if (p.leaveAt) shiftLeaveAt(p, -by)
+  else p.dur = len - by
+  if (computeDayTimes(day, base, shopById).sched.stops[idx].start >= before.start) {
+    p.dur = old.dur
+    if (old.leaveAt) p.leaveAt = old.leaveAt
+    return fail(`${name} still can't start earlier${before.waitMin ? ' — it waits for its opening' : ''}.`)
+  }
+  return { ok: true }
+}
+
+// ☑ Select stops as one group: the selected stops together, in their order, where the first of
+// them is (gatherStops); ▲ / ▼ by the rules of a single stop's (moveEarlierInTime /
+// moveLaterInTime) with the group's length, and swapping with the stop before / after the group;
+// −10 / +10 on its first stop (the group's start). Return the group's new indexes (null: nothing
+// to do).
+export function gatherStops(day: { stops: PlanStop[] }, indices: number[]): number[] {
+  const pick = [...new Set(indices)].filter((i) => i >= 0 && i < day.stops.length).sort((a, b) => a - b)
+  if (!pick.length) return []
+  const set = new Set(pick)
+  const group = pick.map((i) => day.stops[i])
+  const rest = day.stops.filter((_, i) => !set.has(i))
+  rest.splice(pick[0], 0, ...group) // every stop before the first selected one stays before it
+  day.stops = rest
+  return group.map((_, k) => pick[0] + k)
+}
+export function moveGroupLater(day: PlanDay, indices: number[], base: StopsBase, shopById: Map<string, PlanShop>): number[] | null {
+  const g = gatherStops(day, indices)
+  if (!g.length) return null
+  const first = g[0], last = g[g.length - 1]
+  const atEnd = last >= day.stops.length - 1
+  if (atEnd && !movesInTime(day.stops[first])) return null
+  if (movesInTime(day.stops[first])) {
+    const { sched } = computeDayTimes(day, base, shopById)
+    const next = sched.stops[last + 1]
+    // The group ends the day: later by its own length.
+    const free = atEnd ? Infinity : (next.freeBefore?.minutes || 0) + (next.waitMin || 0)
+    const by = Math.min(sched.stops[last].end - sched.stops[first].start, free)
+    if (by > 0) { day.stops[first].notBefore = clockText(sched.stops[first].start + by); return g }
+  }
+  const [after] = day.stops.splice(last + 1, 1)
+  day.stops.splice(first, 0, after)
+  return g.map((i) => i + 1)
+}
+export function moveGroupEarlier(day: PlanDay, indices: number[], base: StopsBase, shopById: Map<string, PlanShop>): number[] | null {
+  const g = gatherStops(day, indices)
+  if (!g.length) return null
+  const first = g[0], last = g[g.length - 1]
+  const s = day.stops[first]
+  if (heldByNotBefore(day, first, base, shopById) > 0) {
+    const { sched } = computeDayTimes(day, base, shopById)
+    const without: PlanDay = { ...day, stops: day.stops.map((o, i) => (i === first ? { ...o, notBefore: undefined } : o)) }
+    const natural = computeDayTimes(without, base, shopById).sched.stops[first].start
+    const to = sched.stops[first].start - Math.max(1, sched.stops[last].end - sched.stops[first].start)
+    if (to <= natural) delete s.notBefore
+    else s.notBefore = clockText(to)
+    return g
+  }
+  if (first === 0) return null
+  if (movesInTime(s)) delete s.notBefore
+  const [before] = day.stops.splice(first - 1, 1)
+  day.stops.splice(last, 0, before)
+  return g.map((i) => i - 1)
+}
+
 // Suggest route's new order (route-optimizer.ts `order`: old indexes): a stop that keeps its place
 // keeps its "not before" time; one the suggestion moves loses it (copies — an undo keeps the old).
 export function applyRouteOrder(day: { stops: PlanStop[] }, order: number[]): void {

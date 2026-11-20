@@ -150,6 +150,13 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     <!-- ☑ Select stops: tap blocks to tick them, then move them to another day or delete them. -->
     <div id="itl-select-bar" class="itl-panel itl-act" hidden>
       <span id="itl-select-count">Tap stops to select them</span>
+      <span class="itl-select-time">
+        <button id="itl-select-up" type="button" class="itl-daybtn" aria-label="Move the selected stops up">▲</button>
+        <button id="itl-select-down" type="button" class="itl-daybtn" aria-label="Move the selected stops down">▼</button>
+        <button id="itl-select-earlier" type="button" class="itl-daybtn">−10</button>
+        <button id="itl-select-later" type="button" class="itl-daybtn">+10</button>
+      </span>
+      <span id="itl-select-msg" class="itl-sheet-msg" hidden></span>
       <label>Move to <select id="itl-select-day"></select></label>
       <button id="itl-select-move" type="button" class="itl-daybtn">Move to day</button>
       <button id="itl-select-delete" type="button" class="itl-daybtn">🗑️ Delete selected</button>
@@ -281,7 +288,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           <button id="itl-bought-cancel" type="button">Cancel</button>
         </div>
       </div>
-      <a id="itl-ed-gmaps" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">📷 Photos on Google Maps</a>
+      <!-- The place in Google Maps (its photos are there) and transit directions from where you are
+           (lib/shop-maps.ts openInMapsUrl / directionsUrl). -->
+      <p id="itl-ed-maps" class="itl-sheet-row">
+        <a id="itl-ed-gmaps" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">🗺️ Open in Maps</a>
+        <a id="itl-ed-directions" class="itl-gmaps" href="https://www.google.com/maps" target="_blank" rel="noopener">🧭 Directions</a>
+      </p>
       <div id="itl-ed-now" class="itl-sheet-row itl-sheet-now" hidden>
         <button id="itl-ed-here" type="button">📍 I'm here now</button>
         <button id="itl-ed-leave" type="button">✅ Leaving now</button>
@@ -307,8 +319,12 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       <div class="itl-sheet-row">
         <button id="itl-ed-up" type="button">▲ Up</button>
         <button id="itl-ed-down" type="button">▼ Down</button>
+        <button id="itl-ed-earlier" type="button">−10 min</button>
+        <button id="itl-ed-later" type="button">+10 min</button>
         <label>Move to <select id="itl-ed-move"></select></label>
       </div>
+      <!-- −10 / +10 that can't be done: why (nothing changed). -->
+      <p id="itl-ed-nudge-msg" class="itl-sheet-msg" hidden></p>
       <div class="itl-sheet-row">
         <input id="itl-ed-coord" type="text" placeholder="lat, lng (from Google Maps)" aria-label="Coordinates" />
         <button id="itl-ed-coord-save" type="button">Save</button>
@@ -340,7 +356,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     import {
       buildPlanState, serializePlan, normalizeSavedPlan, computeDayTimes, resolveStop, stopHoursWarning, dayWarningFor, dayAreas,
       shopOptionGroups, plannedDaysByShop, searchResultNote, shopStopFrom, customStopFrom, dayRouteLinks, checkDayRequestBody, optimizerInput,
-      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, placeFixedStopByTime, misplacedFixedFor, moveLaterInTime, moveEarlierInTime, heldByNotBefore, applyRouteOrder, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
+      legFromKey, manualTravelFor, DEFAULT_START, moveStopBy, nudgeEarlier, nudgeLater, moveGroupEarlier, moveGroupLater, gatherStops, placeFixedStopByTime, misplacedFixedFor, moveLaterInTime, moveEarlierInTime, heldByNotBefore, applyRouteOrder, moveStopToDay, swapDays, moveStopsToDay, deleteStops, removeStop, setStopDuration,
       setArriveEarly, setFixedTime, markHereNow, markLeavingNow, clearActualTimes, hasActualTimes, setLeaveAt, closingTimeFor, dayTrainFares, dayTrainFaresText, flightDeadline, lastLegTrain, legSearchTime, legLeaveTime, earlierStartFor, arriveByBefore, parseClock, applyReviewAction, placeTypeIcon, dayBases, dayBasesLine, TRIP_BASE_KEY, latestLeaveFor, leaveFixFor,
       type PlanDay, type PlanShop, type PlanStop,
     } from '../lib/itinerary-plan'
@@ -350,7 +366,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       reminderLinkHtml, shopPhotoStripHtml, foundStripHtml, dayReminders, remindersHref, routesColumnsHtml, addPanelClose,
     } from '../lib/itinerary-ui'
     import { hasBuyPick, type FoundItem } from '../lib/shop-found'
-    import { googleMapsPlaceUrl } from '../lib/shop-maps'
+    import { openInMapsUrl, directionsUrl } from '../lib/shop-maps'
     import { googleMapsTimedUrl, yahooTransitUrl, transitWhenText, googleMapsLeaveText } from '../lib/transit-links'
     import { cdnImage } from '../lib/image-url'
     import { attachPlaceSearch, findLocation, findLocationQuery } from '../lib/place-search-ui'
@@ -523,6 +539,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       dayEl.querySelectorAll<HTMLElement>('.itl-block').forEach((b) => b.classList.toggle('itl-selected', selectMode && selected.has(Number(b.dataset.index))))
       ;(document.querySelector('#itl-select-count') as HTMLElement).textContent = selected.size ? `${selected.size} selected` : 'Tap stops to select them'
       ;(document.querySelector('#itl-select-move') as HTMLButtonElement).disabled = !selected.size
+      for (const id of ['up', 'down', 'earlier', 'later']) (document.querySelector(`#itl-select-${id}`) as HTMLButtonElement).disabled = !selected.size
       ;(document.querySelector('#itl-select-delete') as HTMLButtonElement).disabled = !selected.size
     }
     function setSelectMode(on: boolean) {
@@ -534,6 +551,29 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       paintSelection()
     }
     selectBtn.addEventListener('click', () => setSelectMode(!selectMode))
+    // ▲ ▼ −10 +10 for the selected stops as one group (itinerary-plan.ts moveGroupEarlier /
+    // moveGroupLater; −10 / +10 on the group's first stop): they keep their order and stay together,
+    // and stay selected.
+    const selectMsg = document.querySelector('#itl-select-msg') as HTMLElement
+    function groupAction(fn: (day: PlanDay, sel: number[]) => number[] | string | null) {
+      const day = currentDayPlan()
+      if (!selected.size) return
+      selectMsg.hidden = true
+      const r = fn(day, [...selected])
+      if (typeof r === 'string') { selectMsg.textContent = r; selectMsg.hidden = false; return }
+      if (!r) return
+      selected.clear(); r.forEach((i) => selected.add(i))
+      changed(); paintSelection()
+    }
+    const groupNudge = (fn: typeof nudgeEarlier) => (day: PlanDay, sel: number[]) => {
+      const g = gatherStops(day, sel)
+      const r = fn(day, g[0], basesOf(day), shopById)
+      return r.ok ? g : r.message
+    }
+    document.querySelector('#itl-select-up')!.addEventListener('click', () => groupAction((d, sel) => moveGroupEarlier(d, sel, basesOf(d), shopById)))
+    document.querySelector('#itl-select-down')!.addEventListener('click', () => groupAction((d, sel) => moveGroupLater(d, sel, basesOf(d), shopById)))
+    document.querySelector('#itl-select-earlier')!.addEventListener('click', () => groupAction(groupNudge(nudgeEarlier)))
+    document.querySelector('#itl-select-later')!.addEventListener('click', () => groupAction(groupNudge(nudgeLater)))
     document.querySelector('#itl-select-done')!.addEventListener('click', () => setSelectMode(false))
     document.querySelector('#itl-select-move')!.addEventListener('click', () => {
       const from = currentDayPlan()
@@ -596,6 +636,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // else the trip's base — worked out over all the trip's days, in order.
     const basesOf = (day: PlanDay) => dayBases(state, base, shopById, DATA.arrival ? { date: DATA.arrival.date, airport: DATA.arrival.airport } : null).get(day.day) || { start: { ...base, key: TRIP_BASE_KEY }, end: { ...base, key: TRIP_BASE_KEY }, changes: false }
     // "Fix: leave at HH:MM" for a warning that leaving earlier fixes (itinerary-plan.ts leaveFixFor).
+    // A leave time before you get there (a zero-length visit): one tap clears it.
+    const CLEAR_LEAVE_BUTTON = '<button type="button" class="itl-fix itl-clear-leave">Clear leave at</button>'
     const fixButton = (t: number | null) => t == null ? '' : `<button type="button" class="itl-fix" data-time="${formatClock(t)}">Fix: leave at ${formatClock(t)}</button>`
     // A fixed-time stop out of order (itinerary-plan.ts misplacedFixedFor): "Move <stop> to its time
     // (position N)" — on the "doesn't fit" warnings it causes and in its own sheet.
@@ -783,7 +825,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
         const warnings: string[] = []
         if (x.doesntFit) warnings.push(`⚠️ Doesn't fit before ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)
         else if (x.leaveEarlierMin) warnings.push(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)
-        if (x.arrivesAfterLeave != null) warnings.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
+        if (x.arrivesAfterLeave != null) warnings.push(`⚠️ Leave at is before you arrive (${formatClock(x.arrivesAfterLeave)})`)
         const midnight = afterMidnight(x)
         const lastTrain = lateTrains.has(item.index)
         el.className = 'itl-block' + (x.fixed ? ' itl-fixed' : '') + (x.doesntFit ? ' itl-warn-fit' : x.leaveEarlierMin ? ' itl-warn-leave' : midnight || lastTrain ? ' itl-warn-late' : closed ? ' itl-warn-closed' : '')
@@ -823,6 +865,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
           + (closed ? `<span class="itl-hours-badge">${esc(hoursWarning!.badge)}</span>` : '')
           + warnings.map((w) => `<span class="itl-badge">${esc(w)}</span>`).join('')
           + fixButton(leaveFixFor(sched, item.index, flightDl))
+          + (x.arrivesAfterLeave != null ? CLEAR_LEAVE_BUTTON : '')
           + (x.doesntFit ? placeButton(day, misplacedAt.get(x.doesntFit.anchorIndex)) : '')
         // The first line: "<n> <type> <name> · HH:MM–HH:MM" — the name is never hidden; the time is
         // cut off with "…" instead. The linked shop's area is on the second line (whole), or back
@@ -1451,6 +1494,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     const detail = document.querySelector('#itl-detail') as HTMLElement
     const ed = (id: string) => document.querySelector(`#itl-ed-${id}`) as HTMLInputElement
     let sheetStop: PlanStop | null = null
+    let sheetFor: PlanStop | null = null // the stop the −10 / +10 message is about
     const sheetDay = () => currentDayPlan()
     const sheetIdx = () => (sheetStop ? sheetDay().stops.indexOf(sheetStop) : -1)
     function closeSheet() { detail.hidden = true; sheetStop = null; (document.querySelector('#itl-bought') as HTMLElement).hidden = true }
@@ -1482,7 +1526,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       const misplaced = new Map(misplacedFixedFor(day, basesOf(day), shopById).map((m) => [m.index, m]))
       if (x.doesntFit) lines.push({ html: `${esc(`⚠️ Doesn't fit before ${resolveStop(day.stops[x.doesntFit.anchorIndex], shopById).name} ${formatClock(x.doesntFit.anchorTime)} (${x.doesntFit.shortMin} min short)`)} ${fix} ${placeButton(day, misplaced.get(x.doesntFit.anchorIndex))}` })
       else if (x.leaveEarlierMin) lines.push({ html: `${esc(`⚠️ Leave ${x.leaveEarlierMin} min earlier`)} ${fix}` })
-      if (x.arrivesAfterLeave != null) lines.push(`⚠️ Arrives after your leave time (${formatClock(x.arrivesAfterLeave)})`)
+      if (x.arrivesAfterLeave != null) lines.push({ html: `${esc(`⚠️ Leave at is before you arrive (${formatClock(x.arrivesAfterLeave)})`)} ${CLEAR_LEAVE_BUTTON}` })
       // This fixed stop out of order: the stops before it start later than its time.
       const own = misplaced.get(idx)
       if (own) lines.push({ html: `${esc(`⚠️ Placed after ${own.laterBefore} stop${own.laterBefore === 1 ? '' : 's'} planned later than its ${s.fixedTime}`)} ${placeButton(day, own)}` })
@@ -1546,9 +1590,11 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       addPrice.hidden = !shop
       if (shop) addPrice.href = `/add-price?shop=${encodeURIComponent(shop._id)}&${backQuery()}`
       const place = resolveStop(s, shopById)
-      ;(document.querySelector('#itl-ed-gmaps') as HTMLAnchorElement).href = googleMapsPlaceUrl({
-        name: place.name, lat: place.lat, lng: place.lng, address: shop?.address, area: shop?.area,
-      })
+      // A linked shop always; a stop of its own only with coordinates.
+      const mapsPlace = { name: place.name, lat: place.lat, lng: place.lng, address: shop?.address, area: shop?.area }
+      ;(document.querySelector('#itl-ed-maps') as HTMLElement).hidden = !shop && !(place.lat != null && place.lng != null)
+      ;(document.querySelector('#itl-ed-gmaps') as HTMLAnchorElement).href = openInMapsUrl(mapsPlace)
+      ;(document.querySelector('#itl-ed-directions') as HTMLAnchorElement).href = directionsUrl(mapsPlace)
       ;(document.querySelector('#itl-detail-lines') as HTMLElement).innerHTML = lines.map((l) => `<li>${typeof l === 'string' ? esc(l) : l.html}</li>`).join('')
       const now = nowButtons(day, x)
       ed('here').hidden = !now.here
@@ -1581,7 +1627,9 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       ;(document.querySelector('#itl-ed-note') as HTMLTextAreaElement).value = typeof s.note === 'string' ? s.note : ''
       // ▲ on the first stop still moves it earlier when its "not before" time holds it back.
       ;(document.querySelector('#itl-ed-up') as HTMLButtonElement).disabled = idx === 0 && heldByNotBefore(day, idx, basesOf(day), shopById) === 0
-      ;(document.querySelector('#itl-ed-down') as HTMLButtonElement).disabled = idx === day.stops.length - 1
+      // ▼ on the last stop moves it later (a fixed or under-way one can't).
+      ;(document.querySelector('#itl-ed-down') as HTMLButtonElement).disabled = idx === day.stops.length - 1 && !!(s.fixedTime || s.actualStart || s.actualEnd || s.leaveAt)
+      if (sheetFor !== sheetStop) { (document.querySelector('#itl-ed-nudge-msg') as HTMLElement).hidden = true; sheetFor = sheetStop } // a message stays only for its stop
       const move = document.querySelector('#itl-ed-move') as HTMLSelectElement
       move.innerHTML = '<option value="">—</option>' + state.filter((d) => d !== day).map((d) => `<option value="${esc(d.day)}">${esc(d.date)}</option>`).join('')
       ed('coord').value = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : ''
@@ -1630,6 +1678,7 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
     // "Fix: leave at HH:MM" on a warning in the sheet.
     document.querySelector('#itl-detail-lines')!.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('.itl-nb-clear')) { withStop((s) => { delete s.notBefore; changed() })(); return }
+      if ((e.target as HTMLElement).closest('.itl-clear-leave')) { withStop((s) => { setLeaveAt(s, ''); changed() })(); return }
       const place = (e.target as HTMLElement).closest('.itl-place') as HTMLElement | null
       if (place) { placeFixedNow(Number(place.dataset.index)); return }
       const btn = (e.target as HTMLElement).closest('.itl-fix') as HTMLElement | null
@@ -1660,6 +1709,17 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       changed()
     }))
     document.querySelector('#itl-ed-down')!.addEventListener('click', withStop((s, idx, day) => { if (moveLaterInTime(day, idx, basesOf(day), shopById)) changed() }))
+    // −10 / +10 min (itinerary-plan.ts nudgeEarlier / nudgeLater): saved like any change (↩ Undo);
+    // when it can't be done, why — and nothing changes.
+    const nudgeMsg = document.querySelector('#itl-ed-nudge-msg') as HTMLElement
+    const nudgeWith = (fn: typeof nudgeEarlier) => withStop((s, idx, day) => {
+      const r = fn(day, idx, basesOf(day), shopById)
+      if (!r.ok) { nudgeMsg.textContent = r.message; nudgeMsg.hidden = false; return }
+      nudgeMsg.hidden = true
+      changed()
+    })
+    document.querySelector('#itl-ed-earlier')!.addEventListener('click', nudgeWith(nudgeEarlier))
+    document.querySelector('#itl-ed-later')!.addEventListener('click', nudgeWith(nudgeLater))
     document.querySelector('#itl-ed-move')!.addEventListener('change', withStop((s, idx, day) => {
       const to = state.find((d) => d.day === (document.querySelector('#itl-ed-move') as HTMLSelectElement).value)
       if (!to) return
@@ -1860,6 +1920,8 @@ const tripQuery = Astro.url.searchParams.get('trip') ? `?trip=${encodeURICompone
       // ☑ Select stops: a tap ticks it instead of opening it.
       if (selectMode) { e.preventDefault(); if (selected.has(idx)) selected.delete(idx); else selected.add(idx); paintSelection(); return }
       if (target.closest('.itl-train-line')) { openTravelEditor(idx); return }
+      // "Clear leave at" on "Leave at is before you arrive".
+      if (target.closest('.itl-clear-leave')) { setLeaveAt(currentDayPlan().stops[idx], ''); changed(); return }
       // "Move <stop> to its time" on a warning.
       const placeBtn = target.closest('.itl-place') as HTMLElement | null
       if (placeBtn) { placeFixedNow(Number(placeBtn.dataset.index)); return }

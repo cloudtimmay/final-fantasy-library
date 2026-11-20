@@ -37,6 +37,19 @@ export function openInMapsUrl(p: MapsPlace): string {
   return `${SEARCH}?api=1&query=${encodeURIComponent([name, String(p.area || '').trim(), 'Japan'].filter(Boolean).join(', '))}`
 }
 
+// "🧭 Directions": Google Maps public transport directions to the place from where you are — no
+// origin, so Maps uses your current location. The destination as "🗺️ Open in Maps" finds the place:
+// its name and address when it has an address, else its coordinates, else its name and area.
+//   https://www.google.com/maps/dir/?api=1&destination=<…>&travelmode=transit
+export function directionsUrl(p: MapsPlace): string {
+  const name = String(p.name || '').trim()
+  const address = String(p.address || '').trim()
+  const dest = address && !/^https?:\/\//i.test(address) ? [name, address].filter(Boolean).join(', ')
+    : validCoords(p.lat, p.lng) ? `${p.lat},${p.lng}`
+    : [name, String(p.area || '').trim(), 'Japan'].filter(Boolean).join(', ')
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=transit`
+}
+
 export function googleMapsPlaceUrl(p: MapsPlace): string {
   const name = String(p.name || '').trim()
   const address = String(p.address || '').trim()

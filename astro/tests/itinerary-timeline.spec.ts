@@ -2122,9 +2122,9 @@ test.describe('/itinerary on a phone: "🚪 Leave at"', () => {
     await expect(block(page, 'Pinned Visit').locator('.itl-time')).toHaveText('📌 13:00 · until 14:15')
     await expect(block(page, 'Too Late')).toHaveAttribute('data-start', String(t('14:15')))
     // A visit of no length is the smallest block: one line, the warning as ⚠️ (in full in the sheet).
-    await expect(block(page, 'Too Late').locator('.itl-icons .itl-icon')).toHaveAttribute('title', '⚠️ Arrives after your leave time (14:00)')
+    await expect(block(page, 'Too Late').locator('.itl-icons .itl-icon')).toHaveAttribute('title', '⚠️ Leave at is before you arrive (14:00)')
     await block(page, 'Too Late').click()
-    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⚠️ Arrives after your leave time (14:00)')
+    expect(await page.locator('#itl-detail-lines li').allTextContents()).toContain('⚠️ Leave at is before you arrive (14:00) Clear leave at')
     await expect(page.locator('#itl-ed-dur')).toHaveValue('0')
   })
 

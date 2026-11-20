@@ -1,0 +1,295 @@
+{
+ "_about": "The real 5 December 2026 day (production itineraryState, read 20 Nov 2026 07:36 UTC): Krispy Kreme Doughnuts (stop 13) after Don Quijote Ikebukuro (stop 12), with a leave time (18:48) earlier than you can get there — a zero-length visit. shops: the linked places (name, area, coordinates, hours, address).",
+ "day": {
+  "startTime": "07:03",
+  "stops": [
+   {
+    "hours": "09:00–14:30 (kun 5.–6.) · start her",
+    "tag": "kun i dag/i morgen",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSHJP",
+    "dur": 120,
+    "fixedTime": "09:00"
+   },
+   {
+    "hours": "10:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "YWIgmQJfYTHI3k7jIzNvhL",
+    "dur": 15
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "tc4RDa5HMhGDlAky9iFmWi",
+    "dur": 15
+   },
+   {
+    "name": "ONE PIECE mugiwara store Ikebukuro",
+    "hours": "",
+    "tag": "",
+    "slot": "",
+    "shopId": "rnLrxuzfNWxh4ewUYOnZHI",
+    "lat": 35.72941,
+    "lng": 139.71871,
+    "dur": 15
+   },
+   {
+    "hours": "10:00–22:00",
+    "tag": "",
+    "slot": "kveld",
+    "shopId": "xFyq0bx73GHIqIbHY8XYJW",
+    "fixedTime": null
+   },
+   {
+    "name": "SURUGA-YA Ikebukuro Character Goods Store",
+    "hours": "Daily 11:00–20:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "GV68TP79aqSHegy2c3RTWu",
+    "lat": 35.73101,
+    "lng": 139.71515,
+    "dur": 30
+   },
+   {
+    "name": "Lashinbang Ikebukuro Character Palace",
+    "hours": "",
+    "tag": "",
+    "slot": "",
+    "shopId": "YcotQ1OIvxyfhKSk6roRcl",
+    "lat": null,
+    "lng": null,
+    "dur": 45,
+    "fixedTime": null
+   },
+   {
+    "hours": "10:00–21:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "xNwi8tkpeN05j9H7eulCVP",
+    "fixedTime": null
+   },
+   {
+    "name": "BicCamera Ikebukuro Main Store",
+    "hours": "Daily 10:00–22:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "Pf6ZzVs4s1EhdbglxMU54Q",
+    "lat": 35.73173,
+    "lng": 139.71287,
+    "dur": 30
+   },
+   {
+    "hours": "12:00–20:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "oe2xO1065MW4Af28laSG8F",
+    "notBefore": "16:34"
+   },
+   {
+    "hours": "11:00–21:00",
+    "tag": "",
+    "slot": "dagtid",
+    "shopId": "tc4RDa5HMhGDlAky9iGEPU",
+    "dur": 30,
+    "notBefore": "17:20"
+   },
+   {
+    "name": "Don Quijote Ikebukuro Higashiguchi Ekimae",
+    "hours": "Daily 00:00–24:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "umBz4cd92uo0X7gYZepAgL",
+    "lat": 35.72926,
+    "lng": 139.7124,
+    "dur": 30
+   },
+   {
+    "name": "Krispy Kreme Doughnuts Meiji jingumae",
+    "hours": "Daily 10:00–21:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "ZukaqwIK3Yn6VhRIGcamUD",
+    "lat": 35.6744,
+    "lng": 139.69867,
+    "dur": 10,
+    "fixedTime": null,
+    "leaveAt": "18:48"
+   },
+   {
+    "name": "Harry Potter Shop Harajuku",
+    "hours": "Daily 11:00–21:00",
+    "tag": "",
+    "slot": "",
+    "shopId": "ek3ozh0nsndlQANnSooiWR",
+    "lat": 35.6689,
+    "lng": 139.70399,
+    "dur": 30,
+    "travelMin": 15,
+    "travelFrom": "SQUARE ENIX Cafe & Shop SHINJUKU",
+    "fixedTime": null
+   },
+   {
+    "hours": "11:00–21:00",
+    "tag": "Harajuku",
+    "slot": "dagtid",
+    "shopId": "E5WN227Z5PhQ2KtGmCvhWw",
+    "dur": 30,
+    "fixedTime": null
+   }
+  ]
+ },
+ "shops": [
+  {
+   "_id": "oe2xO1065MW4Af28laSHJP",
+   "shopName": "Ōimachi Station Market",
+   "area": "Shinagawa",
+   "latitude": 35.606832,
+   "longitude": 139.73428,
+   "openingHours": "Market 5 / 6 dec 09:00 - 14:30",
+   "placeType": "other",
+   "address": "https://www.google.com/maps/place/%C5%8Cimachi+Station/data=!4m2!3m1!1s0x60188a7c4de3b5d9:0xfc7426b8ddf596e"
+  },
+  {
+   "_id": "YWIgmQJfYTHI3k7jIzNvhL",
+   "shopName": "Donguri Kyowakoku (Ghibli Store) Ikebukuro",
+   "area": "Ikebukuro",
+   "latitude": 35.728862,
+   "longitude": 139.719377,
+   "openingHours": "10:00 - 20:00",
+   "placeType": "shop",
+   "address": "Japan, 〒170-6090 Tokyo, Toshima City, Higashiikebukuro, 3 Chome−1−1 サンシャインシティ 専門店街アルパ B1"
+  },
+  {
+   "_id": "tc4RDa5HMhGDlAky9iFmWi",
+   "shopName": "Gashapon Ikebukuro Main Store",
+   "area": "Ikebukuro",
+   "latitude": 35.728499,
+   "longitude": 139.719797,
+   "openingHours": "10:00 - 21:00",
+   "placeType": "shop",
+   "address": "Japan, 〒170-0013 Tokyo, Toshima City, Higashiikebukuro, 3 Chome−1−3 サンシャインシティワールドインポートマートビル 3F"
+  },
+  {
+   "_id": "rnLrxuzfNWxh4ewUYOnZHI",
+   "shopName": "ONE PIECE mugiwara store Ikebukuro",
+   "area": "Ikebukuro",
+   "latitude": 35.72941,
+   "longitude": 139.71871,
+   "openingHours": "10:00 - 20:00",
+   "placeType": "shop",
+   "address": "Japan, 〒170-0013 Tokyo, Toshima City, Higashiikebukuro, 3 Chome−1−1 サンシャインシティ 専門店街アルパ 2F"
+  },
+  {
+   "_id": "xFyq0bx73GHIqIbHY8XYJW",
+   "shopName": "BOOKOFF Ikebukuro Sunshine 60 tori Store",
+   "area": "Ikebukuro",
+   "latitude": 35.72968,
+   "longitude": 139.71577,
+   "openingHours": "10:00 - 22:00",
+   "placeType": "shop",
+   "address": "Japan, 〒170-0013 Tokyo, Toshima City, Higashiikebukuro, 1 Chome−22−10 ヒューマックスパビリオン"
+  },
+  {
+   "_id": "GV68TP79aqSHegy2c3RTWu",
+   "shopName": "SURUGA-YA Ikebukuro Character Goods Store",
+   "area": "Ikebukuro",
+   "latitude": 35.73101,
+   "longitude": 139.71515,
+   "openingHours": "Daily 11:00–20:00",
+   "placeType": "shop",
+   "address": "〒170-0013 Tokyo, Toshima-ku, Higashi-Ikebukuro 1-15-13, Kindai Building 1F (近代BLD 1F)"
+  },
+  {
+   "_id": "YcotQ1OIvxyfhKSk6roRcl",
+   "shopName": "Lashinbang Ikebukuro Character Palace",
+   "area": "Ikebukuro",
+   "latitude": 35.73092,
+   "longitude": 139.71535,
+   "openingHours": "Mon–Fri 11:00–21:00, Sat–Sun 10:00–21:00",
+   "placeType": "shop",
+   "address": "〒170-0013 東京都豊島区東池袋1-20-6 プラザイン池袋ビル2階"
+  },
+  {
+   "_id": "xNwi8tkpeN05j9H7eulCVP",
+   "shopName": "animate Ikebukuro Flagship Store",
+   "area": "Ikebukuro",
+   "latitude": 35.73114,
+   "longitude": 139.71546,
+   "openingHours": "10:00 - 21:00",
+   "placeType": "shop",
+   "address": "https://www.google.com/maps/place/animate+Ikebukuro+Flagship+Store/data=!4m2!3m1!1s0x60188d6f4361458b:0x503df2e68ddac61a"
+  },
+  {
+   "_id": "Pf6ZzVs4s1EhdbglxMU54Q",
+   "shopName": "BicCamera Ikebukuro Main Store",
+   "area": "Ikebukuro",
+   "latitude": 35.73173,
+   "longitude": 139.71287,
+   "openingHours": "Daily 10:00–22:00",
+   "placeType": "shop",
+   "address": "1-41-5 Higashiikebukuro, Toshima-ku, Tokyo 170-0013, Japan"
+  },
+  {
+   "_id": "oe2xO1065MW4Af28laSG8F",
+   "shopName": "Mandarake Nayuta",
+   "area": "Ikebukuro",
+   "latitude": 35.731606,
+   "longitude": 139.712377,
+   "openingHours": "12:00 - 20:00",
+   "placeType": "shop",
+   "address": "https://www.google.com/maps/place/Mandarake+Nayuta/data=!4m2!3m1!1s0x60188d066ce0c625:0x797ce87f065997de"
+  },
+  {
+   "_id": "tc4RDa5HMhGDlAky9iGEPU",
+   "shopName": "Ikebukuro PARCO",
+   "area": "Ikebukuro",
+   "latitude": 35.730857,
+   "longitude": 139.712384,
+   "openingHours": "11:00 - 21:00",
+   "placeType": "shop",
+   "address": "1 Chome-28-2 Minamiikebukuro, Toshima City, Tokyo 171-8557, Japan"
+  },
+  {
+   "_id": "umBz4cd92uo0X7gYZepAgL",
+   "shopName": "Don Quijote Ikebukuro Higashiguchi Ekimae",
+   "area": "Ikebukuro",
+   "latitude": 35.72926,
+   "longitude": 139.7124,
+   "openingHours": "Daily 00:00–24:00",
+   "placeType": "shop",
+   "address": "〒171-0022 東京都豊島区南池袋1-22-5 (1-22-5 Minami-Ikebukuro, Toshima-ku, Tokyo)"
+  },
+  {
+   "_id": "ZukaqwIK3Yn6VhRIGcamUD",
+   "shopName": "Krispy Kreme Doughnuts Meiji jingumae",
+   "area": "Harajuku",
+   "latitude": 35.66966,
+   "longitude": 139.70305,
+   "openingHours": "Daily 10:00–21:00",
+   "placeType": "shop",
+   "address": "東京都渋谷区神宮前1-18-22 千代田線 明治神宮前駅 B1F (Meiji-jingumae Metropia, Shibuya City, Tokyo)"
+  },
+  {
+   "_id": "ek3ozh0nsndlQANnSooiWR",
+   "shopName": "Harry Potter Shop Harajuku",
+   "area": "Harajuku",
+   "latitude": 35.6689,
+   "longitude": 139.70399,
+   "openingHours": "Daily 11:00–21:00",
+   "placeType": "shop",
+   "address": "6 Chome-31-17 Jingumae, Shibuya, Tokyo 150-0001, Japan"
+  },
+  {
+   "_id": "E5WN227Z5PhQ2KtGmCvhWw",
+   "shopName": "ONE PIECE MUGIWARA STORE HARAJUKU",
+   "area": "Harajuku",
+   "latitude": 35.668369,
+   "longitude": 139.704914,
+   "openingHours": "11:00 - 21:00",
+   "placeType": "shop",
+   "address": "Japan, 〒150-0001 Tokyo, Shibuya, Jingumae, 6 Chome−31−21 東急プラザ原宿「ハラカド」 G階"
+  }
+ ]
+}
